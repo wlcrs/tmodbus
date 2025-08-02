@@ -1,0 +1,21 @@
+name: CI
+
+on: [push, pull_request]
+
+jobs:
+  test:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@main
+
+      - name: Set up Python
+        uses: actions/setup-python@main
+        with:
+          python-version: "3.12"
+
+      - name: Install package and other dependencies
+        run: |
+          pip install ".[tests]" pytest-md pytest-emoji
+
+      - name: Run pytest
+        uses: pavelzw/pytest-action@v2.2.0
