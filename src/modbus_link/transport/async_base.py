@@ -78,7 +78,7 @@ class AsyncBaseTransport(ABC):
         await self.open()
         return self
 
-    async def __exit__(
+    async def __aexit__(
         self,
         exc_type: type[BaseException] | None,
         exc_val: BaseException | None,

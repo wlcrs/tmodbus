@@ -40,3 +40,4 @@ select = ["ALL"]
 
 [tool.pytest.ini_options]
 addopts = "--cov=modbus_link"
+asyncio_mode = "auto"
