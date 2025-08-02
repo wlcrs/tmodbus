@@ -1,0 +1,42 @@
+[project]
+name = "modbus_link"
+version = "0.1.0"
+description = "A modern, strongly typed Modbus client library."
+readme = "README.md"
+requires-python = ">=3.12"
+keywords = ["modbus", "modbus-tcp", "modbus-rtu"]
+dependencies = [
+    "pyserial-asyncio>=0.6.0",
+]
+
+[project.optional-dependencies]
+tests = [
+    "pytest>=8.4.1",
+    "pytest-asyncio>=1.1.0",
+    "pytest-cov>=6.2.1",
+]
+
+[build-system]
+requires = ["uv_build>=0.8.4,<0.9.0"]
+build-backend = "uv_build"
+
+
+[tool.ruff]
+line-length = 120
+
+[tool.ruff.lint]
+ignore = [
+  "ANN401", # Opinioated warning on disallowing dynamically typed expressions
+  "D203", # Conflicts with other rules
+  "D213", # Conflicts with other rules
+  "D417", # False positives in some occasions
+  "PLR2004", # Just annoying, not really useful
+
+  # Conflicts with the Ruff formatter
+  "COM812",
+  "ISC001",
+]
+select = ["ALL"]
+
+[tool.pytest.ini_options]
+addopts = "--cov=modbus_link"
