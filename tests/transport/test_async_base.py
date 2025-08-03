@@ -11,7 +11,7 @@ DUMMY_RESPONSE = "dummy_response"
 class DummyAsyncTransport(AsyncBaseTransport):
     """A dummy async transport for testing purposes."""
 
-    def __init__(self):
+    def __init__(self) -> None:
         """Initialize the dummy transport."""
         self.performed_actions = []
         self.opened = False
@@ -26,7 +26,7 @@ class DummyAsyncTransport(AsyncBaseTransport):
         self.performed_actions.append("close")
         self.opened = False
 
-    async def is_open(self) -> bool:
+    def is_open(self) -> bool:
         """Check if the transport connection is open."""
         self.performed_actions.append("is_open")
         return self.opened
@@ -40,12 +40,11 @@ class DummyAsyncTransport(AsyncBaseTransport):
 
 async def test_async_base_transport_context_manager():
     """Test that AsyncBaseTransport can be used as a context manager."""
-
     transport = DummyAsyncTransport()
 
     async with transport:
-        assert await transport.is_open()
+        assert transport.is_open()
         assert "open" in transport.performed_actions
 
-    assert not await transport.is_open()
+    assert not transport.is_open()
     assert "close" in transport.performed_actions

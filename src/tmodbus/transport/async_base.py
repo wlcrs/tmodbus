@@ -41,7 +41,7 @@ class AsyncBaseTransport(ABC):
         """
 
     @abstractmethod
-    async def is_open(self) -> bool:
+    def is_open(self) -> bool:
         """Check Connection Status.
 
         Returns:

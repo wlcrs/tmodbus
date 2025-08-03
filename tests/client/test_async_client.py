@@ -14,7 +14,7 @@ DUMMY_RESPONSE = "dummy_response"
 class DummyAsyncTransport(AsyncBaseTransport):
     """A dummy async transport for testing purposes."""
 
-    def __init__(self):
+    def __init__(self) -> None:
         """Initialize the dummy transport."""
         self.performed_actions = []
         self.opened = False
@@ -29,7 +29,7 @@ class DummyAsyncTransport(AsyncBaseTransport):
         self.performed_actions.append("close")
         self.opened = False
 
-    async def is_open(self) -> bool:
+    def is_open(self) -> bool:
         """Check if the transport connection is open."""
         self.performed_actions.append("is_open")
         return self.opened
@@ -37,30 +37,30 @@ class DummyAsyncTransport(AsyncBaseTransport):
     async def send_and_receive(self, unit_id: int, pdu: BaseModbusPDU[RT]) -> RT:
         """Send a PDU and receive a response."""
         self.performed_actions.append(["send_and_receive", unit_id, type(pdu).__name__])
-        # For testing, just return None
+        # For testing, just return a fixed dummy response
         return DUMMY_RESPONSE  # type: ignore[report-return-type]
 
 
-@pytest.fixture(scope="function")
+@pytest.fixture
 def dummy_client() -> AsyncModbusClient:
     """Create a dummy async Modbus client."""
     transport = DummyAsyncTransport()
     return AsyncModbusClient(transport)
 
 
-async def test_async_modbus_client_open_close(dummy_client):
+async def test_async_modbus_client_open_close(dummy_client: AsyncModbusClient):
     """Test opening and closing the transport connection."""
     # Initially, the transport should not be open
-    assert not await dummy_client.transport.is_open()
+    assert not dummy_client.transport.is_open()
 
     # Open the transport connection
     await dummy_client.transport.open()
-    assert await dummy_client.transport.is_open()
+    assert dummy_client.transport.is_open()
     assert "open" in dummy_client.transport.performed_actions
 
     # Close the transport connection
     await dummy_client.transport.close()
-    assert not await dummy_client.transport.is_open()
+    assert not dummy_client.transport.is_open()
     assert "close" in dummy_client.transport.performed_actions
 
 
@@ -72,9 +72,8 @@ def test_async_modbus_client_initialization():
     assert isinstance(client.transport, AsyncBaseTransport)
 
 
-async def test_async_modbus_client_execute(dummy_client):
+async def test_async_modbus_client_execute(dummy_client: AsyncModbusClient):
     """Test the execute method of AsyncModbusClient."""
-
     unit_id = 1
     pdu = ReadCoilsPDU(start_address=0, quantity=8)
 
@@ -86,9 +85,8 @@ async def test_async_modbus_client_execute(dummy_client):
     assert response == DUMMY_RESPONSE  # The dummy transport returns DUMMY_RESPONSE
 
 
-async def test_async_modbus_client_read_coils(dummy_client):
+async def test_async_modbus_client_read_coils(dummy_client: AsyncModbusClient):
     """Test the read_coils method of AsyncModbusClient."""
-
     unit_id = 1
     start_address = 0
     quantity = 8
@@ -101,9 +99,8 @@ async def test_async_modbus_client_read_coils(dummy_client):
     assert response == DUMMY_RESPONSE  # The dummy transport returns DUMMY_RESPONSE
 
 
-async def test_async_modbus_client_read_discrete_inputs(dummy_client):
+async def test_async_modbus_client_read_discrete_inputs(dummy_client: AsyncModbusClient):
     """Test the read_discrete_inputs method of AsyncModbusClient."""
-
     unit_id = 1
     start_address = 0
     quantity = 8
@@ -116,9 +113,8 @@ async def test_async_modbus_client_read_discrete_inputs(dummy_client):
     assert response == DUMMY_RESPONSE  # The dummy transport returns DUMMY_RESPONSE
 
 
-async def test_async_modbus_client_read_holding_registers(dummy_client):
+async def test_async_modbus_client_read_holding_registers(dummy_client: AsyncModbusClient):
     """Test the read_holding_registers method of AsyncModbusClient."""
-
     unit_id = 1
     start_address = 0
     quantity = 8
@@ -131,9 +127,8 @@ async def test_async_modbus_client_read_holding_registers(dummy_client):
     assert response == DUMMY_RESPONSE  # The dummy transport returns DUMMY_RESPONSE
 
 
-async def test_async_modbus_client_read_input_registers(dummy_client):
+async def test_async_modbus_client_read_input_registers(dummy_client: AsyncModbusClient):
     """Test the read_input_registers method of AsyncModbusClient."""
-
     unit_id = 1
     start_address = 0
     quantity = 8
@@ -146,9 +141,8 @@ async def test_async_modbus_client_read_input_registers(dummy_client):
     assert response == DUMMY_RESPONSE  # The dummy transport returns DUMMY_RESPONSE
 
 
-async def test_async_modbus_client_write_single_coil(dummy_client):
+async def test_async_modbus_client_write_single_coil(dummy_client: AsyncModbusClient):
     """Test the write_single_coil method of AsyncModbusClient."""
-
     unit_id = 1
     address = 0
     value = True
@@ -161,9 +155,8 @@ async def test_async_modbus_client_write_single_coil(dummy_client):
     assert response == DUMMY_RESPONSE  # The dummy transport returns DUMMY_RESPONSE
 
 
-async def test_async_modbus_client_write_multiple_coils(dummy_client):
+async def test_async_modbus_client_write_multiple_coils(dummy_client: AsyncModbusClient):
     """Test the write_multiple_coils method of AsyncModbusClient."""
-
     unit_id = 1
     start_address = 0
     values = [True, False, True, False]
@@ -176,9 +169,8 @@ async def test_async_modbus_client_write_multiple_coils(dummy_client):
     assert response == DUMMY_RESPONSE  # The dummy transport returns DUMMY_RESPONSE
 
 
-async def test_async_modbus_client_write_single_register(dummy_client):
+async def test_async_modbus_client_write_single_register(dummy_client: AsyncModbusClient):
     """Test the write_single_register method of AsyncModbusClient."""
-
     unit_id = 1
     address = 0
     value = 1234
@@ -191,9 +183,8 @@ async def test_async_modbus_client_write_single_register(dummy_client):
     assert response == DUMMY_RESPONSE  # The dummy transport returns DUMMY_RESPONSE
 
 
-async def test_async_modbus_client_write_multiple_registers(dummy_client):
+async def test_async_modbus_client_write_multiple_registers(dummy_client: AsyncModbusClient):
     """Test the write_multiple_registers method of AsyncModbusClient."""
-
     unit_id = 1
     start_address = 0
     values = [1234, 5678, 123]
@@ -206,13 +197,13 @@ async def test_async_modbus_client_write_multiple_registers(dummy_client):
     assert response == DUMMY_RESPONSE  # The dummy transport returns DUMMY_RESPONSE
 
 
-async def test_async_modbus_client_context_manager(dummy_client):
+async def test_async_modbus_client_context_manager(dummy_client: AsyncModbusClient):
     """Test the async context manager functionality of AsyncModbusClient."""
-    assert not await dummy_client.transport.is_open()
+    assert not dummy_client.transport.is_open()
 
     async with dummy_client as client:
-        assert await client.transport.is_open()
+        assert client.transport.is_open()
         assert "open" in client.transport.performed_actions
 
-    assert not await client.transport.is_open()
+    assert not client.transport.is_open()
     assert "close" in client.transport.performed_actions

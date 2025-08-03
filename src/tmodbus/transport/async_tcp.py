@@ -66,7 +66,7 @@ class AsyncTcpTransport(AsyncBaseTransport):
     async def open(self) -> None:
         """Async establish TCP connection."""
         async with self._communication_lock:
-            if await self.is_open():
+            if self.is_open():
                 logger.debug("Async TCP connection already open: %s:%d", self.host, self.port)
                 return
 
@@ -99,7 +99,7 @@ class AsyncTcpTransport(AsyncBaseTransport):
                 self._reader = None
                 self._writer = None
 
-    async def is_open(self) -> bool:
+    def is_open(self) -> bool:
         """Async check TCP connection status."""
         if self._writer is None or self._reader is None:
             return False
@@ -124,7 +124,7 @@ class AsyncTcpTransport(AsyncBaseTransport):
         6. Return response PDU
         """
         async with self._communication_lock:
-            if not await self.is_open():
+            if not self.is_open():
                 msg = "Not connected."
                 raise ModbusConnectionError(msg)
 

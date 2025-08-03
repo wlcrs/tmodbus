@@ -85,30 +85,6 @@ wheels = [
 ]
 
 [[package]]
-name = "modbus-link"
-version = "0.1.0"
-source = { editable = "." }
-dependencies = [
-    { name = "pyserial-asyncio" },
-]
-
-[package.optional-dependencies]
-tests = [
-    { name = "pytest" },
-    { name = "pytest-asyncio" },
-    { name = "pytest-cov" },
-]
-
-[package.metadata]
-requires-dist = [
-    { name = "pyserial-asyncio", specifier = ">=0.6.0" },
-    { name = "pytest", marker = "extra == 'tests'", specifier = ">=8.4.1" },
-    { name = "pytest-asyncio", marker = "extra == 'tests'", specifier = ">=1.1.0" },
-    { name = "pytest-cov", marker = "extra == 'tests'", specifier = ">=6.2.1" },
-]
-provides-extras = ["tests"]
-
-[[package]]
 name = "packaging"
 version = "25.0"
 source = { registry = "https://pypi.org/simple" }
@@ -197,3 +173,27 @@ sdist = { url = "https://files.pythonhosted.org/packages/18/99/668cade231f434aaa
 wheels = [
     { url = "https://files.pythonhosted.org/packages/bc/16/4ea354101abb1287856baa4af2732be351c7bee728065aed451b678153fd/pytest_cov-6.2.1-py3-none-any.whl", hash = "sha256:f5bc4c23f42f1cdd23c70b1dab1bbaef4fc505ba950d53e0081d0730dd7e86d5", size = 24644, upload-time = "2025-06-12T10:47:45.932Z" },
 ]
+
+[[package]]
+name = "tmodbus"
+version = "0.1.0"
+source = { editable = "." }
+dependencies = [
+    { name = "pyserial-asyncio" },
+]
+
+[package.optional-dependencies]
+tests = [
+    { name = "pytest" },
+    { name = "pytest-asyncio" },
+    { name = "pytest-cov" },
+]
+
+[package.metadata]
+requires-dist = [
+    { name = "pyserial-asyncio", specifier = ">=0.6.0" },
+    { name = "pytest", marker = "extra == 'tests'", specifier = ">=8.4.1" },
+    { name = "pytest-asyncio", marker = "extra == 'tests'", specifier = ">=1.1.0" },
+    { name = "pytest-cov", marker = "extra == 'tests'", specifier = ">=6.2.1" },
+]
+provides-extras = ["tests"]

@@ -1,15 +1,11 @@
 """Read Coils PDU Module."""
 
 import struct
-from typing import TYPE_CHECKING
 
 from tmodbus.const import FunctionCode
 from tmodbus.exceptions import InvalidResponseError
 
 from .base import BaseModbusPDU
-
-if TYPE_CHECKING:
-    from tmodbus.types import Address
 
 
 class ReadHoldingRegistersPDU(BaseModbusPDU):
@@ -17,7 +13,7 @@ class ReadHoldingRegistersPDU(BaseModbusPDU):
 
     function_code = FunctionCode.READ_HOLDING_REGISTERS
 
-    def __init__(self, start_address: "Address", quantity: int) -> None:
+    def __init__(self, start_address: int, quantity: int) -> None:
         """Initialize Read Coils PDU.
 
         Args:
@@ -95,7 +91,7 @@ class WriteSingleRegisterPDU(BaseModbusPDU):
 
     function_code = FunctionCode.WRITE_SINGLE_REGISTER
 
-    def __init__(self, address: "Address", value: int) -> None:
+    def __init__(self, address: int, value: int) -> None:
         """Initialize Write Single Register PDU.
 
         Args:
@@ -144,7 +140,7 @@ class WriteMultipleRegistersPDU(BaseModbusPDU):
 
     function_code = FunctionCode.WRITE_MULTIPLE_REGISTERS
 
-    def __init__(self, start_address: "Address", values: list[int]) -> None:
+    def __init__(self, start_address: int, values: list[int]) -> None:
         """Initialize Write Multiple Registers PDU.
 
         Args:

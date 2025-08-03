@@ -55,7 +55,6 @@ def test_read_coils_invalid_response():
 
 def test_write_single_coil_pdu():
     """Test Write Single Coil PDU."""
-
     pdu = WriteSingleCoilPDU(address=1, value=True)
     assert pdu.encode_request() == bytearray.fromhex("05 00 01 FF 00")
 
@@ -94,7 +93,7 @@ def test_write_multiple_coils_validation():
 
 
 @pytest.mark.parametrize(
-    "start_address, values, expected_bytes",
+    ("start_address", "values", "expected_bytes"),
     [
         (10, [True, False, True], bytearray.fromhex("0F 00 0A 00 03 01 05")),
         (12345, [False] * 16, bytearray.fromhex("0F 30 39 00 10 02 00 00")),
@@ -103,14 +102,14 @@ def test_write_multiple_coils_validation():
         (1, [True], bytearray.fromhex("0F 00 01 00 01 01 01")),
     ],
 )
-def test_write_multiple_coils_encode_request(start_address, values, expected_bytes):
+def test_write_multiple_coils_encode_request(start_address: int, values: list[bool], expected_bytes: bytearray):
     """Test encoding of Write Multiple Coils PDU."""
     pdu = WriteMultipleCoilsPDU(start_address=start_address, values=values)
     assert pdu.encode_request() == expected_bytes
 
 
 @pytest.mark.parametrize(
-    "response, address, value_count",
+    ("response", "address", "value_count"),
     [
         (bytearray.fromhex("0F 00 0A 00 07"), 10, 7),
         (bytearray.fromhex("0F 30 39 00 10"), 12345, 16),
@@ -119,7 +118,7 @@ def test_write_multiple_coils_encode_request(start_address, values, expected_byt
         (bytearray.fromhex("0F 00 01 00 01"), 1, 1),
     ],
 )
-def test_write_multiple_coils_decode_response(response, address, value_count):
+def test_write_multiple_coils_decode_response(response: bytearray, address: int, value_count: int):
     """Test decoding of Write Multiple Coils PDU."""
     pdu = WriteMultipleCoilsPDU(start_address=address, values=[True] * value_count)
     assert pdu.decode_response(response) is None

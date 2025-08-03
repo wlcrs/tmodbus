@@ -90,7 +90,7 @@ class AsyncRtuTransport(AsyncBaseTransport):
     async def open(self) -> None:
         """Establish Serial connection."""
         async with self._communication_lock:
-            if await self.is_open():
+            if self.is_open():
                 logger.debug("Serial connection already open: %s", self.port)
                 return
 
@@ -127,8 +127,8 @@ class AsyncRtuTransport(AsyncBaseTransport):
                 self._reader = None
                 self._writer = None
 
-    async def is_open(self) -> bool:
-        """Async check TCP connection status."""
+    def is_open(self) -> bool:
+        """Check Serial connection status."""
         if self._writer is None or self._reader is None:
             return False
 
@@ -145,7 +145,7 @@ class AsyncRtuTransport(AsyncBaseTransport):
         5. Return response PDU
         """
         async with self._communication_lock:
-            if not await self.is_open():
+            if not self.is_open():
                 msg = "Not connected."
                 raise ModbusConnectionError(msg)
 

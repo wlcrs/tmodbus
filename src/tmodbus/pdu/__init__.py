@@ -35,6 +35,7 @@ def get_pdu_class(function_code: FunctionCode | int) -> type[BaseModbusPDU]:
 
     Raises:
         ValueError: If function code is not supported
+
     """
     if isinstance(function_code, int):
         try:

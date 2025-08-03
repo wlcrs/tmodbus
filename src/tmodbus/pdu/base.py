@@ -1,10 +1,7 @@
 """Base class for Modbus PDU (Protocol Data Unit) handling."""
 
 from abc import ABC, abstractmethod
-from typing import TYPE_CHECKING, TypeVar
-
-if TYPE_CHECKING:
-    from tmodbus.types import Address
+from typing import TypeVar
 
 RT = TypeVar("RT")
 
@@ -15,7 +12,7 @@ class BaseModbusPDU[RT](ABC):
     function_code: int
     rtu_response_data_length: int | None = None
 
-    def __init__(self, address: "Address") -> None:
+    def __init__(self, address: int) -> None:
         """Initialize PDU with address.
 
         Args:

@@ -1,12 +1,11 @@
 import pytest
 
+from tmodbus.const import FunctionCode
 from tmodbus.pdu import get_pdu_class
 
 
 def test_get_pdu_class():
     """Test getting PDU class by function code."""
-    from tmodbus.const import FunctionCode
-
     # Test valid function code
     pdu_class = get_pdu_class(FunctionCode.READ_HOLDING_REGISTERS)
     assert pdu_class.__name__ == "ReadHoldingRegistersPDU"

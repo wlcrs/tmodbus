@@ -4,7 +4,7 @@ Provides user-friendly asynchronous Modbus client API.
 """
 
 from types import TracebackType
-from typing import TYPE_CHECKING, Self, TypeVar
+from typing import Self, TypeVar
 
 from tmodbus.pdu import (
     BaseModbusPDU,
@@ -18,9 +18,6 @@ from tmodbus.pdu import (
     WriteSingleRegisterPDU,
 )
 from tmodbus.transport.async_base import AsyncBaseTransport
-
-if TYPE_CHECKING:
-    from tmodbus.types import Address, UnitId
 
 RT = TypeVar("RT")
 
@@ -63,10 +60,10 @@ class AsyncModbusClient:
 
     async def read_coils(
         self,
-        start_address: "Address",
+        start_address: int,
         quantity: int,
         *,
-        unit_id: "UnitId",
+        unit_id: int,
     ) -> list[bool]:
         """Read Coil Status (Function Code 0x01).
 
@@ -87,10 +84,10 @@ class AsyncModbusClient:
 
     async def read_discrete_inputs(
         self,
-        start_address: "Address",
+        start_address: int,
         quantity: int,
         *,
-        unit_id: "UnitId",
+        unit_id: int,
     ) -> list[bool]:
         """Read Discrete Inputs (Function Code 0x02).
 
@@ -111,10 +108,10 @@ class AsyncModbusClient:
 
     async def read_holding_registers(
         self,
-        start_address: "Address",
+        start_address: int,
         quantity: int,
         *,
-        unit_id: "UnitId",
+        unit_id: int,
     ) -> list[int]:
         """Read Holding Registers (Function Code 0x03).
 
@@ -135,10 +132,10 @@ class AsyncModbusClient:
 
     async def read_input_registers(
         self,
-        start_address: "Address",
+        start_address: int,
         quantity: int,
         *,
-        unit_id: "UnitId",
+        unit_id: int,
     ) -> list[int]:
         """Read Input Registers (Function Code 0x04).
 
@@ -159,10 +156,10 @@ class AsyncModbusClient:
 
     async def write_single_coil(
         self,
-        address: "Address",
+        address: int,
         value: bool,  # noqa: FBT001
         *,
-        unit_id: "UnitId",
+        unit_id: int,
     ) -> None:
         """Write Single Coil (Function Code 0x05).
 
@@ -179,10 +176,10 @@ class AsyncModbusClient:
 
     async def write_single_register(
         self,
-        address: "Address",
+        address: int,
         value: int,
         *,
-        unit_id: "UnitId",
+        unit_id: int,
     ) -> None:
         """Write Single Register (Function Code 0x06).
 
@@ -198,10 +195,10 @@ class AsyncModbusClient:
 
     async def write_multiple_coils(
         self,
-        start_address: "Address",
+        start_address: int,
         values: list[bool],
         *,
-        unit_id: "UnitId",
+        unit_id: int,
     ) -> None:
         """Write Multiple Coils (Function Code 0x0F).
 
@@ -218,10 +215,10 @@ class AsyncModbusClient:
 
     async def write_multiple_registers(
         self,
-        start_address: "Address",
+        start_address: int,
         values: list[int],
         *,
-        unit_id: "UnitId",
+        unit_id: int,
     ) -> None:
         """Write Multiple Registers (Function Code 0x10).
 

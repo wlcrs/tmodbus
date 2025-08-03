@@ -1,4 +1,3 @@
-import pytest
 
 from tmodbus.pdu import BaseModbusPDU
 
