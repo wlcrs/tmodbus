@@ -6,7 +6,7 @@ Implements async Modbus TCP protocol transport based on asyncio, including MBAP 
 import asyncio
 import logging
 import struct
-from typing import TypeVar
+from typing import Any, TypeVar
 
 from tmodbus.exceptions import (
     InvalidResponseError,
@@ -15,6 +15,7 @@ from tmodbus.exceptions import (
     error_code_to_exception_map,
 )
 from tmodbus.pdu import BaseModbusPDU
+from tmodbus.transport import _format_bytes, raw_traffic_logger
 
 from .async_base import AsyncBaseTransport
 
@@ -39,13 +40,21 @@ class AsyncTcpTransport(AsyncBaseTransport):
 
     _communication_lock = asyncio.Lock()  # Prevents concurrent access to the transport layer
 
-    def __init__(self, host: str, port: int = 502, *, timeout: float = 10.0) -> None:
+    def __init__(
+        self,
+        host: str,
+        port: int = 502,
+        *,
+        timeout: float = 10.0,
+        **connection_kwargs: Any,
+    ) -> None:
         """Initialize async TCP transport layer.
 
         Args:
             host: Target host IP address or domain name
             port: Target port, default 502 (Modbus TCP standard port)
             timeout: Timeout in seconds, default 10.0 seconds
+            connection_kwargs: Additional connection parameters passed to `asyncio.open_connection` (e.g., SSL context)
 
         Raises:
             ValueError: When parameters are invalid
@@ -62,6 +71,7 @@ class AsyncTcpTransport(AsyncBaseTransport):
         self.host = host
         self.port = port
         self.timeout = timeout
+        self.connection_kwargs = connection_kwargs
 
     async def open(self) -> None:
         """Async establish TCP connection."""
@@ -72,7 +82,7 @@ class AsyncTcpTransport(AsyncBaseTransport):
 
             try:
                 self._reader, self._writer = await asyncio.wait_for(
-                    asyncio.open_connection(self.host, self.port), timeout=self.timeout
+                    asyncio.open_connection(self.host, self.port, **self.connection_kwargs), timeout=self.timeout
                 )
 
                 logger.info("Async TCP connection established: %s:%d", self.host, self.port)
@@ -148,7 +158,7 @@ class AsyncTcpTransport(AsyncBaseTransport):
 
             # 2. Build complete request frame
             request_frame = mbap_header + request_pdu_bytes
-            logger.debug("Async TCP Send: %s", request_frame.hex(" ").upper())
+            raw_traffic_logger.debug("TCP Send: %s", _format_bytes(request_frame))
 
             # 3. Async send request
             if self._writer is None:
@@ -192,11 +202,11 @@ class AsyncTcpTransport(AsyncBaseTransport):
 
             response_pdu_bytes = await self._receive_exact(pdu_length)
 
-            logger.debug("Async TCP Receive: %s", (response_mbap + response_pdu_bytes).hex(" ").upper())
+            raw_traffic_logger.debug("TCP Receive: %s", _format_bytes(response_mbap + response_pdu_bytes))
 
             # 8.Check if it's an exception response
             if len(response_pdu_bytes) > 0 and response_pdu_bytes[0] & 0x80:  # Exception response
-                function_code = response_pdu_bytes[0] & 0x7F  # 去除异常标志位 | Remove exception flag bit
+                function_code = response_pdu_bytes[0] & 0x7F  # Remove exception flag bit
                 exception_code = response_pdu_bytes[1] if len(response_pdu_bytes) > 1 else 0
 
                 error_class = error_code_to_exception_map.get(exception_code, ModbusResponseError)

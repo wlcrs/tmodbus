@@ -19,6 +19,7 @@ from tmodbus.exceptions import (
 from tmodbus.pdu import BaseModbusPDU, get_pdu_class
 from tmodbus.utils.crc import CRC16Modbus
 
+from . import _format_bytes, raw_traffic_logger
 from .async_base import AsyncBaseTransport
 
 logger = logging.getLogger(__name__)
@@ -155,7 +156,7 @@ class AsyncRtuTransport(AsyncBaseTransport):
             crc = CRC16Modbus.calculate(frame_prefix)
             request_adu = frame_prefix + crc
 
-            logger.debug("RTU Send: %s", request_adu.hex(" ").upper())
+            raw_traffic_logger.debug("RTU Send: %s", _format_bytes(request_adu))
 
             # 2. Clear receive buffer and send request
             if not self._writer:
@@ -167,7 +168,7 @@ class AsyncRtuTransport(AsyncBaseTransport):
             # 3. Receive response
             response_adu = await self._receive_response()
 
-            logger.debug("RTU Receive: %s", response_adu.hex(" ").upper())
+            raw_traffic_logger.debug("RTU Receive: %s", _format_bytes(response_adu))
 
             # 4. Validate CRC
             if not CRC16Modbus.validate(response_adu):
