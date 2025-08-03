@@ -1,6 +1,6 @@
 """Read Coils PDU Module."""
 
-from modbus_link.const import FunctionCode
+from tmodbus.const import FunctionCode
 
 from .coils import ReadCoilsPDU
 

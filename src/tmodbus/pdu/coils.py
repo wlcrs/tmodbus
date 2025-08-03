@@ -3,13 +3,13 @@
 import struct
 from typing import TYPE_CHECKING
 
-from modbus_link.const import FunctionCode
-from modbus_link.exceptions import InvalidResponseError
+from tmodbus.const import FunctionCode
+from tmodbus.exceptions import InvalidResponseError
 
 from .base import BaseModbusPDU
 
 if TYPE_CHECKING:
-    from modbus_link.types import Address
+    from tmodbus.types import Address
 
 
 class ReadCoilsPDU(BaseModbusPDU):

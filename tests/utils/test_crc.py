@@ -1,4 +1,4 @@
-from modbus_link.utils.crc import CRC16Modbus
+from tmodbus.utils.crc import CRC16Modbus
 
 
 def test_calculate_crc():

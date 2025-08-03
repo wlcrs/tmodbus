@@ -7,7 +7,7 @@ from abc import ABC, abstractmethod
 from types import TracebackType
 from typing import Self, TypeVar
 
-from modbus_link.pdu import BaseModbusPDU
+from tmodbus.pdu import BaseModbusPDU
 
 RT = TypeVar("RT")
 

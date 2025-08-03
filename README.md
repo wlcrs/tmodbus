@@ -1,13 +1,13 @@
-# modbus-link
+# tModbus
 
-A modern Python Modbus library that is fully typed.
+A modern Python Modbus library that is fully **t**yped and well-**t**ested.
 
 Modbus is based on the [_master/slave_](https://en.wikipedia.org/wiki/Master%E2%80%93slave_(technology)) communication pattern. 
 We choose to use the terminology _client_ and _server_ instead, as it is more clear.
 
 ## Features
 
-- Pure Python library
+- Pure Python library with minimal dependencies
 - Fully typed
 - Support for both Modbus TCP and RTU clients
 - Open source (BSD)

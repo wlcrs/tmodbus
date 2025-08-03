@@ -1,7 +1,7 @@
 import pytest
 
-from modbus_link.exceptions import InvalidResponseError
-from modbus_link.pdu import ReadHoldingRegistersPDU, WriteMultipleRegistersPDU, WriteSingleRegisterPDU
+from tmodbus.exceptions import InvalidResponseError
+from tmodbus.pdu import ReadHoldingRegistersPDU, WriteMultipleRegistersPDU, WriteSingleRegisterPDU
 
 
 def test_read_holding_registers_quantity_validation():

@@ -6,7 +6,7 @@ Provides user-friendly asynchronous Modbus client API.
 from types import TracebackType
 from typing import TYPE_CHECKING, Self, TypeVar
 
-from modbus_link.pdu import (
+from tmodbus.pdu import (
     BaseModbusPDU,
     ReadCoilsPDU,
     ReadDiscreteInputsPDU,
@@ -17,10 +17,10 @@ from modbus_link.pdu import (
     WriteSingleCoilPDU,
     WriteSingleRegisterPDU,
 )
-from modbus_link.transport.async_base import AsyncBaseTransport
+from tmodbus.transport.async_base import AsyncBaseTransport
 
 if TYPE_CHECKING:
-    from modbus_link.types import Address, UnitId
+    from tmodbus.types import Address, UnitId
 
 RT = TypeVar("RT")
 

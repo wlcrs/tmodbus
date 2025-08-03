@@ -4,7 +4,7 @@ from abc import ABC, abstractmethod
 from typing import TYPE_CHECKING, TypeVar
 
 if TYPE_CHECKING:
-    from modbus_link.types import Address
+    from tmodbus.types import Address
 
 RT = TypeVar("RT")
 

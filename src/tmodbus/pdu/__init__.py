@@ -1,6 +1,6 @@
 """Modbus Protocol Data Unit (PDU)."""
 
-from modbus_link.const import FunctionCode
+from tmodbus.const import FunctionCode
 
 from .base import BaseModbusPDU
 from .coils import ReadCoilsPDU, WriteMultipleCoilsPDU, WriteSingleCoilPDU

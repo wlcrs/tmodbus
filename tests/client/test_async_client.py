@@ -2,9 +2,9 @@ from typing import TypeVar
 
 import pytest
 
-from modbus_link.client.async_client import AsyncModbusClient
-from modbus_link.pdu import BaseModbusPDU, ReadCoilsPDU
-from modbus_link.transport.async_base import AsyncBaseTransport
+from tmodbus.client.async_client import AsyncModbusClient
+from tmodbus.pdu import BaseModbusPDU, ReadCoilsPDU
+from tmodbus.transport.async_base import AsyncBaseTransport
 
 RT = TypeVar("RT")
 

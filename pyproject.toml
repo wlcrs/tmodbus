@@ -1,5 +1,5 @@
 [project]
-name = "modbus_link"
+name = "tmodbus"
 version = "0.1.0"
 description = "A modern, strongly typed Modbus client library."
 readme = "README.md"

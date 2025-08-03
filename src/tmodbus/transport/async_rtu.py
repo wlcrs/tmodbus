@@ -9,15 +9,15 @@ from typing import TypedDict, TypeVar, Unpack
 
 import serial_asyncio
 
-from modbus_link.exceptions import (
+from tmodbus.exceptions import (
     CRCError,
     InvalidResponseError,
     ModbusConnectionError,
     ModbusResponseError,
     error_code_to_exception_map,
 )
-from modbus_link.pdu import BaseModbusPDU, get_pdu_class
-from modbus_link.utils.crc import CRC16Modbus
+from tmodbus.pdu import BaseModbusPDU, get_pdu_class
+from tmodbus.utils.crc import CRC16Modbus
 
 from .async_base import AsyncBaseTransport
 

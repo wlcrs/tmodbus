@@ -1,6 +1,6 @@
 import pytest
 
-from modbus_link.exceptions import ModbusResponseError
+from tmodbus.exceptions import ModbusResponseError
 
 
 def test_modbus_response_error():

@@ -1,11 +1,11 @@
 import pytest
 
-from modbus_link.pdu import get_pdu_class
+from tmodbus.pdu import get_pdu_class
 
 
 def test_get_pdu_class():
     """Test getting PDU class by function code."""
-    from modbus_link.const import FunctionCode
+    from tmodbus.const import FunctionCode
 
     # Test valid function code
     pdu_class = get_pdu_class(FunctionCode.READ_HOLDING_REGISTERS)

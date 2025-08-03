@@ -8,13 +8,13 @@ import logging
 import struct
 from typing import TypeVar
 
-from modbus_link.exceptions import (
+from tmodbus.exceptions import (
     InvalidResponseError,
     ModbusConnectionError,
     ModbusResponseError,
     error_code_to_exception_map,
 )
-from modbus_link.pdu import BaseModbusPDU
+from tmodbus.pdu import BaseModbusPDU
 
 from .async_base import AsyncBaseTransport
 

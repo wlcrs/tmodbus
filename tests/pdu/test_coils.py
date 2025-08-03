@@ -2,8 +2,8 @@ import struct
 
 import pytest
 
-from modbus_link.exceptions import InvalidResponseError
-from modbus_link.pdu import ReadCoilsPDU, WriteMultipleCoilsPDU, WriteSingleCoilPDU
+from tmodbus.exceptions import InvalidResponseError
+from tmodbus.pdu import ReadCoilsPDU, WriteMultipleCoilsPDU, WriteSingleCoilPDU
 
 
 def test_read_coils_quantity_validation():

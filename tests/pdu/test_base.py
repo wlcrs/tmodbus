@@ -1,6 +1,6 @@
 import pytest
 
-from modbus_link.pdu import BaseModbusPDU
+from tmodbus.pdu import BaseModbusPDU
 
 
 def test_base_modbus_pdu_expected_data_length():

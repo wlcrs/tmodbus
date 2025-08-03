@@ -1,7 +1,7 @@
 from typing import TypeVar
 
-from modbus_link.pdu import BaseModbusPDU
-from modbus_link.transport.async_base import AsyncBaseTransport
+from tmodbus.pdu import BaseModbusPDU
+from tmodbus.transport.async_base import AsyncBaseTransport
 
 RT = TypeVar("RT")
 
