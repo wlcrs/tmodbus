@@ -64,6 +64,17 @@ def compute_interframe_delay(one_char_send_duration: float) -> float:
     return max(interframe_delay, 0.00175)  # Ensure at least 1.75 ms for faster baud rates
 
 
+def compute_max_continuous_transmission_delay(one_char_send_duration: float) -> float:
+    """Compute the Modbus RTU continuous transmission delay in seconds.
+
+    Once a message starts, all characters within that message must be transmitted continuously.
+    The Modbus standard specifies that a silent interval of more than 1.5 character times
+    between any two characters within a single frame will cause the receiving device to consider
+    the message incomplete and discard it.
+    """
+    return 1.5 * one_char_send_duration
+
+
 class AsyncRtuTransport(AsyncBaseTransport):
     """Async Modbus Serial Transport Layer Implementation.
 
@@ -102,8 +113,10 @@ class AsyncRtuTransport(AsyncBaseTransport):
         self.pyserial_options = pyserial_options
         self.timeout = pyserial_options.get("timeout", DEFAULT_TIMEOUT)
         self._baudrate = pyserial_options.get("baudrate", 9600)
-        self._one_char_send_duration = BITS_PER_CHAR / self._baudrate
-        self._interframe_delay = compute_interframe_delay(self._one_char_send_duration)
+
+        one_char_send_duration = BITS_PER_CHAR / self._baudrate
+        self._interframe_delay = compute_interframe_delay(one_char_send_duration)
+        self._max_continuous_transmission_delay = compute_max_continuous_transmission_delay(one_char_send_duration)
 
         self._communication_lock = asyncio.Lock()
 
@@ -231,11 +244,12 @@ class AsyncRtuTransport(AsyncBaseTransport):
             # 9. Return PDU part (remove address and CRC)
             return pdu.decode_response(response_pdu)
 
-    async def _read_with_interframe_timeout(self, bytes_to_read: int) -> bytes:
+    async def _read_continuous_transmission(self, bytes_to_read: int) -> bytes:
         """Read the rest of an RTU frame.
 
         We assume that this function has been called after the initial header of the RTU frame
-        has been received and processed.
+        has been received. We now continue to read the RTU frame taking into account the
+        continuous transmission requirement of the Modbus RTU standard.
         """
         if not self._reader:
             msg = "Cannot read as connection is closed."
@@ -246,11 +260,11 @@ class AsyncRtuTransport(AsyncBaseTransport):
         # Read the rest of the bytes to read
         while len(buf) < bytes_to_read:
             try:
-                chunk = await asyncio.wait_for(self._reader.read(1), timeout=self._interframe_delay)
+                chunk = await asyncio.wait_for(self._reader.read(1), timeout=self._max_continuous_transmission_delay)
             except TimeoutError:
                 msg = (
-                    "Saw an RTU interframe delay while we were waiting to read the complete frame. "
-                    f"Missing {bytes_to_read - len(buf)} bytes."
+                    "Violation of continuous transmission requirement by sender."
+                    f"Missing {bytes_to_read - len(buf)} bytes to complete the frame."
                 )
                 raise RTUFrameError(msg, bytes_read=buf) from None
             else:
@@ -299,7 +313,7 @@ class AsyncRtuTransport(AsyncBaseTransport):
 
         # Step 3: Read the remaining data and CRC
         try:
-            remaining_response_bytes = await self._read_with_interframe_timeout(expected_data_length)
+            remaining_response_bytes = await self._read_continuous_transmission(expected_data_length)
         except RTUFrameError as e:
             # make sure to also pass the bytes we read at the beginning of the response in the error
             raise RTUFrameError(str(e), bytes_read=response_begin + e.bytes_read) from e
