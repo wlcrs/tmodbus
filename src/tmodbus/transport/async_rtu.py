@@ -209,19 +209,19 @@ class AsyncRtuTransport(AsyncBaseTransport):
             try:
                 response_adu = await self._receive_response()
             except (RTUFrameError, ModbusConnectionError) as e:
-                raw_traffic_logger.debug("RTU Receive: %s [!]", _format_bytes(e.bytes_read))
+                raw_traffic_logger.debug("RTU Receive: %s [!]", _format_bytes(e.response_bytes))
                 raise
             else:
                 raw_traffic_logger.debug("RTU Receive: %s", _format_bytes(response_adu))
 
             # 5. Validate CRC
             if not CRC16Modbus.validate(response_adu):
-                raise CRCError(bytes_read=response_adu)
+                raise CRCError(response_bytes=response_adu)
 
             # 6. Validate slave address
             if response_adu[0] != unit_id:
                 msg = f"Slave address mismatch: expected {unit_id}, received {response_adu[0]}"
-                raise InvalidResponseError(msg, bytes_read=response_adu)
+                raise InvalidResponseError(msg, response_bytes=response_adu)
 
             response_pdu = response_adu[1:-2]  # remove address and CRC
 
@@ -236,7 +236,7 @@ class AsyncRtuTransport(AsyncBaseTransport):
 
             if response_function_code != pdu.function_code:
                 msg = f"Function code mismatch: expected {pdu.function_code}, received {response_function_code}"
-                raise InvalidResponseError(msg, bytes_read=response_adu)
+                raise InvalidResponseError(msg, response_bytes=response_adu)
 
             # 8. Mark the end of this frame
             self._last_frame_end = time.monotonic()
@@ -266,7 +266,7 @@ class AsyncRtuTransport(AsyncBaseTransport):
                     "Violation of continuous transmission requirement by sender."
                     f"Missing {bytes_to_read - len(buf)} bytes to complete the frame."
                 )
-                raise RTUFrameError(msg, bytes_read=buf) from None
+                raise RTUFrameError(msg, response_bytes=buf) from None
             else:
                 if not chunk:
                     msg = "Serial port closed unexpectedly during response read."
@@ -279,7 +279,7 @@ class AsyncRtuTransport(AsyncBaseTransport):
                 "Received more data than expected while reading RTU frame. "
                 f"Got {len(buf) - bytes_to_read} bytes more than expected."
             )
-            raise RTUFrameError(msg, bytes_read=buf)
+            raise RTUFrameError(msg, response_bytes=buf)
 
         return bytes(buf)
 
@@ -297,7 +297,7 @@ class AsyncRtuTransport(AsyncBaseTransport):
             )
         except asyncio.IncompleteReadError as e:
             msg = "Received incomplete data while reading first part of RTU frame."
-            raise RTUFrameError(msg, bytes_read=e.partial) from e
+            raise RTUFrameError(msg, response_bytes=e.partial) from e
         except TimeoutError:
             raise
         except Exception as e:
@@ -316,7 +316,7 @@ class AsyncRtuTransport(AsyncBaseTransport):
             remaining_response_bytes = await self._read_continuous_transmission(expected_data_length)
         except RTUFrameError as e:
             # make sure to also pass the bytes we read at the beginning of the response in the error
-            raise RTUFrameError(str(e), bytes_read=response_begin + e.bytes_read) from e
+            raise RTUFrameError(str(e), response_bytes=response_begin + e.response_bytes) from e
         except ModbusConnectionError as e:
             # make sure to also pass the bytes we read at the beginning of the response in the error
             raise ModbusConnectionError(str(e), bytes_read=response_begin + e.bytes_read) from e

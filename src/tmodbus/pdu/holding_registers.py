@@ -59,19 +59,19 @@ class RawReadHoldingRegistersPDU(BaseModbusPDU):
             function_code, byte_count = struct.unpack_from(">BB", response)
         except struct.error as e:
             msg = "Expected response to start with function code and byte count"
-            raise InvalidResponseError(msg) from e
+            raise InvalidResponseError(msg, response_bytes=response) from e
 
         if function_code != self.function_code:
             msg = f"Invalid function code: expected {self.function_code:02x}, received {function_code:02x}"
-            raise InvalidResponseError(msg)
+            raise InvalidResponseError(msg, response_bytes=response)
 
         if len(response) != 2 + byte_count:
             msg = f"Invalid response PDU length: expected {2 + byte_count}, got {len(response)}"
-            raise InvalidResponseError(msg)
+            raise InvalidResponseError(msg, response_bytes=response)
 
         if byte_count // 2 != self.quantity:
             msg = f"Invalid register count: expected {self.quantity}, got {byte_count // 2}"
-            raise InvalidResponseError(msg)
+            raise InvalidResponseError(msg, response_bytes=response)
 
         return response[2:]  # Return the data part of the response
 
@@ -178,7 +178,7 @@ class WriteSingleRegisterPDU(BaseModbusPDU):
         """
         if response != self.encode_request():
             msg = "Expected response to match request"
-            raise InvalidResponseError(msg)
+            raise InvalidResponseError(msg, response_bytes=response)
 
 
 class RawWriteMultipleRegistersPDU(BaseModbusPDU):
@@ -256,7 +256,7 @@ class RawWriteMultipleRegistersPDU(BaseModbusPDU):
 
         if response != expected_response:
             msg = "Device response does not match request"
-            raise InvalidResponseError(msg)
+            raise InvalidResponseError(msg, response_bytes=response)
 
 
 class WriteMultipleRegistersPDU(BaseModbusPDU):

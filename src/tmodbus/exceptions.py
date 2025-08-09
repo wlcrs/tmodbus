@@ -29,12 +29,12 @@ class InvalidResponseError(TModbusError):
     Raised when received response format is incorrect or unexpected.
     """
 
-    bytes_read: bytes
+    response_bytes: bytes
 
-    def __init__(self, *args: Any, bytes_read: bytes, **kwargs: Any) -> None:
+    def __init__(self, *args: Any, response_bytes: bytes, **kwargs: Any) -> None:
         """Initialize RTUFrameError."""
         super().__init__(*args, **kwargs)
-        self.bytes_read = bytes_read
+        self.response_bytes = response_bytes
 
 
 class RTUFrameError(InvalidResponseError):

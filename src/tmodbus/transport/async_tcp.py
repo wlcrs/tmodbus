@@ -184,21 +184,21 @@ class AsyncTcpTransport(AsyncBaseTransport):
                     f" Transaction ID mismatch: expected {current_transaction_id:02x}, "
                     f"received {response_transaction_id:02x}"
                 )
-                raise InvalidResponseError(msg, bytes_read=response_mbap)
+                raise InvalidResponseError(msg, response_bytes=response_mbap)
 
             if response_protocol_id != 0x0000:
                 msg = f"Invalid Protocol ID: expected 0x0000, received 0x{response_protocol_id:04x}"
-                raise InvalidResponseError(msg, bytes_read=response_mbap)
+                raise InvalidResponseError(msg, response_bytes=response_mbap)
 
             if response_unit_id != unit_id:
                 msg = f"Unit ID mismatch: expected {unit_id:02x}, received {response_unit_id:02x}"
-                raise InvalidResponseError(msg, bytes_read=response_mbap)
+                raise InvalidResponseError(msg, response_bytes=response_mbap)
 
             # 7. Async receive response PDU
             pdu_length = response_length - 1  # Subtract 1 byte for Unit ID
             if pdu_length <= 0:
                 msg = f"Invalid PDU length: {pdu_length}"
-                raise InvalidResponseError(msg, bytes_read=response_mbap)
+                raise InvalidResponseError(msg, response_bytes=response_mbap)
 
             try:
                 response_pdu_bytes = await self._receive_exact(pdu_length)
