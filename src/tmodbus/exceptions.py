@@ -1,30 +1,53 @@
 """Exceptions."""
 
+from typing import Any
+
 from .const import ExceptionCode
 
 
-class ModbusLinkError(Exception):
+class TModbusError(Exception):
     """Base exception class for ModbusLink library."""
 
 
-class ModbusConnectionError(ModbusLinkError):
+class ModbusConnectionError(TModbusError):
     """Connection error exception.
 
     Raised when unable to establish or maintain connection with Modbus device.
     """
 
+    bytes_read: bytes
 
-class CRCError(ModbusLinkError):
-    """CRC validation error exception.
+    def __init__(self, *args: Any, bytes_read: bytes | None = None, **kwargs: Any) -> None:
+        """Initialize RTUFrameError."""
+        super().__init__(*args, **kwargs)
+        self.bytes_read = bytes_read or b""
 
-    Raised when CRC validation of received data frame fails.
-    """
 
-
-class InvalidResponseError(ModbusLinkError):
+class InvalidResponseError(TModbusError):
     """Invalid response error exception.
 
     Raised when received response format is incorrect or unexpected.
+    """
+
+    bytes_read: bytes
+
+    def __init__(self, *args: Any, bytes_read: bytes, **kwargs: Any) -> None:
+        """Initialize RTUFrameError."""
+        super().__init__(*args, **kwargs)
+        self.bytes_read = bytes_read
+
+
+class RTUFrameError(InvalidResponseError):
+    """RTU frame error exception.
+
+    Raised when there is a framing error in the received RTU frame.
+    """
+
+
+class CRCError(InvalidResponseError):
+    """CRC validation error exception.
+
+    Raised when CRC validation of received data frame fails.
     """
 
 
@@ -42,7 +65,7 @@ class FunctionCodeError(InvalidResponseError):
     """
 
 
-class ModbusResponseError(ModbusLinkError):
+class ModbusResponseError(TModbusError):
     """Base class for all Modbus exception response."""
 
     error_code: int

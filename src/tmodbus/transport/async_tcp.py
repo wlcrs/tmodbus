@@ -184,25 +184,29 @@ class AsyncTcpTransport(AsyncBaseTransport):
                     f" Transaction ID mismatch: expected {current_transaction_id:02x}, "
                     f"received {response_transaction_id:02x}"
                 )
-                raise InvalidResponseError(msg)
+                raise InvalidResponseError(msg, bytes_read=response_mbap)
 
             if response_protocol_id != 0x0000:
                 msg = f"Invalid Protocol ID: expected 0x0000, received 0x{response_protocol_id:04x}"
-                raise InvalidResponseError(msg)
+                raise InvalidResponseError(msg, bytes_read=response_mbap)
 
             if response_unit_id != unit_id:
                 msg = f"Unit ID mismatch: expected {unit_id:02x}, received {response_unit_id:02x}"
-                raise InvalidResponseError(msg)
+                raise InvalidResponseError(msg, bytes_read=response_mbap)
 
             # 7. Async receive response PDU
             pdu_length = response_length - 1  # Subtract 1 byte for Unit ID
             if pdu_length <= 0:
                 msg = f"Invalid PDU length: {pdu_length}"
-                raise InvalidResponseError(msg)
+                raise InvalidResponseError(msg, bytes_read=response_mbap)
 
-            response_pdu_bytes = await self._receive_exact(pdu_length)
-
-            raw_traffic_logger.debug("TCP Receive: %s", _format_bytes(response_mbap + response_pdu_bytes))
+            try:
+                response_pdu_bytes = await self._receive_exact(pdu_length)
+            except ModbusConnectionError as e:
+                raw_traffic_logger.debug("TCP Receive: %s [!]", _format_bytes(e.bytes_read))
+                raise
+            else:
+                raw_traffic_logger.debug("TCP Receive: %s", _format_bytes(response_mbap + response_pdu_bytes))
 
             # 8.Check if it's an exception response
             if len(response_pdu_bytes) > 0 and response_pdu_bytes[0] & 0x80:  # Exception response
@@ -237,7 +241,7 @@ class AsyncTcpTransport(AsyncBaseTransport):
             return await asyncio.wait_for(self._reader.readexactly(length), timeout=self.timeout)
         except asyncio.IncompleteReadError as e:
             msg = f"Received incomplete data: expected {length} bytes, got {len(e.partial)} bytes"
-            raise ModbusConnectionError(msg) from e
+            raise ModbusConnectionError(msg, bytes_read=e.partial) from e
         except TimeoutError as e:
             msg = f"Receive timeout: expected {length} bytes, but timed out after {self.timeout} seconds"
             raise TimeoutError(msg) from e
