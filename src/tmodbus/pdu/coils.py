@@ -59,19 +59,19 @@ class ReadCoilsPDU(BaseModbusPDU):
             function_code, byte_count = struct.unpack_from(">BB", response)
         except struct.error as e:
             msg = "Expected response to start with function code and byte count"
-            raise InvalidResponseError(msg) from e
+            raise InvalidResponseError(msg, response_bytes=response) from e
 
         if function_code != self.function_code:
             msg = f"Invalid function code: expected {self.function_code:02x}, received {function_code:02x}"
-            raise InvalidResponseError(msg)
+            raise InvalidResponseError(msg, response_bytes=response)
 
         if len(response) != 2 + byte_count:
             msg = f"Invalid response PDU length: expected {2 + byte_count}, got {len(response)}"
-            raise InvalidResponseError(msg)
+            raise InvalidResponseError(msg, response_bytes=response)
 
         if byte_count != (self.quantity + 7) // 8:
             msg = f"Invalid byte count: expected {(self.quantity + 7) // 8}, got {byte_count}"
-            raise InvalidResponseError(msg)
+            raise InvalidResponseError(msg, response_bytes=response)
 
         coils: list[bool] = []
         for byte in response[2:]:
@@ -126,7 +126,7 @@ class WriteSingleCoilPDU(BaseModbusPDU):
         """
         if response != self.encode_request():
             msg = "Expected response to match request"
-            raise InvalidResponseError(msg)
+            raise InvalidResponseError(msg, response_bytes=response)
 
 
 class WriteMultipleCoilsPDU(BaseModbusPDU):
@@ -199,4 +199,4 @@ class WriteMultipleCoilsPDU(BaseModbusPDU):
 
         if response != expected_response:
             msg = "Device response does not match request"
-            raise InvalidResponseError(msg)
+            raise InvalidResponseError(msg, response_bytes=response)

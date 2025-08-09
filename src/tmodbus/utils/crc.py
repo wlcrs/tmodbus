@@ -1,69 +1,63 @@
 """ModbusLink CRC16 Checksum Utility Module.
 
 Provides CRC16 checksum functionality required by Modbus RTU protocol.
+
+Uses polynomial 0xA001 (reverse of 0x8005).
 """
 
 
-class CRC16Modbus:
-    """Modbus CRC16 Checksum Utility Class.
+def calculate_crc16(data: bytes) -> bytes:
+    r"""Calculate CRC16 Checksum.
 
-    Implements the CRC16 checksum algorithm used in Modbus RTU protocol.
-    Uses polynomial 0xA001 (reverse of 0x8005).
+    Args:
+        data: Data frame for checksum calculation (address+PDU)
+
+    Returns: 2-byte CRC checksum (little-endian bytes)
+
+    Example:
+        >>> data = b'\x01\x03\x00\x00\x00\x01'
+        >>> crc = calculate_crc16(data)
+        >>> crc.hex()
+        '840a'
+
     """
+    crc = 0xFFFF  #  Initial value is 0xFFFF
 
-    @staticmethod
-    def calculate(data: bytes) -> bytes:
-        r"""Calculate CRC16 Checksum.
+    for byte in data:
+        crc ^= byte  #  XOR operation
+        for _ in range(8):  #  Process 8 bits
+            if crc & 0x0001:  #  Check lowest bit
+                crc >>= 1  #  Right shift by one bit
+                crc ^= 0xA001  #  XOR with polynomial
+            else:
+                crc >>= 1  #  Right shift by one bit
 
-        Args:
-            data: Data frame for checksum calculation (address+PDU)
+    # Return 2-byte CRC in little-endian format
+    return crc.to_bytes(2, byteorder="little")
 
-        Returns: 2-byte CRC checksum (little-endian bytes)
 
-        Example:
-            >>> data = b'\x01\x03\x00\x00\x00\x01'
-            >>> crc = CRC16Modbus.calculate(data)
-            >>> crc.hex()
-            '840a'
+def validate_crc16(frame_with_crc: bytes) -> bool:
+    r"""Validate Complete Data Frame with CRC.
 
-        """
-        crc = 0xFFFF  #  Initial value is 0xFFFF
+    Args:
+        frame_with_crc: Complete data frame containing CRC checksum
 
-        for byte in data:
-            crc ^= byte  #  XOR operation
-            for _ in range(8):  #  Process 8 bits
-                if crc & 0x0001:  #  Check lowest bit
-                    crc >>= 1  #  Right shift by one bit
-                    crc ^= 0xA001  #  XOR with polynomial
-                else:
-                    crc >>= 1  #  Right shift by one bit
+    Returns: True if CRC verification is correct, False otherwise
 
-        # Return 2-byte CRC in little-endian format
-        return crc.to_bytes(2, byteorder="little")
+    Example:
+        >>> frame = b'\x01\x03\x00\x00\x00\x01\x84\x0a'
+        >>> validate_crc16(frame)
+        True
 
-    @staticmethod
-    def validate(frame_with_crc: bytes) -> bool:
-        r"""Validate Complete Data Frame with CRC.
+    """
+    if len(frame_with_crc) < 3:  #  At least 1 byte data + 2 bytes CRC required
+        return False
 
-        Args:
-            frame_with_crc: Complete data frame containing CRC checksum
+    #  Separate data and CRC
+    data, received_crc = frame_with_crc[:-2], frame_with_crc[-2:]
 
-        Returns: True if CRC verification is correct, False otherwise
+    # Calculate expected CRC
+    expected_crc = calculate_crc16(data)
 
-        Example:
-            >>> frame = b'\x01\x03\x00\x00\x00\x01\x84\x0a'
-            >>> CRC16Modbus.validate(frame)
-            True
-
-        """
-        if len(frame_with_crc) < 3:  #  At least 1 byte data + 2 bytes CRC required
-            return False
-
-        #  Separate data and CRC
-        data, received_crc = frame_with_crc[:-2], frame_with_crc[-2:]
-
-        # Calculate expected CRC
-        expected_crc = CRC16Modbus.calculate(data)
-
-        # Compare CRC
-        return received_crc == expected_crc
+    # Compare CRC
+    return received_crc == expected_crc

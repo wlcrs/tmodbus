@@ -5,7 +5,9 @@ Implements async Modbus TCP protocol transport based on asyncio, including MBAP 
 
 import asyncio
 import logging
+import time
 from typing import TypedDict, TypeVar, Unpack
+from wsgiref import validate
 
 import serial_asyncio
 
@@ -14,10 +16,11 @@ from tmodbus.exceptions import (
     InvalidResponseError,
     ModbusConnectionError,
     ModbusResponseError,
+    RTUFrameError,
     error_code_to_exception_map,
 )
 from tmodbus.pdu import BaseModbusPDU, get_pdu_class
-from tmodbus.utils.crc import CRC16Modbus
+from tmodbus.utils.crc import calculate_crc16, validate_crc16
 
 from . import _format_bytes, raw_traffic_logger
 from .async_base import AsyncBaseTransport
@@ -48,6 +51,30 @@ MAX_RTU_FRAME_SIZE = 256  # Maximum RTU frame size in bytes
 
 MIN_RTU_RESPONSE_LENGTH = 4  # a minimal response is: address + function code + CRC
 
+BITS_PER_CHAR = 11  # start + 8 data + parity/stop
+
+
+def compute_interframe_delay(one_char_send_duration: float) -> float:
+    """Compute the Modbus RTU 3.5 character times (inter-frame delay) in seconds.
+
+    For baudrate >= 19200, use 1.75ms.
+    For baudrate < 19200, use 3.5 * (11 bits / baudrate).
+    """
+    interframe_delay = 3.5 * one_char_send_duration
+
+    return max(interframe_delay, 0.00175)  # Ensure at least 1.75 ms for faster baud rates
+
+
+def compute_max_continuous_transmission_delay(one_char_send_duration: float) -> float:
+    """Compute the Modbus RTU continuous transmission delay in seconds.
+
+    Once a message starts, all characters within that message must be transmitted continuously.
+    The Modbus standard specifies that a silent interval of more than 1.5 character times
+    between any two characters within a single frame will cause the receiving device to consider
+    the message incomplete and discard it.
+    """
+    return 1.5 * one_char_send_duration
+
 
 class AsyncRtuTransport(AsyncBaseTransport):
     """Async Modbus Serial Transport Layer Implementation.
@@ -61,9 +88,8 @@ class AsyncRtuTransport(AsyncBaseTransport):
 
     _reader: asyncio.StreamReader | None = None
     _writer: asyncio.StreamWriter | None = None
-    _next_transaction_id: int = 1
-
-    _communication_lock = asyncio.Lock()  # Prevents concurrent access to the transport layer
+    _last_frame_end: float = 0.0
+    _communication_lock: asyncio.Lock  # Prevents concurrent access to the transport layer
 
     pyserial_options: PySerialOptions
 
@@ -87,6 +113,13 @@ class AsyncRtuTransport(AsyncBaseTransport):
         self.port = port
         self.pyserial_options = pyserial_options
         self.timeout = pyserial_options.get("timeout", DEFAULT_TIMEOUT)
+        self._baudrate = pyserial_options.get("baudrate", 9600)
+
+        one_char_send_duration = BITS_PER_CHAR / self._baudrate
+        self._interframe_delay = compute_interframe_delay(one_char_send_duration)
+        self._max_continuous_transmission_delay = compute_max_continuous_transmission_delay(one_char_send_duration)
+
+        self._communication_lock = asyncio.Lock()
 
     async def open(self) -> None:
         """Establish Serial connection."""
@@ -140,10 +173,11 @@ class AsyncRtuTransport(AsyncBaseTransport):
 
         Implements complete RTU protocol communication flow:
         1. Build ADU (Address + PDU + CRC)
-        2. Send request
-        3. Receive response
-        4. Validate CRC
-        5. Return response PDU
+        2. Wait for inter-frame delay
+        3. Send request
+        4. Receive response
+        5. Validate CRC
+        6. Return response PDU
         """
         async with self._communication_lock:
             if not self.is_open():
@@ -153,36 +187,47 @@ class AsyncRtuTransport(AsyncBaseTransport):
             # 1. Build request frame
             request_pdu_bytes = pdu.encode_request()  # Convert PDU to bytes
             frame_prefix = bytes([unit_id]) + request_pdu_bytes
-            crc = CRC16Modbus.calculate(frame_prefix)
+            crc = calculate_crc16(frame_prefix)
             request_adu = frame_prefix + crc
 
             raw_traffic_logger.debug("RTU Send: %s", _format_bytes(request_adu))
 
-            # 2. Clear receive buffer and send request
+            # 2. Wait for 3.5 character times since last frame (inter-frame delay)
+            time_since_last_frame = time.monotonic() - self._last_frame_end
+            if time_since_last_frame < self._interframe_delay:
+                to_wait = self._interframe_delay - time_since_last_frame
+                logger.debug("Waiting for inter-frame delay: %.4fs", to_wait)
+                await asyncio.sleep(to_wait)
+
+            # 3. Clear receive buffer and send request
             if not self._writer:
                 msg = "Connection not established."
                 raise ModbusConnectionError(msg)
             self._writer.write(request_adu)
             await asyncio.wait_for(self._writer.drain(), timeout=self.timeout)
+            # 4. Receive response
 
-            # 3. Receive response
-            response_adu = await self._receive_response()
+            try:
+                response_adu = await self._receive_response()
+            except (RTUFrameError, ModbusConnectionError) as e:
+                raw_traffic_logger.debug("RTU Receive: %s [!]", _format_bytes(e.response_bytes))
+                raise
+            else:
+                raw_traffic_logger.debug("RTU Receive: %s", _format_bytes(response_adu))
 
-            raw_traffic_logger.debug("RTU Receive: %s", _format_bytes(response_adu))
+            # 5. Validate CRC
+            if not validate_crc16(response_adu):
+                raise CRCError(response_bytes=response_adu)
 
-            # 4. Validate CRC
-            if not CRC16Modbus.validate(response_adu):
-                raise CRCError
-
-            # 5. Validate slave address
+            # 6. Validate slave address
             if response_adu[0] != unit_id:
                 msg = f"Slave address mismatch: expected {unit_id}, received {response_adu[0]}"
-                raise InvalidResponseError(msg)
+                raise InvalidResponseError(msg, response_bytes=response_adu)
 
             response_pdu = response_adu[1:-2]  # remove address and CRC
 
-            # 6. Check if it's an exception response
-            response_function_code = response_adu[0]
+            # 7. Check if it's an exception response
+            response_function_code = response_adu[1]
             if response_function_code & 0x80:  # Exception response
                 function_code = response_function_code & 0x7F  # Remove exception flag bit
                 exception_code = response_pdu[1] if len(response_pdu) > 1 else 0
@@ -192,50 +237,97 @@ class AsyncRtuTransport(AsyncBaseTransport):
 
             if response_function_code != pdu.function_code:
                 msg = f"Function code mismatch: expected {pdu.function_code}, received {response_function_code}"
-                raise InvalidResponseError(msg)
+                raise InvalidResponseError(msg, response_bytes=response_adu)
 
-            # 7. Return PDU part (remove address and CRC)
+            # 8. Mark the end of this frame
+            self._last_frame_end = time.monotonic()
+
+            # 9. Return PDU part (remove address and CRC)
             return pdu.decode_response(response_pdu)
 
+    async def _read_continuous_transmission(self, bytes_to_read: int) -> bytes:
+        """Read the rest of an RTU frame.
+
+        We assume that this function has been called after the initial header of the RTU frame
+        has been received. We now continue to read the RTU frame taking into account the
+        continuous transmission requirement of the Modbus RTU standard.
+
+        cfr. 2.5.1.1 MODBUS Message RTU Framing
+        """
+        if not self._reader:
+            msg = "Cannot read as connection is closed."
+            raise ModbusConnectionError(msg)
+
+        buf = bytearray()
+
+        # Read the rest of the bytes to read
+        while len(buf) < bytes_to_read:
+            try:
+                chunk = await asyncio.wait_for(self._reader.read(1), timeout=self._max_continuous_transmission_delay)
+            except TimeoutError:
+                msg = (
+                    "Violation of continuous transmission requirement by sender."
+                    f"Missing {bytes_to_read - len(buf)} bytes to complete the frame."
+                )
+                raise RTUFrameError(msg, response_bytes=buf) from None
+            else:
+                if not chunk:
+                    msg = "Serial port closed unexpectedly during response read."
+                    raise ModbusConnectionError(msg, bytes_read=buf)
+                buf.extend(chunk)
+
+        # If we have read more data than expected, it indicates a framing or out-of-sync error.
+        if len(buf) > bytes_to_read:
+            msg = (
+                "Received more data than expected while reading RTU frame. "
+                f"Got {len(buf) - bytes_to_read} bytes more than expected."
+            )
+            raise RTUFrameError(msg, response_bytes=buf)
+
+        return bytes(buf)
+
     async def _receive_response(self) -> bytes:
-        """Receive complete response frame."""
+        """Receive complete response frame, using 3.5 character time as end-of-frame marker."""
         if not self._reader:
             msg = "Serial connection not established."
             raise ModbusConnectionError(msg)
 
         try:
+            # Step 1: Read minimal header
             response_begin: bytes = await asyncio.wait_for(
                 self._reader.readexactly(MIN_RTU_RESPONSE_LENGTH),
                 timeout=self.timeout,
             )
-
-            #  Check if it's an exception response
-            if response_begin[1] & 0x80:  #  Exception response
-                # Exception response format: address + exception function code + exception code + CRC (total 5 bytes)
-
-                return response_begin + await asyncio.wait_for(
-                    self._reader.readexactly(5 - MIN_RTU_RESPONSE_LENGTH),  # we need only 1 more byte
-                    timeout=self.timeout,
-                )  # Exception code + CRC
-
-            # Normal response format: address + function code + data + CRC
-
-            # figure out how many more bytes to read
-            expected_data_length = get_pdu_class(response_begin[1]).get_expected_data_length(response_begin[2:])
-
-            # we already read the minimal response length (taking into account address, function code, and CRC)
-            # now we only need to read the length of the data part too
-
-            return response_begin + await asyncio.wait_for(
-                self._reader.readexactly(expected_data_length),
-                timeout=self.timeout,
-            )
-
         except asyncio.IncompleteReadError as e:
-            msg = "Received incomplete data"
-            raise ModbusConnectionError(msg) from e
+            msg = "Received incomplete data while reading first part of RTU frame."
+            raise RTUFrameError(msg, response_bytes=e.partial) from e
         except TimeoutError:
             raise
         except Exception as e:
             msg = "Failed to read Modbus response"
             raise ModbusConnectionError(msg) from e
+
+        # Step 2: Determine the total expected data length for this frame
+        if response_begin[1] & 0x80:  # Exception response
+            # Exception response format: address + exception function code + exception code + CRC (total 5 bytes)
+            expected_data_length = 5
+        else:
+            expected_data_length = 5 + get_pdu_class(response_begin[1]).get_expected_data_length(response_begin[2:])
+
+        if expected_data_length + len(response_begin) > MAX_RTU_FRAME_SIZE:
+            msg = "Expected total RTU message frame lengt exceeds maximum allowed size of 256 bytes. "
+            raise RTUFrameError(msg, response_bytes=response_begin)
+
+        # Step 3: Read the remaining data and CRC
+        try:
+            remaining_response_bytes = await self._read_continuous_transmission(expected_data_length)
+        except RTUFrameError as e:
+            # make sure to also pass the bytes we read at the beginning of the response in the error
+            raise RTUFrameError(str(e), response_bytes=response_begin + e.response_bytes) from e
+        except ModbusConnectionError as e:
+            # make sure to also pass the bytes we read at the beginning of the response in the error
+            raise ModbusConnectionError(str(e), bytes_read=response_begin + e.response_bytes) from e
+
+        # log the current time to allow us to determine the 3.5 character gap before the next frame
+        self._last_frame_end = time.monotonic()
+        return response_begin + remaining_response_bytes
