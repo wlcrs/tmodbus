@@ -15,7 +15,7 @@ from tmodbus.exceptions import (
     error_code_to_exception_map,
 )
 from tmodbus.pdu import BaseModbusPDU
-from tmodbus.transport import _format_bytes, raw_traffic_logger
+from tmodbus.utils.raw_traffic_logger import _format_bytes, raw_traffic_logger
 
 from .async_base import AsyncBaseTransport
 

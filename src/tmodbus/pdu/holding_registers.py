@@ -122,6 +122,16 @@ class ReadHoldingRegistersPDU(BaseModbusPDU):
         return [*struct.unpack(f">{'H' * (len(response_bytes) // 2)}", response_bytes)]
 
 
+class RawReadInputRegistersPDU(RawReadHoldingRegistersPDU):
+    """Raw Read Input Registers PDU.
+
+    Inherits from ReadHoldingRegistersPDU, as the structure is the same.
+    Only the function code differs.
+    """
+
+    function_code = FunctionCode.READ_INPUT_REGISTERS
+
+
 class ReadInputRegistersPDU(ReadHoldingRegistersPDU):
     """Read Input Registers PDU.
 

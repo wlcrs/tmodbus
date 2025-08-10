@@ -21,8 +21,8 @@ from tmodbus.exceptions import (
 )
 from tmodbus.pdu import BaseModbusPDU, get_pdu_class
 from tmodbus.utils.crc import calculate_crc16, validate_crc16
+from tmodbus.utils.raw_traffic_logger import _format_bytes, raw_traffic_logger
 
-from . import _format_bytes, raw_traffic_logger
 from .async_base import AsyncBaseTransport
 
 logger = logging.getLogger(__name__)

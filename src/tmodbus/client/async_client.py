@@ -17,12 +17,13 @@ from tmodbus.pdu import (
     WriteSingleCoilPDU,
     WriteSingleRegisterPDU,
 )
+from tmodbus.pdu.holding_registers_struct import HoldingRegisterReadMixin, HoldingRegisterWriteMixin
 from tmodbus.transport.async_base import AsyncBaseTransport
 
 RT = TypeVar("RT")
 
 
-class AsyncModbusClient:
+class AsyncModbusClient(HoldingRegisterReadMixin, HoldingRegisterWriteMixin):
     """Asynchronous Modbus Client.
 
     Provides a concise, user-friendly asynchronous Modbus operation interface. Receives

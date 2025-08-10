@@ -4,7 +4,7 @@ import struct
 from typing import Any, Protocol, TypeVar
 
 from .base import BaseModbusPDU
-from .holding_registers import RawReadHoldingRegistersPDU, RawWriteMultipleRegistersPDU
+from .holding_registers import RawReadHoldingRegistersPDU, RawReadInputRegistersPDU, RawWriteMultipleRegistersPDU
 
 RT = TypeVar("RT")
 
@@ -26,6 +26,7 @@ class HoldingRegisterReadMixin(SupportsExecuteAsync):
         *,
         format_struct: struct.Struct,
         unit_id: int,
+        input_register: bool = False,
     ) -> tuple[Any, ...]:
         """Read holding registers and decode them using the provided struct format.
 
@@ -33,13 +34,16 @@ class HoldingRegisterReadMixin(SupportsExecuteAsync):
             struct_format: Struct format to decode the response
             start_address: Starting address of the registers to read
             unit_id: Unit ID
+            input_register: Whether to read holding registers (False) or input registers (True)
 
         Returns:
             Decoded response data using the provided struct format
 
         """
+        pdu_class = RawReadInputRegistersPDU if input_register else RawReadHoldingRegistersPDU
+
         response_bytes = await self.execute(
-            RawReadHoldingRegistersPDU(
+            pdu_class(
                 start_address,
                 quantity=format_struct.size // 2,
             ),
@@ -53,6 +57,7 @@ class HoldingRegisterReadMixin(SupportsExecuteAsync):
         *,
         format_struct: struct.Struct,
         unit_id: int,
+        input_register: bool = False,
     ) -> Any:
         """Read holding registers and decode them as a single value using the provided struct format.
 
@@ -65,13 +70,21 @@ class HoldingRegisterReadMixin(SupportsExecuteAsync):
             Decoded response data as a single value
 
         """
-        return (await self.read_struct_format(start_address, format_struct=format_struct, unit_id=unit_id))[0]
+        return (
+            await self.read_struct_format(
+                start_address,
+                format_struct=format_struct,
+                unit_id=unit_id,
+                input_register=input_register,
+            )
+        )[0]
 
     async def read_uint16(
         self,
         start_address: int,
         *,
         unit_id: int,
+        input_register: bool = False,
     ) -> int:
         """Read holding registers and decode them as an unsigned 16-bit integer.
 
@@ -87,6 +100,7 @@ class HoldingRegisterReadMixin(SupportsExecuteAsync):
             start_address,
             format_struct=struct.Struct(">H"),
             unit_id=unit_id,
+            input_register=input_register,
         )
 
     async def read_uint32(
@@ -94,6 +108,7 @@ class HoldingRegisterReadMixin(SupportsExecuteAsync):
         start_address: int,
         *,
         unit_id: int,
+        input_register: bool = False,
     ) -> int:
         """Read holding registers and decode them as an unsigned 32-bit integer.
 
@@ -109,6 +124,7 @@ class HoldingRegisterReadMixin(SupportsExecuteAsync):
             start_address,
             format_struct=struct.Struct(">I"),
             unit_id=unit_id,
+            input_register=input_register,
         )
 
     async def read_uint64(
@@ -116,6 +132,7 @@ class HoldingRegisterReadMixin(SupportsExecuteAsync):
         start_address: int,
         *,
         unit_id: int,
+        input_register: bool = False,
     ) -> int:
         """Read holding registers and decode them as an unsigned 64-bit integer.
 
@@ -131,6 +148,7 @@ class HoldingRegisterReadMixin(SupportsExecuteAsync):
             start_address,
             format_struct=struct.Struct(">Q"),
             unit_id=unit_id,
+            input_register=input_register,
         )
 
     async def read_int16(
@@ -138,6 +156,7 @@ class HoldingRegisterReadMixin(SupportsExecuteAsync):
         start_address: int,
         *,
         unit_id: int,
+        input_register: bool = False,
     ) -> int:
         """Read holding registers and decode them as a signed 16-bit integer.
 
@@ -153,6 +172,7 @@ class HoldingRegisterReadMixin(SupportsExecuteAsync):
             start_address,
             format_struct=struct.Struct(">h"),
             unit_id=unit_id,
+            input_register=input_register,
         )
 
     async def read_int32(
@@ -160,6 +180,7 @@ class HoldingRegisterReadMixin(SupportsExecuteAsync):
         start_address: int,
         *,
         unit_id: int,
+        input_register: bool = False,
     ) -> int:
         """Read holding registers and decode them as a signed 32-bit integer.
 
@@ -175,6 +196,7 @@ class HoldingRegisterReadMixin(SupportsExecuteAsync):
             start_address,
             format_struct=struct.Struct(">i"),
             unit_id=unit_id,
+            input_register=input_register,
         )
 
     async def read_int64(
@@ -182,6 +204,7 @@ class HoldingRegisterReadMixin(SupportsExecuteAsync):
         start_address: int,
         *,
         unit_id: int,
+        input_register: bool = False,
     ) -> int:
         """Read holding registers and decode them as a signed 64-bit integer.
 
@@ -197,6 +220,7 @@ class HoldingRegisterReadMixin(SupportsExecuteAsync):
             start_address,
             format_struct=struct.Struct(">q"),
             unit_id=unit_id,
+            input_register=input_register,
         )
 
     async def read_float(
@@ -204,6 +228,7 @@ class HoldingRegisterReadMixin(SupportsExecuteAsync):
         start_address: int,
         *,
         unit_id: int,
+        input_register: bool = False,
     ) -> float:
         """Read holding registers and decode them as a float.
 
@@ -219,6 +244,7 @@ class HoldingRegisterReadMixin(SupportsExecuteAsync):
             start_address,
             format_struct=struct.Struct(">f"),
             unit_id=unit_id,
+            input_register=input_register,
         )
 
     async def read_string(
@@ -227,6 +253,7 @@ class HoldingRegisterReadMixin(SupportsExecuteAsync):
         *,
         number_of_registers: int,
         unit_id: int,
+        input_register: bool = False,
         encoding: str = "ascii",
     ) -> str:
         """Read holding registers and decode them as a string.
@@ -241,7 +268,12 @@ class HoldingRegisterReadMixin(SupportsExecuteAsync):
 
         """
         format_struct = struct.Struct(f">{number_of_registers * 2}s")
-        string_bytes = await self.read_simple_struct_format(start_address, format_struct=format_struct, unit_id=unit_id)
+        string_bytes = await self.read_simple_struct_format(
+            start_address,
+            format_struct=format_struct,
+            unit_id=unit_id,
+            input_register=input_register,
+        )
         return string_bytes.decode(encoding)
 
 
