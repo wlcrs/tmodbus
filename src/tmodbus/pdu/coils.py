@@ -84,7 +84,7 @@ class WriteSingleCoilPDU(BaseModbusPDU):
     """Write Single Coil PDU."""
 
     function_code = FunctionCode.WRITE_SINGLE_COIL
-    rtu_response_data_length = 3
+    rtu_response_data_length = 4  # address (2) + value (2)
 
     def __init__(
         self,
@@ -133,6 +133,7 @@ class WriteMultipleCoilsPDU(BaseModbusPDU):
     """Write Multiple Coils PDU."""
 
     function_code = FunctionCode.WRITE_MULTIPLE_COILS
+    rtu_response_data_length = 4  # address (2) + quantity (2)
 
     def __init__(self, start_address: int, values: list[bool]) -> None:
         """Initialize Write Multiple Coils PDU.

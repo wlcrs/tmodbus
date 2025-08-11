@@ -6,8 +6,7 @@ Implements async Modbus TCP protocol transport based on asyncio, including MBAP 
 import asyncio
 import logging
 import time
-from typing import TypedDict, TypeVar, Unpack
-from wsgiref import validate
+from typing import NotRequired, TypedDict, TypeVar, Unpack
 
 import serial_asyncio
 
@@ -36,15 +35,15 @@ class PySerialOptions(TypedDict):
     """Options for the PySerial connection."""
 
     baudrate: int
-    bytesize: int
-    parity: str
-    stopbits: float
-    timeout: float | None
-    xonxoff: bool
-    rtscts: bool
-    write_timeout: float | None
-    dsrdtr: bool
-    inter_byte_timeout: float | None
+    bytesize: NotRequired[int]
+    parity: NotRequired[str]
+    stopbits: NotRequired[float]
+    timeout: NotRequired[float | None]
+    xonxoff: NotRequired[bool]
+    rtscts: NotRequired[bool]
+    write_timeout: NotRequired[float | None]
+    dsrdtr: NotRequired[bool]
+    inter_byte_timeout: NotRequired[float | None]
 
 
 MAX_RTU_FRAME_SIZE = 256  # Maximum RTU frame size in bytes
@@ -196,7 +195,6 @@ class AsyncRtuTransport(AsyncBaseTransport):
             time_since_last_frame = time.monotonic() - self._last_frame_end
             if time_since_last_frame < self._interframe_delay:
                 to_wait = self._interframe_delay - time_since_last_frame
-                logger.debug("Waiting for inter-frame delay: %.4fs", to_wait)
                 await asyncio.sleep(to_wait)
 
             # 3. Clear receive buffer and send request
@@ -266,7 +264,7 @@ class AsyncRtuTransport(AsyncBaseTransport):
                 chunk = await asyncio.wait_for(self._reader.read(1), timeout=self._max_continuous_transmission_delay)
             except TimeoutError:
                 msg = (
-                    "Violation of continuous transmission requirement by sender."
+                    "Violation of continuous transmission requirement by sender. "
                     f"Missing {bytes_to_read - len(buf)} bytes to complete the frame."
                 )
                 raise RTUFrameError(msg, response_bytes=buf) from None
@@ -312,7 +310,12 @@ class AsyncRtuTransport(AsyncBaseTransport):
             # Exception response format: address + exception function code + exception code + CRC (total 5 bytes)
             expected_data_length = 5
         else:
-            expected_data_length = 5 + get_pdu_class(response_begin[1]).get_expected_data_length(response_begin[2:])
+            expected_data_length = (
+                1  # Slave address
+                + 1  # Function code
+                + get_pdu_class(response_begin[1]).get_expected_data_length(response_begin[2:])
+                + 2  # CRC
+            )
 
         if expected_data_length + len(response_begin) > MAX_RTU_FRAME_SIZE:
             msg = "Expected total RTU message frame lengt exceeds maximum allowed size of 256 bytes. "
@@ -320,7 +323,9 @@ class AsyncRtuTransport(AsyncBaseTransport):
 
         # Step 3: Read the remaining data and CRC
         try:
-            remaining_response_bytes = await self._read_continuous_transmission(expected_data_length)
+            remaining_response_bytes = await self._read_continuous_transmission(
+                bytes_to_read=expected_data_length - len(response_begin)
+            )
         except RTUFrameError as e:
             # make sure to also pass the bytes we read at the beginning of the response in the error
             raise RTUFrameError(str(e), response_bytes=response_begin + e.response_bytes) from e

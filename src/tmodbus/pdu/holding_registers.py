@@ -141,11 +141,26 @@ class ReadInputRegistersPDU(ReadHoldingRegistersPDU):
 
     function_code = FunctionCode.READ_INPUT_REGISTERS
 
+    def __init__(self, start_address: int, quantity: int) -> None:
+        """Initialize Read Holding Registers PDU.
+
+        Args:
+            start_address: Starting address of the registers to read
+            quantity: Number of registers to read
+
+        Raises:
+            ValueError: If start_address or quantity is invalid
+
+        """
+        super(ReadHoldingRegistersPDU, self).__init__(start_address)
+        self.raw_pdu = RawReadInputRegistersPDU(start_address, quantity)
+
 
 class WriteSingleRegisterPDU(BaseModbusPDU):
     """Write Single Register PDU."""
 
     function_code = FunctionCode.WRITE_SINGLE_REGISTER
+    rtu_response_data_length = 4  # address (2) + value (2)
 
     def __init__(self, address: int, value: int) -> None:
         """Initialize Write Single Register PDU.
@@ -195,6 +210,7 @@ class RawWriteMultipleRegistersPDU(BaseModbusPDU):
     """Write Multiple Registers PDU."""
 
     function_code = FunctionCode.WRITE_MULTIPLE_REGISTERS
+    rtu_response_data_length = 5
 
     def __init__(self, start_address: int, content: bytes) -> None:
         """Initialize Write Multiple Registers PDU.
@@ -273,6 +289,7 @@ class WriteMultipleRegistersPDU(BaseModbusPDU):
     """Write Multiple Registers PDU."""
 
     function_code = FunctionCode.WRITE_MULTIPLE_REGISTERS
+    rtu_response_data_length = 4  # address (2) + quantity (2)
 
     def __init__(self, start_address: int, values: list[int]) -> None:
         """Initialize Write Multiple Registers PDU.

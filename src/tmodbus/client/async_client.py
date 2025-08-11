@@ -43,6 +43,19 @@ class AsyncModbusClient(HoldingRegisterReadMixin, HoldingRegisterWriteMixin):
         """
         self.transport = transport
 
+    async def connect(self) -> None:
+        """Connect to the server."""
+        await self.transport.open()
+
+    @property
+    def connected(self) -> bool:
+        """Report if the client is connected to the server."""
+        return self.transport.is_open()
+
+    async def close(self) -> None:
+        """Close the server connection."""
+        await self.transport.close()
+
     async def execute(self, pdu: BaseModbusPDU[RT], *, unit_id: int) -> RT:
         """Execute PDU Request.
 

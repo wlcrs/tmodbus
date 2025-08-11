@@ -63,4 +63,7 @@ class BaseModbusPDU[RT](ABC):
         # otherwise, we assume that the first byte of the PDU-part of the response denotes
         # the total length of the PDU.
         # If this is not the case (ex. for function code 0x18), the subclass should override this method.
-        return data[0]
+        return (
+            1  # the first byte containing the total length of the PDU
+            + data[0]
+        )
