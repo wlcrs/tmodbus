@@ -6,9 +6,10 @@ Implements async Modbus TCP protocol transport based on asyncio, including MBAP 
 import asyncio
 import logging
 import time
+from functools import partial
 from typing import NotRequired, TypedDict, TypeVar, Unpack
 
-import serial_asyncio
+import serial_asyncio_fast
 
 from tmodbus.exceptions import (
     CRCError,
@@ -20,11 +21,12 @@ from tmodbus.exceptions import (
 )
 from tmodbus.pdu import BaseModbusPDU, get_pdu_class
 from tmodbus.utils.crc import calculate_crc16, validate_crc16
-from tmodbus.utils.raw_traffic_logger import _format_bytes, raw_traffic_logger
+from tmodbus.utils.raw_traffic_logger import log_raw_traffic as base_log_raw_traffic
 
 from .async_base import AsyncBaseTransport
 
 logger = logging.getLogger(__name__)
+log_raw_traffic = partial(base_log_raw_traffic, "RTU")
 RT = TypeVar("RT")
 
 
@@ -129,7 +131,7 @@ class AsyncRtuTransport(AsyncBaseTransport):
 
             try:
                 self._reader, self._writer = await asyncio.wait_for(
-                    serial_asyncio.open_serial_connection(
+                    serial_asyncio_fast.open_serial_connection(
                         url=self.port,
                         **self.pyserial_options,
                     ),
@@ -189,7 +191,7 @@ class AsyncRtuTransport(AsyncBaseTransport):
             crc = calculate_crc16(frame_prefix)
             request_adu = frame_prefix + crc
 
-            raw_traffic_logger.debug("RTU Send: %s", _format_bytes(request_adu))
+            log_raw_traffic("sent", request_adu)
 
             # 2. Wait for 3.5 character times since last frame (inter-frame delay)
             time_since_last_frame = time.monotonic() - self._last_frame_end
@@ -208,10 +210,10 @@ class AsyncRtuTransport(AsyncBaseTransport):
             try:
                 response_adu = await self._receive_response()
             except (RTUFrameError, ModbusConnectionError) as e:
-                raw_traffic_logger.debug("RTU Receive: %s [!]", _format_bytes(e.response_bytes))
+                log_raw_traffic("recv", e.response_bytes, is_error=True)
                 raise
             else:
-                raw_traffic_logger.debug("RTU Receive: %s", _format_bytes(response_adu))
+                log_raw_traffic("recv", response_adu)
 
             # 5. Validate CRC
             if not validate_crc16(response_adu):
@@ -267,11 +269,11 @@ class AsyncRtuTransport(AsyncBaseTransport):
                     "Violation of continuous transmission requirement by sender. "
                     f"Missing {bytes_to_read - len(buf)} bytes to complete the frame."
                 )
-                raise RTUFrameError(msg, response_bytes=buf) from None
+                raise RTUFrameError(msg, response_bytes=bytes(buf)) from None
             else:
                 if not chunk:
                     msg = "Serial port closed unexpectedly during response read."
-                    raise ModbusConnectionError(msg, bytes_read=buf)
+                    raise ModbusConnectionError(msg, bytes_read=bytes(buf))
                 buf.extend(chunk)
 
         # If we have read more data than expected, it indicates a framing or out-of-sync error.
@@ -280,7 +282,7 @@ class AsyncRtuTransport(AsyncBaseTransport):
                 "Received more data than expected while reading RTU frame. "
                 f"Got {len(buf) - bytes_to_read} bytes more than expected."
             )
-            raise RTUFrameError(msg, response_bytes=buf)
+            raise RTUFrameError(msg, response_bytes=bytes(buf))
 
         return bytes(buf)
 

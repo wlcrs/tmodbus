@@ -1,14 +1,15 @@
 """Read Coils PDU Module."""
 
 import struct
+from typing import Self
 
 from tmodbus.const import FunctionCode
-from tmodbus.exceptions import InvalidResponseError
+from tmodbus.exceptions import InvalidRequestError, InvalidResponseError
 
 from .base import BaseModbusPDU
 
 
-class ReadCoilsPDU(BaseModbusPDU):
+class ReadCoilsPDU(BaseModbusPDU[list[bool]]):
     """Read Coils PDU."""
 
     function_code = FunctionCode.READ_COILS
@@ -79,8 +80,56 @@ class ReadCoilsPDU(BaseModbusPDU):
 
         return coils[: self.quantity]  # Ensure we return only the requested quantity
 
+    @classmethod
+    def decode_request(cls, request: bytes) -> Self:
+        """Decode Read Coils Request PDU.
 
-class WriteSingleCoilPDU(BaseModbusPDU):
+        Args:
+            request: the request bytes.
+
+        Returns:
+            ReadCoilsPDU: The decoded Read Coils Request PDU.
+
+        """
+        try:
+            function_code, address, quantity = struct.unpack(">BHH", request)
+        except struct.error as e:
+            msg = "Expected request to start with function code, address, and quantity"
+            raise InvalidRequestError(msg, request_bytes=request) from e
+
+        if function_code != cls.function_code:
+            msg = f"Invalid function code: expected {cls.function_code:02x}, received {function_code:02x}"
+            raise InvalidRequestError(msg, request_bytes=request)
+
+        return cls(address, quantity)
+
+    def encode_response(self, value: list[bool]) -> bytes:
+        """Convert PDU to bytes.
+
+        Args:
+            value: List of boolean values representing the coil states
+
+        Returns:
+            Bytes representation of the Read Coils Response PDU
+
+        """
+        byte_count = (len(value) + 7) // 8
+        data = bytearray(byte_count)
+        for i, v in enumerate(value):
+            if v:
+                data[i // 8] |= 1 << (i % 8)
+
+        return (
+            struct.pack(
+                ">BHB",
+                self.function_code,
+                byte_count,
+            )
+            + data
+        )
+
+
+class WriteSingleCoilPDU(BaseModbusPDU[bool]):
     """Write Single Coil PDU."""
 
     function_code = FunctionCode.WRITE_SINGLE_COIL
@@ -114,7 +163,7 @@ class WriteSingleCoilPDU(BaseModbusPDU):
         coil_value = 0xFF00 if self.value else 0x0000
         return struct.pack(">BHH", self.function_code, self.address, coil_value)
 
-    def decode_response(self, response: bytes) -> None:
+    def decode_response(self, response: bytes) -> bool:
         """Decode the response PDU.
 
         Args:
@@ -127,9 +176,50 @@ class WriteSingleCoilPDU(BaseModbusPDU):
         if response != self.encode_request():
             msg = "Expected response to match request"
             raise InvalidResponseError(msg, response_bytes=response)
+        return self.value
+
+    @classmethod
+    def decode_request(cls, request: bytes) -> Self:
+        """Decode Write Single Coil Request PDU.
+
+        Args:
+            request: the request bytes.
+
+        Returns:
+            WriteSingleCoilPDU: The decoded Write Single Coil Request PDU.
+
+        """
+        try:
+            function_code, address, coil_value = struct.unpack(">BHH", request)
+        except struct.error as e:
+            msg = "Expected request to start with function code, address, and value"
+            raise InvalidRequestError(msg, request_bytes=request) from e
+
+        if function_code != cls.function_code:
+            msg = f"Invalid function code: expected {cls.function_code:02x}, received {function_code:02x}"
+            raise InvalidRequestError(msg, request_bytes=request)
+
+        if coil_value not in (0x0000, 0xFF00):
+            msg = f"Invalid coil value: {coil_value:#06x}"
+            raise InvalidRequestError(msg, request_bytes=request)
+
+        return cls(address, coil_value == 0xFF00)
+
+    def encode_response(self, value: bool) -> bytes:  # noqa: FBT001
+        """Encode the response PDU.
+
+        Returns:
+            Bytes representation of the Write Single Coil response PDU.
+
+        Notes:
+            For Write Single Coil, the response echoes the request.
+
+        """
+        coil_value = 0xFF00 if value else 0x0000
+        return struct.pack(">BHH", self.function_code, self.address, coil_value)
 
 
-class WriteMultipleCoilsPDU(BaseModbusPDU):
+class WriteMultipleCoilsPDU(BaseModbusPDU[int]):
     """Write Multiple Coils PDU."""
 
     function_code = FunctionCode.WRITE_MULTIPLE_COILS
@@ -180,7 +270,7 @@ class WriteMultipleCoilsPDU(BaseModbusPDU):
             + data
         )
 
-    def decode_response(self, response: bytes) -> None:
+    def decode_response(self, response: bytes) -> int:
         """Decode the response PDU.
 
         Args:
@@ -201,3 +291,69 @@ class WriteMultipleCoilsPDU(BaseModbusPDU):
         if response != expected_response:
             msg = "Device response does not match request"
             raise InvalidResponseError(msg, response_bytes=response)
+
+        return len(self.values)
+
+    @classmethod
+    def decode_request(cls, request: bytes) -> Self:
+        """Decode Write Multiple Coils Request PDU.
+
+        Args:
+            request: the request bytes.
+
+        Returns:
+            WriteMultipleCoilsPDU: The decoded Write Multiple Coils Request PDU.
+
+        """
+        # Expected format: FC (1) + start address (2) + quantity (2) + byte count (1) + data (N)
+        if len(request) < 6:
+            msg = "Request too short for Write Multiple Coils"
+            raise InvalidRequestError(msg, request_bytes=request)
+
+        try:
+            function_code, start_address, quantity, byte_count = struct.unpack(">BHHB", request[:6])
+        except struct.error as e:
+            msg = "Expected request to start with function code, address, quantity and byte count"
+            raise InvalidRequestError(msg, request_bytes=request) from e
+
+        if function_code != cls.function_code:
+            msg = f"Invalid function code: expected {cls.function_code:02x}, received {function_code:02x}"
+            raise InvalidRequestError(msg, request_bytes=request)
+
+        if not (1 <= quantity <= 0x07B0):
+            msg = "Number of coils must be between 1 and 1968."
+            raise InvalidRequestError(msg, request_bytes=request)
+
+        expected_len = 6 + byte_count
+        if len(request) != expected_len:
+            msg = f"Invalid request length: expected {expected_len}, got {len(request)}"
+            raise InvalidRequestError(msg, request_bytes=request)
+
+        expected_byte_count = (quantity + 7) // 8
+        if byte_count != expected_byte_count:
+            msg = f"Invalid byte count: expected {expected_byte_count}, got {byte_count}"
+            raise InvalidRequestError(msg, request_bytes=request)
+
+        data = request[6:]
+        values: list[bool] = []
+        for byte in data:
+            values.extend([(byte >> bit) & 1 == 1 for bit in range(8)])
+
+        return cls(start_address, values[:quantity])
+
+    def encode_response(self, value: int) -> bytes:
+        """Encode the response PDU.
+
+        Args:
+            value: The number of coils written to.
+
+        Returns:
+            Bytes representation of the Write Multiple Coils response PDU.
+
+        """
+        return struct.pack(
+            ">BHH",
+            self.function_code,
+            self.address,
+            value,
+        )

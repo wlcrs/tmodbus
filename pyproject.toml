@@ -6,7 +6,7 @@ readme = "README.md"
 requires-python = ">=3.12"
 keywords = ["modbus", "modbus-tcp", "modbus-rtu"]
 dependencies = [
-    "pyserial-asyncio>=0.6.0",
+    "pyserial-asyncio-fast>=0.16",
 ]
 
 [project.optional-dependencies]

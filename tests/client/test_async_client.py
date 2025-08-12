@@ -50,6 +50,8 @@ def dummy_client() -> AsyncModbusClient:
 
 async def test_async_modbus_client_open_close(dummy_client: AsyncModbusClient):
     """Test opening and closing the transport connection."""
+    assert isinstance(dummy_client.transport, DummyAsyncTransport)
+
     # Initially, the transport should not be open
     assert not dummy_client.transport.is_open()
 
@@ -74,6 +76,8 @@ def test_async_modbus_client_initialization():
 
 async def test_async_modbus_client_execute(dummy_client: AsyncModbusClient):
     """Test the execute method of AsyncModbusClient."""
+    assert isinstance(dummy_client.transport, DummyAsyncTransport)
+
     unit_id = 1
     pdu = ReadCoilsPDU(start_address=0, quantity=8)
 
@@ -87,6 +91,7 @@ async def test_async_modbus_client_execute(dummy_client: AsyncModbusClient):
 
 async def test_async_modbus_client_read_coils(dummy_client: AsyncModbusClient):
     """Test the read_coils method of AsyncModbusClient."""
+    assert isinstance(dummy_client.transport, DummyAsyncTransport)
     unit_id = 1
     start_address = 0
     quantity = 8
@@ -101,6 +106,8 @@ async def test_async_modbus_client_read_coils(dummy_client: AsyncModbusClient):
 
 async def test_async_modbus_client_read_discrete_inputs(dummy_client: AsyncModbusClient):
     """Test the read_discrete_inputs method of AsyncModbusClient."""
+    assert isinstance(dummy_client.transport, DummyAsyncTransport)
+
     unit_id = 1
     start_address = 0
     quantity = 8
@@ -115,6 +122,8 @@ async def test_async_modbus_client_read_discrete_inputs(dummy_client: AsyncModbu
 
 async def test_async_modbus_client_read_holding_registers(dummy_client: AsyncModbusClient):
     """Test the read_holding_registers method of AsyncModbusClient."""
+    assert isinstance(dummy_client.transport, DummyAsyncTransport)
+
     unit_id = 1
     start_address = 0
     quantity = 8
@@ -129,6 +138,8 @@ async def test_async_modbus_client_read_holding_registers(dummy_client: AsyncMod
 
 async def test_async_modbus_client_read_input_registers(dummy_client: AsyncModbusClient):
     """Test the read_input_registers method of AsyncModbusClient."""
+    assert isinstance(dummy_client.transport, DummyAsyncTransport)
+
     unit_id = 1
     start_address = 0
     quantity = 8
@@ -143,6 +154,8 @@ async def test_async_modbus_client_read_input_registers(dummy_client: AsyncModbu
 
 async def test_async_modbus_client_write_single_coil(dummy_client: AsyncModbusClient):
     """Test the write_single_coil method of AsyncModbusClient."""
+    assert isinstance(dummy_client.transport, DummyAsyncTransport)
+
     unit_id = 1
     address = 0
     value = True
@@ -157,6 +170,8 @@ async def test_async_modbus_client_write_single_coil(dummy_client: AsyncModbusCl
 
 async def test_async_modbus_client_write_multiple_coils(dummy_client: AsyncModbusClient):
     """Test the write_multiple_coils method of AsyncModbusClient."""
+    assert isinstance(dummy_client.transport, DummyAsyncTransport)
+
     unit_id = 1
     start_address = 0
     values = [True, False, True, False]
@@ -171,6 +186,8 @@ async def test_async_modbus_client_write_multiple_coils(dummy_client: AsyncModbu
 
 async def test_async_modbus_client_write_single_register(dummy_client: AsyncModbusClient):
     """Test the write_single_register method of AsyncModbusClient."""
+    assert isinstance(dummy_client.transport, DummyAsyncTransport)
+
     unit_id = 1
     address = 0
     value = 1234
@@ -185,6 +202,8 @@ async def test_async_modbus_client_write_single_register(dummy_client: AsyncModb
 
 async def test_async_modbus_client_write_multiple_registers(dummy_client: AsyncModbusClient):
     """Test the write_multiple_registers method of AsyncModbusClient."""
+    assert isinstance(dummy_client.transport, DummyAsyncTransport)
+
     unit_id = 1
     start_address = 0
     values = [1234, 5678, 123]
@@ -199,11 +218,12 @@ async def test_async_modbus_client_write_multiple_registers(dummy_client: AsyncM
 
 async def test_async_modbus_client_context_manager(dummy_client: AsyncModbusClient):
     """Test the async context manager functionality of AsyncModbusClient."""
+    assert isinstance(dummy_client.transport, DummyAsyncTransport)
     assert not dummy_client.transport.is_open()
 
     async with dummy_client as client:
         assert client.transport.is_open()
-        assert "open" in client.transport.performed_actions
+        assert "open" in dummy_client.transport.performed_actions
 
     assert not client.transport.is_open()
-    assert "close" in client.transport.performed_actions
+    assert "close" in dummy_client.transport.performed_actions

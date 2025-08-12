@@ -287,7 +287,7 @@ class HoldingRegisterWriteMixin(SupportsExecuteAsync):
         *,
         format_struct: struct.Struct,
         unit_id: int,
-    ) -> None:
+    ) -> int:
         """Write holding registers using the provided struct format.
 
         Args:
@@ -297,7 +297,7 @@ class HoldingRegisterWriteMixin(SupportsExecuteAsync):
             unit_id: Unit ID
 
         Returns:
-            None
+            The number of registers that have been written.
 
         """
         return await self.execute(

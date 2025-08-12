@@ -66,14 +66,14 @@ def test_write_single_coil_decode_response():
     """Test decoding of Write Single Coil PDU."""
     pdu = WriteSingleCoilPDU(address=1, value=True)
     response_bytes = bytearray.fromhex("05 00 01 FF 00")
-    assert pdu.decode_response(response_bytes) is None
+    assert pdu.decode_response(response_bytes) is True
 
     with pytest.raises(InvalidResponseError, match="Expected response to match request"):
         pdu.decode_response(bytearray.fromhex("06 00 01 FF 00"))
 
     pdu = WriteSingleCoilPDU(address=12345, value=False)
     response_bytes = bytearray.fromhex("05 30 39 00 00")
-    assert pdu.decode_response(response_bytes) is None
+    assert pdu.decode_response(response_bytes) is False
 
     with pytest.raises(InvalidResponseError, match="Expected response to match request"):
         pdu.decode_response(bytearray.fromhex("06 30 39 00 00"))
@@ -121,7 +121,7 @@ def test_write_multiple_coils_encode_request(start_address: int, values: list[bo
 def test_write_multiple_coils_decode_response(response: bytearray, address: int, value_count: int):
     """Test decoding of Write Multiple Coils PDU."""
     pdu = WriteMultipleCoilsPDU(start_address=address, values=[True] * value_count)
-    assert pdu.decode_response(response) is None
+    assert pdu.decode_response(response) == value_count
 
     invalid_pdu = WriteMultipleCoilsPDU(start_address=address, values=[False] * (value_count + 1))
     with pytest.raises(InvalidResponseError, match="Device response does not match request"):

@@ -6,6 +6,7 @@ Implements async Modbus TCP protocol transport based on asyncio, including MBAP 
 import asyncio
 import logging
 import struct
+from functools import partial
 from typing import Any, TypeVar
 
 from tmodbus.exceptions import (
@@ -15,13 +16,14 @@ from tmodbus.exceptions import (
     error_code_to_exception_map,
 )
 from tmodbus.pdu import BaseModbusPDU
-from tmodbus.utils.raw_traffic_logger import _format_bytes, raw_traffic_logger
+from tmodbus.utils.raw_traffic_logger import log_raw_traffic as base_log_raw_traffic
 
 from .async_base import AsyncBaseTransport
 
 RT = TypeVar("RT")
 
 logger = logging.getLogger(__name__)
+log_raw_traffic = partial(base_log_raw_traffic, "TCP")
 
 
 class AsyncTcpTransport(AsyncBaseTransport):
@@ -158,7 +160,7 @@ class AsyncTcpTransport(AsyncBaseTransport):
 
             # 2. Build complete request frame
             request_frame = mbap_header + request_pdu_bytes
-            raw_traffic_logger.debug("TCP Send: %s", _format_bytes(request_frame))
+            log_raw_traffic("sent", request_frame)
 
             # 3. Async send request
             if self._writer is None:
@@ -203,10 +205,10 @@ class AsyncTcpTransport(AsyncBaseTransport):
             try:
                 response_pdu_bytes = await self._receive_exact(pdu_length)
             except ModbusConnectionError as e:
-                raw_traffic_logger.debug("TCP Receive: %s [!]", _format_bytes(e.response_bytes))
+                log_raw_traffic("recv", e.response_bytes, is_error=True)
                 raise
             else:
-                raw_traffic_logger.debug("TCP Receive: %s", _format_bytes(response_mbap + response_pdu_bytes))
+                log_raw_traffic("recv", response_mbap + response_pdu_bytes)
 
             # 8.Check if it's an exception response
             if len(response_pdu_bytes) > 0 and response_pdu_bytes[0] & 0x80:  # Exception response

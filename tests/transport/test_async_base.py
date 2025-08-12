@@ -11,6 +11,9 @@ DUMMY_RESPONSE = "dummy_response"
 class DummyAsyncTransport(AsyncBaseTransport):
     """A dummy async transport for testing purposes."""
 
+    performed_actions: list[str | list[str | int]]  # Actions performed by the transport
+    opened: bool  # Indicates if the transport is open
+
     def __init__(self) -> None:
         """Initialize the dummy transport."""
         self.performed_actions = []

@@ -24,6 +24,18 @@ class ModbusConnectionError(TModbusError):
         self.response_bytes = bytes_read or b""
 
 
+class InvalidRequestError(TModbusError):
+    """Invalid request error exception.
+
+    Raised when a request is malformed or invalid.
+    """
+
+    def __init__(self, *args: Any, request_bytes: bytes | None = None, **kwargs: Any) -> None:
+        """Initialize InvalidRequestError."""
+        super().__init__(*args, **kwargs)
+        self.request_bytes = request_bytes or b""
+
+
 class InvalidResponseError(TModbusError):
     """Invalid response error exception.
 

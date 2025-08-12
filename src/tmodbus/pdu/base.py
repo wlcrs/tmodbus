@@ -1,7 +1,7 @@
 """Base class for Modbus PDU (Protocol Data Unit) handling."""
 
 from abc import ABC, abstractmethod
-from typing import TypeVar
+from typing import Self, TypeVar
 
 RT = TypeVar("RT")
 
@@ -67,3 +67,22 @@ class BaseModbusPDU[RT](ABC):
             1  # the first byte containing the total length of the PDU
             + data[0]
         )
+
+    ### Server methods ###
+
+    @classmethod
+    @abstractmethod
+    def decode_request(cls, request: bytes) -> Self:
+        """Create an instance of this PDU from a request byte sequence."""
+
+    @abstractmethod
+    def encode_response(self, value: RT) -> bytes:
+        """Convert the response value to bytes.
+
+        Args:
+            value: The value to encode in the response
+
+        Returns:
+            Bytes representation of the response PDU
+
+        """

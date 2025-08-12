@@ -174,13 +174,16 @@ class AsyncModbusClient(HoldingRegisterReadMixin, HoldingRegisterWriteMixin):
         value: bool,  # noqa: FBT001
         *,
         unit_id: int,
-    ) -> None:
+    ) -> int:
         """Write Single Coil (Function Code 0x05).
 
         Args:
             address: Coil address
             value: Coil value (True for ON, False for OFF)
             unit_id: Unit ID
+
+        Returns:
+            The value that was written
 
         Example:
             >>> await client.write_single_coil(0, True, unit_id=1)  # Write ON to coil 0
@@ -194,12 +197,15 @@ class AsyncModbusClient(HoldingRegisterReadMixin, HoldingRegisterWriteMixin):
         value: int,
         *,
         unit_id: int,
-    ) -> None:
+    ) -> int:
         """Write Single Register (Function Code 0x06).
 
         Args:
             address: Register address
             value: Register value (0-65535)
+
+        Returns:
+            the value that was written
 
         Example:
             >>> await client.write_single_register(0, 1234, unit_id=1) # Write 1234 to register 0
@@ -213,13 +219,16 @@ class AsyncModbusClient(HoldingRegisterReadMixin, HoldingRegisterWriteMixin):
         values: list[bool],
         *,
         unit_id: int,
-    ) -> None:
+    ) -> int:
         """Write Multiple Coils (Function Code 0x0F).
 
         Args:
             start_address: Starting address
             values: List of coil values, True for ON, False for OFF
             unit_id: Unit ID
+
+        Returns:
+            The number of coils that have been written to.
 
         Example:
             >>> await client.write_multiple_coils(0, [True, False, True, False], unit_id=1)
@@ -233,7 +242,7 @@ class AsyncModbusClient(HoldingRegisterReadMixin, HoldingRegisterWriteMixin):
         values: list[int],
         *,
         unit_id: int,
-    ) -> None:
+    ) -> int:
         """Write Multiple Registers (Function Code 0x10).
 
         Args:
@@ -241,6 +250,8 @@ class AsyncModbusClient(HoldingRegisterReadMixin, HoldingRegisterWriteMixin):
             values: List of register values, each value 0-65535
             unit_id: Unit ID
 
+        Returns:
+            The number of registers that have been written to.
 
         Example:
             >>> await client.write_multiple_registers(0, [1234, 5678, 9012], unit_id=1)

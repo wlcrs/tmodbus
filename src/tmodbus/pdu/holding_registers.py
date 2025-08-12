@@ -1,14 +1,15 @@
-"""Read Coils PDU Module."""
+"""Holding/Input Registers PDU Module."""
 
 import struct
+from typing import Self
 
 from tmodbus.const import FunctionCode
-from tmodbus.exceptions import InvalidResponseError
+from tmodbus.exceptions import InvalidRequestError, InvalidResponseError
 
 from .base import BaseModbusPDU
 
 
-class RawReadHoldingRegistersPDU(BaseModbusPDU):
+class RawReadHoldingRegistersPDU(BaseModbusPDU[bytes]):
     """Read Holding Register as raw bytes PDU implementation."""
 
     function_code = FunctionCode.READ_HOLDING_REGISTERS
@@ -75,8 +76,43 @@ class RawReadHoldingRegistersPDU(BaseModbusPDU):
 
         return response[2:]  # Return the data part of the response
 
+    @classmethod
+    def decode_request(cls, request: bytes) -> Self:
+        """Decode Read Holding Registers Request PDU.
 
-class ReadHoldingRegistersPDU(BaseModbusPDU):
+        Args:
+            request: The request bytes.
+
+        Returns:
+            RawReadHoldingRegistersPDU instance created from the request.
+
+        """
+        try:
+            function_code, address, quantity = struct.unpack(">BHH", request)
+        except struct.error as e:
+            msg = "Expected request to start with function code, address, and quantity"
+            raise InvalidRequestError(msg, request_bytes=request) from e
+
+        if function_code != cls.function_code:
+            msg = f"Invalid function code: expected {cls.function_code:02x}, received {function_code:02x}"
+            raise InvalidRequestError(msg, request_bytes=request)
+
+        return cls(address, quantity)
+
+    def encode_response(self, value: bytes) -> bytes:
+        """Encode the response PDU with raw bytes.
+
+        Args:
+            value: Raw bytes representing register data.
+
+        Returns:
+            Bytes representation of the Read Holding Registers response PDU.
+
+        """
+        return struct.pack(">BB", self.function_code, len(value)) + value
+
+
+class ReadHoldingRegistersPDU(BaseModbusPDU[list[int]]):
     """Read Holding Register PDU."""
 
     function_code = FunctionCode.READ_HOLDING_REGISTERS
@@ -121,6 +157,42 @@ class ReadHoldingRegistersPDU(BaseModbusPDU):
 
         return [*struct.unpack(f">{'H' * (len(response_bytes) // 2)}", response_bytes)]
 
+    @classmethod
+    def decode_request(cls, request: bytes) -> Self:
+        """Decode Read Holding Registers Request PDU.
+
+        Args:
+            request: The request bytes.
+
+        Returns:
+            ReadHoldingRegistersPDU instance created from the request.
+
+        """
+        try:
+            function_code, address, quantity = struct.unpack(">BHH", request)
+        except struct.error as e:
+            msg = "Expected request to start with function code, address, and quantity"
+            raise InvalidRequestError(msg, request_bytes=request) from e
+
+        if function_code != cls.function_code:
+            msg = f"Invalid function code: expected {cls.function_code:02x}, received {function_code:02x}"
+            raise InvalidRequestError(msg, request_bytes=request)
+
+        return cls(address, quantity)
+
+    def encode_response(self, value: list[int]) -> bytes:
+        """Encode the response PDU with register values.
+
+        Args:
+            value: List of register values (unsigned 16-bit).
+
+        Returns:
+            Bytes representation of the Read Holding Registers response PDU.
+
+        """
+        data = struct.pack(f">{'H' * len(value)}", *value)
+        return struct.pack(">BB", self.function_code, len(data)) + data
+
 
 class RawReadInputRegistersPDU(RawReadHoldingRegistersPDU):
     """Raw Read Input Registers PDU.
@@ -155,8 +227,10 @@ class ReadInputRegistersPDU(ReadHoldingRegistersPDU):
         super(ReadHoldingRegistersPDU, self).__init__(start_address)
         self.raw_pdu = RawReadInputRegistersPDU(start_address, quantity)
 
+    # decode_request and encode_response inherited from ReadHoldingRegistersPDU
 
-class WriteSingleRegisterPDU(BaseModbusPDU):
+
+class WriteSingleRegisterPDU(BaseModbusPDU[int]):
     """Write Single Register PDU."""
 
     function_code = FunctionCode.WRITE_SINGLE_REGISTER
@@ -188,7 +262,7 @@ class WriteSingleRegisterPDU(BaseModbusPDU):
         """
         return struct.pack(">BHH", self.function_code, self.address, self.value)
 
-    def decode_response(self, response: bytes) -> None:
+    def decode_response(self, response: bytes) -> int:
         """Decode the response PDU.
 
         Args:
@@ -204,9 +278,42 @@ class WriteSingleRegisterPDU(BaseModbusPDU):
         if response != self.encode_request():
             msg = "Expected response to match request"
             raise InvalidResponseError(msg, response_bytes=response)
+        return self.value
+
+    @classmethod
+    def decode_request(cls, request: bytes) -> Self:
+        """Decode Write Single Register Request PDU.
+
+        Args:
+            request: The request bytes.
+
+        Returns:
+            WriteSingleRegisterPDU instance created from the request.
+
+        """
+        try:
+            function_code, address, value = struct.unpack(">BHH", request)
+        except struct.error as e:
+            msg = "Expected request to start with function code, address, and value"
+            raise InvalidRequestError(msg, request_bytes=request) from e
+
+        if function_code != cls.function_code:
+            msg = f"Invalid function code: expected {cls.function_code:02x}, received {function_code:02x}"
+            raise InvalidRequestError(msg, request_bytes=request)
+
+        return cls(address, value)
+
+    def encode_response(self, value: int) -> bytes:  # type: ignore[override]
+        """Encode the response PDU.
+
+        Returns:
+            Bytes representation of the Write Single Register response PDU (echo).
+
+        """
+        return struct.pack(">BHH", self.function_code, self.address, value)
 
 
-class RawWriteMultipleRegistersPDU(BaseModbusPDU):
+class RawWriteMultipleRegistersPDU(BaseModbusPDU[int]):
     """Write Multiple Registers PDU."""
 
     function_code = FunctionCode.WRITE_MULTIPLE_REGISTERS
@@ -259,14 +366,14 @@ class RawWriteMultipleRegistersPDU(BaseModbusPDU):
             + self.content
         )
 
-    def decode_response(self, response: bytes) -> None:
+    def decode_response(self, response: bytes) -> int:
         """Verify the response PDU.
 
         Args:
             response: Response PDU bytes
 
         Returns:
-            None
+            Number of registers written to
 
         Raises:
             InvalidResponseError: If response format is invalid
@@ -283,9 +390,66 @@ class RawWriteMultipleRegistersPDU(BaseModbusPDU):
         if response != expected_response:
             msg = "Device response does not match request"
             raise InvalidResponseError(msg, response_bytes=response)
+        return len(self.content) // 2  # Return number of registers written
+
+    @classmethod
+    def decode_request(cls, request: bytes) -> Self:
+        """Decode Write Multiple Registers Request PDU.
+
+        Args:
+            request: The request bytes.
+
+        Returns:
+            RawWriteMultipleRegistersPDU instance created from the request.
+
+        """
+        if len(request) < 6:
+            msg = "Request too short for Write Multiple Registers"
+            raise InvalidRequestError(msg, request_bytes=request)
+
+        try:
+            function_code, start_address, quantity, byte_count = struct.unpack(">BHHB", request[:6])
+        except struct.error as e:
+            msg = "Expected request to start with function code, address, quantity and byte count"
+            raise InvalidRequestError(msg, request_bytes=request) from e
+
+        if function_code != cls.function_code:
+            msg = f"Invalid function code: expected {cls.function_code:02x}, received {function_code:02x}"
+            raise InvalidRequestError(msg, request_bytes=request)
+
+        if byte_count % 2 != 0:
+            msg = "Byte count must be even for register values"
+            raise InvalidRequestError(msg, request_bytes=request)
+
+        if quantity != byte_count // 2:
+            msg = f"Invalid register count: expected {byte_count // 2}, got {quantity}"
+            raise InvalidRequestError(msg, request_bytes=request)
+
+        content = request[6:]
+        if len(content) != byte_count:
+            msg = f"Invalid data length: expected {byte_count}, got {len(content)}"
+            raise InvalidRequestError(msg, request_bytes=request)
+        return cls(start_address, content)
+
+    def encode_response(self, value: int) -> bytes:
+        """Encode the response PDU.
+
+        Args:
+            value: the number of registers that has been written to.
+
+        Returns:
+            Bytes representation of the Write Multiple Registers response PDU.
+
+        """
+        return struct.pack(
+            ">BHH",
+            self.function_code,
+            self.address,
+            value,
+        )
 
 
-class WriteMultipleRegistersPDU(BaseModbusPDU):
+class WriteMultipleRegistersPDU(BaseModbusPDU[int]):
     """Write Multiple Registers PDU."""
 
     function_code = FunctionCode.WRITE_MULTIPLE_REGISTERS
@@ -325,7 +489,7 @@ class WriteMultipleRegistersPDU(BaseModbusPDU):
         """
         return self.raw_pdu.encode_request()
 
-    def decode_response(self, response: bytes) -> None:
+    def decode_response(self, response: bytes) -> int:
         """Verify the response PDU.
 
         Args:
@@ -339,3 +503,28 @@ class WriteMultipleRegistersPDU(BaseModbusPDU):
 
         """
         return self.raw_pdu.decode_response(response)
+
+    @classmethod
+    def decode_request(cls, request: bytes) -> Self:
+        """Decode Write Multiple Registers Request PDU.
+
+        Args:
+            request: The request bytes.
+
+        Returns:
+            WriteMultipleRegistersPDU instance created from the request.
+
+        """
+        raw = RawWriteMultipleRegistersPDU.decode_request(request)
+        # Convert content bytes to list of ints
+        values = list(struct.unpack(f">{'H' * (len(raw.content) // 2)}", raw.content))
+        return cls(raw.address, values)
+
+    def encode_response(self, value: int) -> bytes:
+        """Encode the response PDU.
+
+        Returns:
+            Bytes representation of the Write Multiple Registers response PDU.
+
+        """
+        return super().encode_response(value)

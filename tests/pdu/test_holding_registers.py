@@ -72,7 +72,7 @@ def test_write_single_register_decode_response():
     """Test decoding of Write Single Register PDU."""
     pdu = WriteSingleRegisterPDU(address=1, value=12345)
     response_bytes = bytearray.fromhex("06 00 01 30 39")
-    assert pdu.decode_response(response_bytes) is None
+    assert pdu.decode_response(response_bytes) == 12345
 
     with pytest.raises(InvalidResponseError, match="Expected response to match request"):
         pdu.decode_response(bytearray.fromhex("07 00 01 30 39"))
@@ -101,7 +101,7 @@ def test_write_multiple_registers_decode_response():
     """Test decoding of Write Multiple Registers PDU."""
     pdu = WriteMultipleRegistersPDU(start_address=1, values=[12345, 255])
     response_bytes = bytearray.fromhex("10 00 01 00 02")
-    assert pdu.decode_response(response_bytes) is None
+    assert pdu.decode_response(response_bytes) == 2
 
     with pytest.raises(InvalidResponseError, match="Device response does not match request"):
         pdu.decode_response(bytearray.fromhex("11 00 01 00 02"))

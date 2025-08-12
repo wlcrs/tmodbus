@@ -1,4 +1,3 @@
-
 from tmodbus.pdu import BaseModbusPDU
 
 
@@ -23,4 +22,4 @@ def test_base_modbus_pdu_expected_data_length():
         def decode_response(self, response: bytes) -> None:
             pass
 
-    assert TestPDUWithoutLength.get_expected_data_length(b"\x0f") == 15
+    assert TestPDUWithoutLength.get_expected_data_length(b"\x0f") == 16

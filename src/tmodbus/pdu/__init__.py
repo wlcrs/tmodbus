@@ -1,5 +1,7 @@
 """Modbus Protocol Data Unit (PDU)."""
 
+from typing import Any
+
 from tmodbus.const import FunctionCode
 
 from .base import BaseModbusPDU
@@ -12,7 +14,7 @@ from .holding_registers import (
     WriteSingleRegisterPDU,
 )
 
-function_code_to_pdu_map = {
+function_code_to_pdu_map: dict[FunctionCode, type[BaseModbusPDU[Any]]] = {
     FunctionCode.READ_COILS: ReadCoilsPDU,
     FunctionCode.READ_DISCRETE_INPUTS: ReadDiscreteInputsPDU,
     FunctionCode.READ_HOLDING_REGISTERS: ReadHoldingRegistersPDU,
@@ -24,7 +26,7 @@ function_code_to_pdu_map = {
 }
 
 
-def get_pdu_class(function_code: FunctionCode | int) -> type[BaseModbusPDU]:
+def get_pdu_class(function_code: FunctionCode | int) -> type[BaseModbusPDU[Any]]:
     """Get PDU class by function code.
 
     Args:
@@ -37,12 +39,11 @@ def get_pdu_class(function_code: FunctionCode | int) -> type[BaseModbusPDU]:
         ValueError: If function code is not supported
 
     """
-    if isinstance(function_code, int):
-        try:
-            function_code = FunctionCode(function_code)
-        except ValueError:
-            msg = f"Unknown function code: {function_code}"
-            raise ValueError(msg) from None
+    try:
+        function_code = FunctionCode(function_code)
+    except ValueError:
+        msg = f"Unknown function code: {function_code}"
+        raise ValueError(msg) from None
 
     try:
         return function_code_to_pdu_map[function_code]
