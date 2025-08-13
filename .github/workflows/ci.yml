@@ -19,3 +19,5 @@ jobs:
 
       - name: Run pytest
         uses: pavelzw/pytest-action@v2.2.0
+        with:
+          custom-arguments: "tests/"
