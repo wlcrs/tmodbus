@@ -1,6 +1,6 @@
 from typing import TypeVar
 
-from tmodbus.pdu import BaseModbusPDU
+from tmodbus.pdu import BasePDU
 from tmodbus.transport.async_base import AsyncBaseTransport
 
 RT = TypeVar("RT")
@@ -34,7 +34,7 @@ class DummyAsyncTransport(AsyncBaseTransport):
         self.performed_actions.append("is_open")
         return self.opened
 
-    async def send_and_receive(self, unit_id: int, pdu: BaseModbusPDU[RT]) -> RT:
+    async def send_and_receive(self, unit_id: int, pdu: BasePDU[RT]) -> RT:
         """Send a PDU and receive a response."""
         self.performed_actions.append(["send_and_receive", unit_id, type(pdu).__name__])
         # For testing, just return None

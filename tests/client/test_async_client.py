@@ -3,7 +3,7 @@ from typing import TypeVar
 import pytest
 
 from tmodbus.client.async_client import AsyncModbusClient
-from tmodbus.pdu import BaseModbusPDU, ReadCoilsPDU
+from tmodbus.pdu import BasePDU, ReadCoilsPDU
 from tmodbus.transport.async_base import AsyncBaseTransport
 
 RT = TypeVar("RT")
@@ -34,7 +34,7 @@ class DummyAsyncTransport(AsyncBaseTransport):
         self.performed_actions.append("is_open")
         return self.opened
 
-    async def send_and_receive(self, unit_id: int, pdu: BaseModbusPDU[RT]) -> RT:
+    async def send_and_receive(self, unit_id: int, pdu: BasePDU[RT]) -> RT:
         """Send a PDU and receive a response."""
         self.performed_actions.append(["send_and_receive", unit_id, type(pdu).__name__])
         # For testing, just return a fixed dummy response

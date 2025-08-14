@@ -4,7 +4,7 @@ from typing import Any
 
 from tmodbus.const import FunctionCode
 
-from .base import BaseModbusPDU
+from .base import BasePDU
 from .coils import ReadCoilsPDU, WriteMultipleCoilsPDU, WriteSingleCoilPDU
 from .discrete_inputs import ReadDiscreteInputsPDU
 from .holding_registers import (
@@ -14,7 +14,7 @@ from .holding_registers import (
     WriteSingleRegisterPDU,
 )
 
-function_code_to_pdu_map: dict[FunctionCode, type[BaseModbusPDU[Any]]] = {
+function_code_to_pdu_map: dict[int, type[BasePDU[Any]]] = {
     FunctionCode.READ_COILS: ReadCoilsPDU,
     FunctionCode.READ_DISCRETE_INPUTS: ReadDiscreteInputsPDU,
     FunctionCode.READ_HOLDING_REGISTERS: ReadHoldingRegistersPDU,
@@ -26,7 +26,17 @@ function_code_to_pdu_map: dict[FunctionCode, type[BaseModbusPDU[Any]]] = {
 }
 
 
-def get_pdu_class(function_code: FunctionCode | int) -> type[BaseModbusPDU[Any]]:
+def register_pdu_class(pdu_class: type[BasePDU[Any]]) -> None:
+    """Register a PDU class for a specific function code.
+
+    Args:
+        pdu_class: PDU class to register
+
+    """
+    function_code_to_pdu_map[pdu_class.function_code] = pdu_class
+
+
+def get_pdu_class(function_code: FunctionCode | int) -> type[BasePDU[Any]]:
     """Get PDU class by function code.
 
     Args:
@@ -55,7 +65,7 @@ def get_pdu_class(function_code: FunctionCode | int) -> type[BaseModbusPDU[Any]]
 
 
 __all__ = [
-    "BaseModbusPDU",
+    "BasePDU",
     "ReadCoilsPDU",
     "ReadDiscreteInputsPDU",
     "ReadHoldingRegistersPDU",

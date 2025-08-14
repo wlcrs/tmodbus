@@ -1,10 +1,10 @@
-from tmodbus.pdu import BaseModbusPDU
+from tmodbus.pdu import BasePDU
 
 
 def test_base_modbus_pdu_expected_data_length():
     """Test expected data length for BaseModbusPDU."""
 
-    class TestPDU(BaseModbusPDU):
+    class TestPDU(BasePDU):
         rtu_response_data_length = 10
 
         def encode_request(self) -> bytes:
@@ -15,7 +15,7 @@ def test_base_modbus_pdu_expected_data_length():
 
     assert TestPDU.get_expected_data_length(b"") == 10
 
-    class TestPDUWithoutLength(BaseModbusPDU):
+    class TestPDUWithoutLength(BasePDU):
         def encode_request(self) -> bytes:
             return b""
 

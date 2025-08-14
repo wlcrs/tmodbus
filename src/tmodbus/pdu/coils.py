@@ -6,10 +6,10 @@ from typing import Self
 from tmodbus.const import FunctionCode
 from tmodbus.exceptions import InvalidRequestError, InvalidResponseError
 
-from .base import BaseModbusPDU
+from .base import BasePDU
 
 
-class ReadCoilsPDU(BaseModbusPDU[list[bool]]):
+class ReadCoilsPDU(BasePDU[list[bool]]):
     """Read Coils PDU."""
 
     function_code = FunctionCode.READ_COILS
@@ -129,7 +129,7 @@ class ReadCoilsPDU(BaseModbusPDU[list[bool]]):
         )
 
 
-class WriteSingleCoilPDU(BaseModbusPDU[bool]):
+class WriteSingleCoilPDU(BasePDU[bool]):
     """Write Single Coil PDU."""
 
     function_code = FunctionCode.WRITE_SINGLE_COIL
@@ -219,7 +219,7 @@ class WriteSingleCoilPDU(BaseModbusPDU[bool]):
         return struct.pack(">BHH", self.function_code, self.address, coil_value)
 
 
-class WriteMultipleCoilsPDU(BaseModbusPDU[int]):
+class WriteMultipleCoilsPDU(BasePDU[int]):
     """Write Multiple Coils PDU."""
 
     function_code = FunctionCode.WRITE_MULTIPLE_COILS

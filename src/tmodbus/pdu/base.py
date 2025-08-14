@@ -6,8 +6,8 @@ from typing import Self, TypeVar
 RT = TypeVar("RT")
 
 
-class BaseModbusPDU[RT](ABC):
-    """Base class for Modbus PDU (Protocol Data Unit) handling."""
+class BaseClientPDU[RT](ABC):
+    """Base class that defines the functions needed to handle Modbus PDUs on the client-side."""
 
     function_code: int
     rtu_response_data_length: int | None = None
@@ -67,6 +67,10 @@ class BaseModbusPDU[RT](ABC):
             1  # the first byte containing the total length of the PDU
             + data[0]
         )
+
+
+class BasePDU[RT](BaseClientPDU):
+    """Base class that defines the functions needed to handle Modbus PDUs on both the client-side and server-side."""
 
     ### Server methods ###
 

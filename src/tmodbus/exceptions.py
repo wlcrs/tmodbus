@@ -165,3 +165,17 @@ error_code_to_exception_map: dict[int, type[ModbusResponseError]] = {
     GatewayPathUnavailableError.error_code: GatewayPathUnavailableError,
     GatewayTargetDeviceFailedToRespondError.error_code: GatewayTargetDeviceFailedToRespondError,
 }
+
+
+def register_custom_exception(err_cls: type[ModbusResponseError]) -> None:
+    """Register a custom Modbus exception class.
+
+    Args:
+        err_cls: Custom exception class to register
+
+    """
+    if err_cls.error_code in error_code_to_exception_map:
+        msg = f"Error code {err_cls.error_code} is already registered."
+        raise ValueError(msg)
+
+    error_code_to_exception_map[err_cls.error_code] = err_cls

@@ -3,7 +3,7 @@
 import struct
 from typing import Any, Protocol, TypeVar
 
-from .base import BaseModbusPDU
+from .base import BasePDU
 from .holding_registers import RawReadHoldingRegistersPDU, RawReadInputRegistersPDU, RawWriteMultipleRegistersPDU
 
 RT = TypeVar("RT")
@@ -12,7 +12,7 @@ RT = TypeVar("RT")
 class SupportsExecuteAsync(Protocol):
     """Protocol for classes that support the execute method."""
 
-    async def execute(self, pdu: BaseModbusPDU[RT], *, unit_id: int) -> RT:
+    async def execute(self, pdu: BasePDU[RT], *, unit_id: int) -> RT:
         """Send the PDU and return the response."""
         ...
 

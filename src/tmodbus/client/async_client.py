@@ -7,7 +7,7 @@ from types import TracebackType
 from typing import Self, TypeVar
 
 from tmodbus.pdu import (
-    BaseModbusPDU,
+    BasePDU,
     ReadCoilsPDU,
     ReadDiscreteInputsPDU,
     ReadHoldingRegistersPDU,
@@ -56,7 +56,7 @@ class AsyncModbusClient(HoldingRegisterReadMixin, HoldingRegisterWriteMixin):
         """Close the server connection."""
         await self.transport.close()
 
-    async def execute(self, pdu: BaseModbusPDU[RT], *, unit_id: int) -> RT:
+    async def execute(self, pdu: BasePDU[RT], *, unit_id: int) -> RT:
         """Execute PDU Request.
 
         Args:

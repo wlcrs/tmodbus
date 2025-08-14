@@ -6,10 +6,10 @@ from typing import Self
 from tmodbus.const import FunctionCode
 from tmodbus.exceptions import InvalidRequestError, InvalidResponseError
 
-from .base import BaseModbusPDU
+from .base import BasePDU
 
 
-class RawReadHoldingRegistersPDU(BaseModbusPDU[bytes]):
+class RawReadHoldingRegistersPDU(BasePDU[bytes]):
     """Read Holding Register as raw bytes PDU implementation."""
 
     function_code = FunctionCode.READ_HOLDING_REGISTERS
@@ -112,7 +112,7 @@ class RawReadHoldingRegistersPDU(BaseModbusPDU[bytes]):
         return struct.pack(">BB", self.function_code, len(value)) + value
 
 
-class ReadHoldingRegistersPDU(BaseModbusPDU[list[int]]):
+class ReadHoldingRegistersPDU(BasePDU[list[int]]):
     """Read Holding Register PDU."""
 
     function_code = FunctionCode.READ_HOLDING_REGISTERS
@@ -230,7 +230,7 @@ class ReadInputRegistersPDU(ReadHoldingRegistersPDU):
     # decode_request and encode_response inherited from ReadHoldingRegistersPDU
 
 
-class WriteSingleRegisterPDU(BaseModbusPDU[int]):
+class WriteSingleRegisterPDU(BasePDU[int]):
     """Write Single Register PDU."""
 
     function_code = FunctionCode.WRITE_SINGLE_REGISTER
@@ -313,7 +313,7 @@ class WriteSingleRegisterPDU(BaseModbusPDU[int]):
         return struct.pack(">BHH", self.function_code, self.address, value)
 
 
-class RawWriteMultipleRegistersPDU(BaseModbusPDU[int]):
+class RawWriteMultipleRegistersPDU(BasePDU[int]):
     """Write Multiple Registers PDU."""
 
     function_code = FunctionCode.WRITE_MULTIPLE_REGISTERS
@@ -449,7 +449,7 @@ class RawWriteMultipleRegistersPDU(BaseModbusPDU[int]):
         )
 
 
-class WriteMultipleRegistersPDU(BaseModbusPDU[int]):
+class WriteMultipleRegistersPDU(BasePDU[int]):
     """Write Multiple Registers PDU."""
 
     function_code = FunctionCode.WRITE_MULTIPLE_REGISTERS

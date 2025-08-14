@@ -15,7 +15,7 @@ from tmodbus.exceptions import (
     ModbusResponseError,
     error_code_to_exception_map,
 )
-from tmodbus.pdu import BaseModbusPDU
+from tmodbus.pdu import BasePDU
 from tmodbus.utils.raw_traffic_logger import log_raw_traffic as base_log_raw_traffic
 
 from .async_base import AsyncBaseTransport
@@ -124,7 +124,7 @@ class AsyncTcpTransport(AsyncBaseTransport):
         self._next_transaction_id = (self._next_transaction_id + 1) % 0x10000  # 16-bit wraparound
         return current_transaction_id
 
-    async def send_and_receive(self, unit_id: int, pdu: BaseModbusPDU[RT]) -> RT:
+    async def send_and_receive(self, unit_id: int, pdu: BasePDU[RT]) -> RT:
         """Async send PDU and receive response.
 
         Implements complete async TCP protocol communication flow:
