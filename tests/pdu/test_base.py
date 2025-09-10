@@ -13,7 +13,7 @@ def test_base_modbus_pdu_expected_data_length():
         def decode_response(self, response: bytes) -> None:
             pass
 
-    assert TestPDU.get_expected_data_length(b"") == 10
+    assert TestPDU.get_expected_response_data_length(b"") == 10
 
     class TestPDUWithoutLength(BasePDU):
         def encode_request(self) -> bytes:
@@ -22,4 +22,4 @@ def test_base_modbus_pdu_expected_data_length():
         def decode_response(self, response: bytes) -> None:
             pass
 
-    assert TestPDUWithoutLength.get_expected_data_length(b"\x0f") == 16
+    assert TestPDUWithoutLength.get_expected_response_data_length(b"\x0f") == 16

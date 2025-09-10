@@ -4,8 +4,9 @@ from typing import Any
 
 from tmodbus.const import FunctionCode
 
-from .base import BasePDU
+from .base import BaseClientPDU, BasePDU, BaseSubFunctionClientPDU, BaseSubFunctionPDU
 from .coils import ReadCoilsPDU, WriteMultipleCoilsPDU, WriteSingleCoilPDU
+from .device import ReadDeviceIdentificationPDU, ReadDeviceIdentificationResponse
 from .discrete_inputs import ReadDiscreteInputsPDU
 from .holding_registers import (
     ReadHoldingRegistersPDU,
@@ -14,7 +15,7 @@ from .holding_registers import (
     WriteSingleRegisterPDU,
 )
 
-function_code_to_pdu_map: dict[int, type[BasePDU[Any]]] = {
+function_code_to_pdu_map: dict[int, type[BaseClientPDU[Any]]] = {
     FunctionCode.READ_COILS: ReadCoilsPDU,
     FunctionCode.READ_DISCRETE_INPUTS: ReadDiscreteInputsPDU,
     FunctionCode.READ_HOLDING_REGISTERS: ReadHoldingRegistersPDU,
@@ -25,18 +26,60 @@ function_code_to_pdu_map: dict[int, type[BasePDU[Any]]] = {
     FunctionCode.WRITE_MULTIPLE_REGISTERS: WriteMultipleRegistersPDU,
 }
 
+sub_function_code_to_pdu_map: dict[int, dict[int, type[BaseSubFunctionClientPDU[Any]]]] = {
+    FunctionCode.ENCAPSULATED_INTERFACE_TRANSPORT: {
+        ReadDeviceIdentificationPDU.sub_function_code: ReadDeviceIdentificationPDU,
+    }
+}
 
-def register_pdu_class(pdu_class: type[BasePDU[Any]]) -> None:
+
+def register_pdu_class(pdu_class: type[BaseClientPDU[Any]]) -> None:
     """Register a PDU class for a specific function code.
 
     Args:
         pdu_class: PDU class to register
 
     """
-    function_code_to_pdu_map[pdu_class.function_code] = pdu_class
+    function_code = pdu_class.function_code
+    if issubclass(pdu_class, BaseSubFunctionClientPDU):
+        if existing_pdu_class := function_code_to_pdu_map.get(function_code):
+            msg = (
+                f"Function code {function_code:02x} is already registered "
+                f"for a non-subfunction PDU {existing_pdu_class.__name__}."
+            )
+            raise ValueError(msg)
+        if function_code not in sub_function_code_to_pdu_map:
+            sub_function_code_to_pdu_map[function_code] = {}
+
+        sub_function_code = pdu_class.sub_function_code
+
+        if sub_function_code in sub_function_code_to_pdu_map[function_code]:
+            msg = (
+                f"A PDU with function code {function_code:02x}, "
+                f"and sub-function code {sub_function_code:02x} is already registered: "
+                f"{sub_function_code_to_pdu_map[function_code][sub_function_code].__name__}."
+            )
+            raise ValueError(msg)
+
+        sub_function_code_to_pdu_map[function_code][sub_function_code] = pdu_class
+    else:  # Registering a normal PDU class
+        if existing_sub_pdus := sub_function_code_to_pdu_map.get(function_code):
+            existing_sub_pdus_list = ", ".join(
+                f"{sub_function_code:#02x}: {c.__name__}" for sub_function_code, c in existing_sub_pdus.items()
+            )
+            msg = (
+                f"Function code {function_code:#02x} is already registered with sub-functions: {existing_sub_pdus_list}"
+            )
+            raise ValueError(msg)
+
+        if existing_pdu_class := function_code_to_pdu_map.get(function_code):
+            msg = f"Function code {function_code:#02x} is already registered to {existing_pdu_class.__name__}."
+            raise ValueError(msg)
+
+        function_code_to_pdu_map[pdu_class.function_code] = pdu_class
 
 
-def get_pdu_class(function_code: FunctionCode | int) -> type[BasePDU[Any]]:
+def get_pdu_class(begin_bytes: bytes) -> type[BaseClientPDU[Any]]:
     """Get PDU class by function code.
 
     Args:
@@ -49,24 +92,30 @@ def get_pdu_class(function_code: FunctionCode | int) -> type[BasePDU[Any]]:
         ValueError: If function code is not supported
 
     """
-    try:
-        function_code = FunctionCode(function_code)
-    except ValueError:
-        msg = f"Unknown function code: {function_code}"
-        raise ValueError(msg) from None
+    function_code = begin_bytes[0]
+    if pdu_class := function_code_to_pdu_map.get(function_code):
+        return pdu_class
 
-    try:
-        return function_code_to_pdu_map[function_code]
-    except KeyError:
-        # If the function code is not in the map, raise an error
-        # This allows for future extensibility if new function codes are added
-        msg = f"Unsupported function code: {function_code:#02x}"
-        raise ValueError(msg) from None
+    if sub_function_pdus := sub_function_code_to_pdu_map.get(function_code):
+        sub_function_code = begin_bytes[1]
+        try:
+            return sub_function_pdus[sub_function_code]
+        except KeyError:
+            msg = f"Unsupported sub-function code: {sub_function_code:#02x} for function code {function_code:#02x}"
+            raise ValueError(msg) from None
+
+    msg = f"Unsupported function code: {function_code:#02x}"
+    raise ValueError(msg)
 
 
 __all__ = [
+    "BaseClientPDU",
     "BasePDU",
+    "BaseSubFunctionClientPDU",
+    "BaseSubFunctionPDU",
     "ReadCoilsPDU",
+    "ReadDeviceIdentificationPDU",
+    "ReadDeviceIdentificationResponse",
     "ReadDiscreteInputsPDU",
     "ReadHoldingRegistersPDU",
     "ReadInputRegistersPDU",

@@ -3,12 +3,14 @@
 Provides user-friendly asynchronous Modbus client API.
 """
 
+import logging
 from types import TracebackType
-from typing import Self, TypeVar
+from typing import Literal, Self, TypeVar
 
 from tmodbus.pdu import (
-    BasePDU,
+    BaseClientPDU,
     ReadCoilsPDU,
+    ReadDeviceIdentificationPDU,
     ReadDiscreteInputsPDU,
     ReadHoldingRegistersPDU,
     ReadInputRegistersPDU,
@@ -19,6 +21,8 @@ from tmodbus.pdu import (
 )
 from tmodbus.pdu.holding_registers_struct import HoldingRegisterReadMixin, HoldingRegisterWriteMixin
 from tmodbus.transport.async_base import AsyncBaseTransport
+
+logger = logging.getLogger(__name__)
 
 RT = TypeVar("RT")
 
@@ -56,7 +60,7 @@ class AsyncModbusClient(HoldingRegisterReadMixin, HoldingRegisterWriteMixin):
         """Close the server connection."""
         await self.transport.close()
 
-    async def execute(self, pdu: BasePDU[RT], *, unit_id: int) -> RT:
+    async def execute(self, pdu: BaseClientPDU[RT], *, unit_id: int) -> RT:
         """Execute PDU Request.
 
         Args:
@@ -258,6 +262,48 @@ class AsyncModbusClient(HoldingRegisterReadMixin, HoldingRegisterWriteMixin):
 
         """
         return await self.execute(WriteMultipleRegistersPDU(start_address, values), unit_id=unit_id)
+
+    async def read_device_identification(
+        self,
+        device_code: Literal[0x01, 0x02, 0x03, 0x04],
+        object_id: int,
+        *,
+        unit_id: int,
+    ) -> dict[int, bytes]:
+        """Read Device Identification (Function Code 0x2B/0x0E).
+
+        Args:
+            device_code: Device code (0x01 for Basic, 0x02 for Regular, 0x03 for Extended, 0x04 for Specific)
+            object_id: Object ID to start reading from (0x00 to 0xFF)
+            unit_id: Unit ID
+
+        Returns:
+            A dictionary mapping object IDs to their corresponding string values.
+
+        Example:
+            >>> device_info = await client.read_device_identification(1, 0, unit_id=1)
+            {0: 'VendorName', 1: 'ProductCode', ...}
+
+        """
+        result: dict[int, bytes] = {}
+        more = True
+        number_of_objects: int | None = None
+        while more:
+            response = await self.execute(ReadDeviceIdentificationPDU(device_code, object_id), unit_id=unit_id)
+            result.update(response.objects)
+            more = response.more
+            object_id = response.next_object_id
+
+            if number_of_objects is None:
+                number_of_objects = response.number_of_objects
+            elif number_of_objects != response.number_of_objects:
+                logger.warning(
+                    "Number of objects changed between requests: was %d, now %d",
+                    number_of_objects,
+                    response.number_of_objects,
+                )
+
+        return result
 
     async def __aenter__(self) -> Self:
         """Async context manager entry."""

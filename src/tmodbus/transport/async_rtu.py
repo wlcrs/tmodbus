@@ -1,6 +1,45 @@
-"""Async TCP Transport Layer Implementation.
+"""Async RTU Transport Layer Implementation.
 
-Implements async Modbus TCP protocol transport based on asyncio, including MBAP header processing.
+Modbus RTU is a transmission mode defined in Modbus over Serial Line.
+
+The messages are framed (separated) by idle (silent) periods on the line:
+- each frame must be separated by the transmission time for 3.5 characters
+- two consecutive characters within the same frame should not be separated
+  by more than 1.5 times the transmission time of a single character.
+
+In the case of an 19200 bits/second transmission speed, this means that:
+- each frame should be separated by 2.005ms of silence
+- characters must not be more than 0.859ms apart.
+
+The detection of distinct frames by looking at these silent periods
+proves to be neigh impossible when using serial-to-USB adapters.
+For example: a popular FTDI chipset has a default latency timer value of
+16ms. When the USB bus of the host system is under heavy usage, extra
+latency may be introduced, making the detection prone to errors.
+
+Because of this, we don't try to detect the separation between frames by
+looking at the silence periods on the line, but instead calculate the
+expected length of each message by looking at it's contents.
+In practice, it suffices to have access to the first few bytes of each message
+to determine the function code, sub-function code (if applicable) and data length
+(if applicable).
+
+Custom PDU classes must therefore implement the function `get_expected_data_length`
+which returns how many bytes the data-part of the frame is expected to be.
+
+For PDU's with a fixed length, this function can return a fixed number.
+For PDU's with a variable length, the data part typically begins with a field indicating
+the total length of the data in the PDU.
+
+The default implementation of this function looks to the class variable `rtu_response_data_length`:
+if this variable contains a number, this is returned as the data length. If this variable is set
+to None, we assume that the data length is passed in the first byte of the data-part of the frame.
+
+If this does not suit your needs (for example: in the case of sub-functions), then you need to
+override this method with your own function.
+
+Sources:
+- https://github.com/pymodbus-dev/pymodbus/pull/880
 """
 
 import asyncio
@@ -245,47 +284,6 @@ class AsyncRtuTransport(AsyncBaseTransport):
             # 9. Return PDU part (remove address and CRC)
             return pdu.decode_response(response_pdu)
 
-    async def _read_continuous_transmission(self, bytes_to_read: int) -> bytes:
-        """Read the rest of an RTU frame.
-
-        We assume that this function has been called after the initial header of the RTU frame
-        has been received. We now continue to read the RTU frame taking into account the
-        continuous transmission requirement of the Modbus RTU standard.
-
-        cfr. 2.5.1.1 MODBUS Message RTU Framing
-        """
-        if not self._reader:
-            msg = "Cannot read as connection is closed."
-            raise ModbusConnectionError(msg)
-
-        buf = bytearray()
-
-        # Read the rest of the bytes to read
-        while len(buf) < bytes_to_read:
-            try:
-                chunk = await asyncio.wait_for(self._reader.read(1), timeout=self._max_continuous_transmission_delay)
-            except TimeoutError:
-                msg = (
-                    "Violation of continuous transmission requirement by sender. "
-                    f"Missing {bytes_to_read - len(buf)} bytes to complete the frame."
-                )
-                raise RTUFrameError(msg, response_bytes=bytes(buf)) from None
-            else:
-                if not chunk:
-                    msg = "Serial port closed unexpectedly during response read."
-                    raise ModbusConnectionError(msg, bytes_read=bytes(buf))
-                buf.extend(chunk)
-
-        # If we have read more data than expected, it indicates a framing or out-of-sync error.
-        if len(buf) > bytes_to_read:
-            msg = (
-                "Received more data than expected while reading RTU frame. "
-                f"Got {len(buf) - bytes_to_read} bytes more than expected."
-            )
-            raise RTUFrameError(msg, response_bytes=bytes(buf))
-
-        return bytes(buf)
-
     async def _receive_response(self) -> bytes:
         """Receive complete response frame, using 3.5 character time as end-of-frame marker."""
         if not self._reader:
@@ -307,26 +305,29 @@ class AsyncRtuTransport(AsyncBaseTransport):
             msg = "Failed to read Modbus response"
             raise ModbusConnectionError(msg) from e
 
+        # unit id in response_begin[0] is validated in send_and_receive function
+
         # Step 2: Determine the total expected data length for this frame
         if response_begin[1] & 0x80:  # Exception response
             # Exception response format: address + exception function code + exception code + CRC (total 5 bytes)
-            expected_data_length = 5
+            expected_total_frame_length = 5
         else:
-            expected_data_length = (
+            expected_total_frame_length = (
                 1  # Slave address
                 + 1  # Function code
-                + get_pdu_class(response_begin[1]).get_expected_data_length(response_begin[2:])
+                + get_pdu_class(response_begin[1]).get_expected_response_data_length(response_begin[2:])
                 + 2  # CRC
             )
 
-        if expected_data_length + len(response_begin) > MAX_RTU_FRAME_SIZE:
-            msg = "Expected total RTU message frame lengt exceeds maximum allowed size of 256 bytes. "
+        if expected_total_frame_length + len(response_begin) > MAX_RTU_FRAME_SIZE:
+            msg = "Expected total RTU message frame length exceeds maximum allowed size of 256 bytes."
             raise RTUFrameError(msg, response_bytes=response_begin)
 
         # Step 3: Read the remaining data and CRC
         try:
-            remaining_response_bytes = await self._read_continuous_transmission(
-                bytes_to_read=expected_data_length - len(response_begin)
+            remaining_response_bytes = await asyncio.wait_for(
+                self._reader.readexactly(expected_total_frame_length - len(response_begin)),
+                timeout=self.timeout,
             )
         except RTUFrameError as e:
             # make sure to also pass the bytes we read at the beginning of the response in the error
@@ -335,6 +336,4 @@ class AsyncRtuTransport(AsyncBaseTransport):
             # make sure to also pass the bytes we read at the beginning of the response in the error
             raise ModbusConnectionError(str(e), bytes_read=response_begin + e.response_bytes) from e
 
-        # log the current time to allow us to determine the 3.5 character gap before the next frame
-        self._last_frame_end = time.monotonic()
         return response_begin + remaining_response_bytes

@@ -153,6 +153,10 @@ class GatewayTargetDeviceFailedToRespondError(ModbusResponseError):
 
     error_code = ExceptionCode.GATEWAY_TARGET_DEVICE_FAILED_TO_RESPOND
 
+class AbnormalDeviceDescriptionError(ModbusResponseError):
+    """The device description definition call returned a response."""
+
+    error_code = ExceptionCode.ABNORNMAL_DEVICE_DESCRIPTION
 
 error_code_to_exception_map: dict[int, type[ModbusResponseError]] = {
     IllegalFunctionError.error_code: IllegalFunctionError,
@@ -164,6 +168,7 @@ error_code_to_exception_map: dict[int, type[ModbusResponseError]] = {
     MemoryParityError.error_code: MemoryParityError,
     GatewayPathUnavailableError.error_code: GatewayPathUnavailableError,
     GatewayTargetDeviceFailedToRespondError.error_code: GatewayTargetDeviceFailedToRespondError,
+    AbnormalDeviceDescriptionError.error_code: AbnormalDeviceDescriptionError,
 }
 
 

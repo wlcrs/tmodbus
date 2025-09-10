@@ -26,11 +26,14 @@ class ReadCoilsPDU(BasePDU[list[bool]]):
             ValueError: If start_address or quantity is invalid
 
         """
-        super().__init__(start_address)
+        if not (0 <=  start_address < 65536):
+            msg = "Address must be between 0 and 65535."
+            raise ValueError(msg)
+        self.start_address = start_address
+
         if not (1 <= quantity <= 2000):
             msg = "Quantity must be between 1 and 2000."
             raise ValueError(msg)
-
         self.quantity = quantity
 
     def encode_request(self) -> bytes:
@@ -40,7 +43,7 @@ class ReadCoilsPDU(BasePDU[list[bool]]):
             Bytes representation of the Read Coils PDU
 
         """
-        return struct.pack(">BHH", self.function_code, self.address, self.quantity)
+        return struct.pack(">BHH", self.function_code, self.start_address, self.quantity)
 
     def decode_response(self, response: bytes) -> list[bool]:
         """Decode the response PDU.
@@ -236,7 +239,11 @@ class WriteMultipleCoilsPDU(BasePDU[int]):
             ValueError: If start_address or values are invalid
 
         """
-        super().__init__(start_address)
+        if not (0 <= start_address < 65536):
+            msg = "Address must be between 0 and 65535."
+            raise ValueError(msg)
+
+        self.address = start_address
         if not (1 <= len(values) <= 0x07B0):  # 1968 coils max
             msg = "Number of coils must be between 1 and 1968."
             raise ValueError(msg)

@@ -7,7 +7,7 @@ from abc import ABC, abstractmethod
 from types import TracebackType
 from typing import Self, TypeVar
 
-from tmodbus.pdu import BasePDU
+from tmodbus.pdu import BaseClientPDU
 
 RT = TypeVar("RT")
 
@@ -50,7 +50,7 @@ class AsyncBaseTransport(ABC):
         """
 
     @abstractmethod
-    async def send_and_receive(self, unit_id: int, pdu: BasePDU[RT]) -> RT:
+    async def send_and_receive(self, unit_id: int, pdu: BaseClientPDU[RT]) -> RT:
         """Send PDU and Receive Response.
 
         This is the core method of the transport layer. It receives pure PDU (Protocol Data Unit),

@@ -26,11 +26,14 @@ class RawReadHoldingRegistersPDU(BasePDU[bytes]):
             ValueError: If start_address or quantity is invalid
 
         """
-        super().__init__(start_address)
+        if not (0 <= start_address < 65536):
+            msg = "Address must be between 0 and 65535."
+            raise ValueError(msg)
+        self.start_address = start_address
+
         if not (1 <= quantity <= 125):
             msg = "Quantity must be between 1 and 125."
             raise ValueError(msg)
-
         self.quantity = quantity
 
     def encode_request(self) -> bytes:
@@ -40,7 +43,7 @@ class RawReadHoldingRegistersPDU(BasePDU[bytes]):
             Bytes representation of the Read Holding Registers PDU
 
         """
-        return struct.pack(">BHH", self.function_code, self.address, self.quantity)
+        return struct.pack(">BHH", self.function_code, self.start_address, self.quantity)
 
     def decode_response(self, response: bytes) -> bytes:
         """Decode the response PDU.
