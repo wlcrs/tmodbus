@@ -42,14 +42,15 @@ class AsyncTcpTransport(AsyncBaseTransport):
     _next_transaction_id: int = 1
 
     _communication_lock = asyncio.Lock()  # Prevents concurrent access to the transport layer
-    _last_request_finished: float | None = None
+    _last_request_finished_at: float = 0.0
 
-    def __init__(
+    def __init__(  # noqa: PLR0913
         self,
         host: str,
         port: int = 502,
         *,
         timeout: float = 10.0,
+        connect_timeout: float = 10.0,
         wait_after_connect: float = 0.0,
         wait_between_requests: float = 0.0,
         **connection_kwargs: Any,
@@ -60,6 +61,7 @@ class AsyncTcpTransport(AsyncBaseTransport):
             host: Target host IP address or domain name
             port: Target port, default 502 (Modbus TCP standard port)
             timeout: Timeout in seconds, default 10.0s
+            connect_timeout: Timeout for establishing connection, default 10.0s
             wait_after_connect: Seconds to wait after connection establishment before making a request, default 0.0s
             wait_between_requests: Seconds to wait between consecutive requests, default 0.0s
             connection_kwargs: Additional connection parameters passed to `asyncio.open_connection` (e.g., SSL context)
@@ -79,6 +81,7 @@ class AsyncTcpTransport(AsyncBaseTransport):
         self.host = host
         self.port = port
         self.timeout = timeout
+        self.connect_timeout = connect_timeout
         self.wait_after_connect = wait_after_connect
         self.wait_between_requests = wait_between_requests
         self.connection_kwargs = connection_kwargs
@@ -92,7 +95,8 @@ class AsyncTcpTransport(AsyncBaseTransport):
 
             try:
                 self._reader, self._writer = await asyncio.wait_for(
-                    asyncio.open_connection(self.host, self.port, **self.connection_kwargs), timeout=self.timeout
+                    asyncio.open_connection(self.host, self.port, **self.connection_kwargs),
+                    timeout=self.connect_timeout,
                 )
 
                 logger.info("Async TCP connection established: %s:%d", self.host, self.port)
@@ -142,8 +146,8 @@ class AsyncTcpTransport(AsyncBaseTransport):
         # Ensure that only one request is processed at a time
         async with self._communication_lock:
             # Wait between requests if configured to do so
-            if self.wait_between_requests > 0 and self._last_request_finished is not None:
-                wait_needed = self.wait_between_requests - (time.monotonic() - self._last_request_finished)
+            if self.wait_between_requests > 0:
+                wait_needed = self.wait_between_requests - (time.monotonic() - self._last_request_finished_at)
                 if wait_needed > 0:
                     logger.debug(
                         "Waiting %.2fs before sending next request to respect %.2fs wait between requests",
@@ -155,7 +159,7 @@ class AsyncTcpTransport(AsyncBaseTransport):
             try:
                 return await self._do_send_and_receive(unit_id, pdu)
             finally:
-                self._last_request_finished = time.monotonic()
+                self._last_request_finished_at = time.monotonic()
 
     async def _do_send_and_receive(self, unit_id: int, pdu: BasePDU[RT]) -> RT:
         """Async send PDU and receive response.

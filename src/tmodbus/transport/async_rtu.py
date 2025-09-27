@@ -128,7 +128,7 @@ class AsyncRtuTransport(AsyncBaseTransport):
 
     _reader: asyncio.StreamReader | None = None
     _writer: asyncio.StreamWriter | None = None
-    _last_frame_end: float = 0.0
+    _last_frame_ended_at: float = 0.0
     _communication_lock: asyncio.Lock  # Prevents concurrent access to the transport layer
 
     pyserial_options: PySerialOptions
@@ -136,6 +136,8 @@ class AsyncRtuTransport(AsyncBaseTransport):
     def __init__(
         self,
         port: str,
+        *,
+        wait_between_requests: float = 0.0,
         **pyserial_options: Unpack[PySerialOptions],
     ) -> None:
         """Initialize async Serial transport layer.
@@ -151,6 +153,7 @@ class AsyncRtuTransport(AsyncBaseTransport):
 
         """
         self.port = port
+        self.wait_between_requests = wait_between_requests
         self.pyserial_options = pyserial_options
         self.timeout = pyserial_options.get("timeout", DEFAULT_TIMEOUT)
         self._baudrate = pyserial_options.get("baudrate", 9600)
@@ -208,7 +211,7 @@ class AsyncRtuTransport(AsyncBaseTransport):
 
         return not self._writer.is_closing()
 
-    async def send_and_receive(self, unit_id: int, pdu: BasePDU[RT]) -> RT:
+    async def send_and_receive(self, unit_id: int, pdu: BasePDU[RT]) -> RT:  # noqa: C901
         """Async send PDU and receive response.
 
         Implements complete RTU protocol communication flow:
@@ -233,10 +236,17 @@ class AsyncRtuTransport(AsyncBaseTransport):
             log_raw_traffic("sent", request_adu)
 
             # 2. Wait for 3.5 character times since last frame (inter-frame delay)
-            time_since_last_frame = time.monotonic() - self._last_frame_end
+            time_since_last_frame = time.monotonic() - self._last_frame_ended_at
             if time_since_last_frame < self._interframe_delay:
                 to_wait = self._interframe_delay - time_since_last_frame
                 await asyncio.sleep(to_wait)
+
+            # wait a fixed time between requests if configured
+            if (
+                self.wait_between_requests > 0
+                and (wait_needed := self.wait_between_requests - time_since_last_frame) > 0
+            ):
+                await asyncio.sleep(wait_needed)
 
             # 3. Clear receive buffer and send request
             if not self._writer:
@@ -279,7 +289,7 @@ class AsyncRtuTransport(AsyncBaseTransport):
                 raise InvalidResponseError(msg, response_bytes=response_adu)
 
             # 8. Mark the end of this frame
-            self._last_frame_end = time.monotonic()
+            self._last_frame_ended_at = time.monotonic()
 
             # 9. Return PDU part (remove address and CRC)
             return pdu.decode_response(response_pdu)
