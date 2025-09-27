@@ -48,6 +48,7 @@ class AsyncTcpTransport(AsyncBaseTransport):
         port: int = 502,
         *,
         timeout: float = 10.0,
+        wait_after_connect: float = 0.0,
         **connection_kwargs: Any,
     ) -> None:
         """Initialize async TCP transport layer.
@@ -55,7 +56,8 @@ class AsyncTcpTransport(AsyncBaseTransport):
         Args:
             host: Target host IP address or domain name
             port: Target port, default 502 (Modbus TCP standard port)
-            timeout: Timeout in seconds, default 10.0 seconds
+            timeout: Timeout in seconds, default 10.0s
+            wait_after_connect: Seconds to wait after connection establishment before making a request, default 0.0s
             connection_kwargs: Additional connection parameters passed to `asyncio.open_connection` (e.g., SSL context)
 
         Raises:
@@ -73,6 +75,7 @@ class AsyncTcpTransport(AsyncBaseTransport):
         self.host = host
         self.port = port
         self.timeout = timeout
+        self.wait_after_connect = wait_after_connect
         self.connection_kwargs = connection_kwargs
 
     async def open(self) -> None:
@@ -88,6 +91,11 @@ class AsyncTcpTransport(AsyncBaseTransport):
                 )
 
                 logger.info("Async TCP connection established: %s:%d", self.host, self.port)
+                if self.wait_after_connect > 0:
+                    logger.debug(
+                        "Waiting %.2f seconds after TCP connection before sending data", self.wait_after_connect
+                    )
+                    await asyncio.sleep(self.wait_after_connect)
 
             except TimeoutError:
                 raise
