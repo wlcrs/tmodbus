@@ -48,7 +48,14 @@ import time
 from functools import partial
 from typing import NotRequired, TypedDict, TypeVar, Unpack
 
-import serial_asyncio_fast
+try:
+    import serial_asyncio_fast
+except ImportError as e:
+    msg = (
+        "The 'serial_asyncio_fast' package is required for AsyncRtuTransport."
+        " Install with 'pip install tmodbus[serial]'"
+    )
+    raise ImportError(msg) from e
 
 from tmodbus.exceptions import (
     CRCError,
@@ -136,8 +143,6 @@ class AsyncRtuTransport(AsyncBaseTransport):
     def __init__(
         self,
         port: str,
-        *,
-        wait_between_requests: float = 0.0,
         **pyserial_options: Unpack[PySerialOptions],
     ) -> None:
         """Initialize async Serial transport layer.
@@ -153,7 +158,6 @@ class AsyncRtuTransport(AsyncBaseTransport):
 
         """
         self.port = port
-        self.wait_between_requests = wait_between_requests
         self.pyserial_options = pyserial_options
         self.timeout = pyserial_options.get("timeout", DEFAULT_TIMEOUT)
         self._baudrate = pyserial_options.get("baudrate", 9600)
@@ -211,7 +215,7 @@ class AsyncRtuTransport(AsyncBaseTransport):
 
         return not self._writer.is_closing()
 
-    async def send_and_receive(self, unit_id: int, pdu: BasePDU[RT]) -> RT:  # noqa: C901
+    async def send_and_receive(self, unit_id: int, pdu: BasePDU[RT]) -> RT:
         """Async send PDU and receive response.
 
         Implements complete RTU protocol communication flow:
@@ -240,13 +244,6 @@ class AsyncRtuTransport(AsyncBaseTransport):
             if time_since_last_frame < self._interframe_delay:
                 to_wait = self._interframe_delay - time_since_last_frame
                 await asyncio.sleep(to_wait)
-
-            # wait a fixed time between requests if configured
-            if (
-                self.wait_between_requests > 0
-                and (wait_needed := self.wait_between_requests - time_since_last_frame) > 0
-            ):
-                await asyncio.sleep(wait_needed)
 
             # 3. Clear receive buffer and send request
             if not self._writer:

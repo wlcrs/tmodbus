@@ -131,7 +131,6 @@ class ReadHoldingRegistersPDU(BasePDU[list[int]]):
             ValueError: If start_address or quantity is invalid
 
         """
-        super().__init__(start_address)
         self.raw_pdu = RawReadHoldingRegistersPDU(start_address, quantity)
 
     def encode_request(self) -> bytes:
@@ -227,7 +226,7 @@ class ReadInputRegistersPDU(ReadHoldingRegistersPDU):
             ValueError: If start_address or quantity is invalid
 
         """
-        super(ReadHoldingRegistersPDU, self).__init__(start_address)
+        super(ReadHoldingRegistersPDU, self).__init__()
         self.raw_pdu = RawReadInputRegistersPDU(start_address, quantity)
 
     # decode_request and encode_response inherited from ReadHoldingRegistersPDU
@@ -250,7 +249,11 @@ class WriteSingleRegisterPDU(BasePDU[int]):
             ValueError: If address or value is invalid
 
         """
-        super().__init__(address)
+        if not (0 <= address < 65536):
+            msg = "Address must be between 0 and 65535."
+            raise ValueError(msg)
+        self.address = address
+
         if not (0 <= value < 65536):
             msg = "Value must be between 0 and 65535."
             raise ValueError(msg)
@@ -333,7 +336,10 @@ class RawWriteMultipleRegistersPDU(BasePDU[int]):
             ValueError: If address or content is invalid
 
         """
-        super().__init__(start_address)
+        if not (0 <= start_address < 65536):
+            msg = "Address must be between 0 and 65535."
+            raise ValueError(msg)
+        self.start_address = start_address
 
         if len(content) == 0:
             msg = "Content must not be empty."
@@ -362,7 +368,7 @@ class RawWriteMultipleRegistersPDU(BasePDU[int]):
             struct.pack(
                 ">BHHB",
                 self.function_code,
-                self.address,
+                self.start_address,
                 number_of_registers,
                 byte_count,
             )
@@ -386,7 +392,7 @@ class RawWriteMultipleRegistersPDU(BasePDU[int]):
         expected_response = struct.pack(
             ">BHH",
             self.function_code,
-            self.address,
+            self.start_address,
             len(self.content) // 2,  # number of registers written
         )
 
@@ -447,7 +453,7 @@ class RawWriteMultipleRegistersPDU(BasePDU[int]):
         return struct.pack(
             ">BHH",
             self.function_code,
-            self.address,
+            self.start_address,
             value,
         )
 
@@ -469,7 +475,11 @@ class WriteMultipleRegistersPDU(BasePDU[int]):
             ValueError: If address or values are invalid
 
         """
-        super().__init__(start_address)
+        if not (0 <= start_address < 65536):
+            msg = "Address must be between 0 and 65535."
+            raise ValueError(msg)
+        self.start_adress = start_address
+
         if not (1 <= len(values) <= 123):
             msg = "Number of registers must be between 1 and 123."
             raise ValueError(msg)
@@ -521,7 +531,7 @@ class WriteMultipleRegistersPDU(BasePDU[int]):
         raw = RawWriteMultipleRegistersPDU.decode_request(request)
         # Convert content bytes to list of ints
         values = list(struct.unpack(f">{'H' * (len(raw.content) // 2)}", raw.content))
-        return cls(raw.address, values)
+        return cls(raw.start_address, values)
 
     def encode_response(self, value: int) -> bytes:
         """Encode the response PDU.

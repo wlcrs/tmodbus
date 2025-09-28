@@ -5,15 +5,20 @@ description = "A modern, strongly typed Modbus client library."
 readme = "README.md"
 requires-python = ">=3.12"
 keywords = ["modbus", "modbus-tcp", "modbus-rtu"]
-dependencies = [
-    "pyserial-asyncio-fast>=0.16",
-]
 
 [project.optional-dependencies]
 tests = [
     "pytest>=8.4.1",
     "pytest-asyncio>=1.1.0",
     "pytest-cov>=6.2.1",
+]
+
+serial = [
+    "pyserial-asyncio-fast>=0.16",
+]
+
+smart = [
+    "tenacity>=9.1.2",
 ]
 
 [build-system]
@@ -31,10 +36,12 @@ ignore = [
   "D213", # Conflicts with other rules
   "D417", # False positives in some occasions
   "PLR2004", # Just annoying, not really useful
+  "S101", # allow asserts
 
   # Conflicts with the Ruff formatter
   "COM812",
   "ISC001",
+
 ]
 select = ["ALL"]
 

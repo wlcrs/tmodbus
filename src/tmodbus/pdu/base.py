@@ -3,7 +3,7 @@
 from abc import ABC, abstractmethod
 from typing import Self, TypeVar
 
-from tmodbus.exceptions import InvalidRequestError, InvalidRequestError, InvalidResponseError
+from tmodbus.exceptions import InvalidRequestError, InvalidResponseError
 
 RT = TypeVar("RT")
 

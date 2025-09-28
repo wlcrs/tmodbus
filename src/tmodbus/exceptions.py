@@ -78,6 +78,13 @@ class FunctionCodeError(InvalidResponseError):
     """
 
 
+class RequestRetryFailedError(TModbusError):
+    """Failed to get an appropriate response after exhausting all retries.
+
+    Raised when all retry attempts for a request have been exhausted without success.
+    """
+
+
 class ModbusResponseError(TModbusError):
     """Base class for all Modbus exception response."""
 
@@ -91,8 +98,8 @@ class ModbusResponseError(TModbusError):
             function_code: Function code of the request that caused the exception
 
         """
-        super().__init__(f"Modbus Exception {error_code:02x} for function code {function_code:02x}")
-        assert self.error_code == error_code  # noqa: S101
+        super().__init__(f"Modbus Exception 0x{error_code:02x} for function code 0x{function_code:02x}")
+        assert self.error_code == error_code
         self.function_code = function_code
 
 
@@ -153,10 +160,12 @@ class GatewayTargetDeviceFailedToRespondError(ModbusResponseError):
 
     error_code = ExceptionCode.GATEWAY_TARGET_DEVICE_FAILED_TO_RESPOND
 
+
 class AbnormalDeviceDescriptionError(ModbusResponseError):
     """The device description definition call returned a response."""
 
     error_code = ExceptionCode.ABNORNMAL_DEVICE_DESCRIPTION
+
 
 error_code_to_exception_map: dict[int, type[ModbusResponseError]] = {
     IllegalFunctionError.error_code: IllegalFunctionError,
