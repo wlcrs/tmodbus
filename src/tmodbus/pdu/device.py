@@ -67,7 +67,7 @@ class ReadDeviceIdentificationPDU(BaseSubFunctionClientPDU[ReadDeviceIdentificat
     function_code = FunctionCode.ENCAPSULATED_INTERFACE_TRANSPORT
 
     sub_function_code = 0x0E
-    read_dev_id_code: Literal[0x01, 0x02, 0x03, 0x04]
+    read_device_id_code: Literal[0x01, 0x02, 0x03, 0x04]
     object_id: int
 
     def __init__(self, read_device_id_code: Literal[0x01, 0x02, 0x03, 0x04], object_id: int) -> None:
@@ -81,12 +81,19 @@ class ReadDeviceIdentificationPDU(BaseSubFunctionClientPDU[ReadDeviceIdentificat
 
     def encode_request(self) -> bytes:
         """Encode ReadDeviceIdentifierPDU."""
-        return struct.pack(">BBB", self.sub_function_code, self.read_dev_id_code, self.object_id)
+        return struct.pack(
+            ">BBBB",
+            self.function_code,
+            self.sub_function_code,
+            self.read_device_id_code,
+            self.object_id,
+        )
 
     def decode_response(self, response: bytes) -> ReadDeviceIdentificationResponse:
         """Decode Device Identifier PDU response."""
-        response_header_struct = struct.Struct(">BBBBBB")
+        response_header_struct = struct.Struct(">BBBBBBB")
         (
+            function_code,
             sub_function_code,
             device_id_code,
             conformity_level,
@@ -94,6 +101,10 @@ class ReadDeviceIdentificationPDU(BaseSubFunctionClientPDU[ReadDeviceIdentificat
             next_object_id,
             number_of_objects,
         ) = response_header_struct.unpack_from(response, 0)
+
+        if function_code != self.function_code:
+            msg = f"Invalid function code: expected {self.function_code:02x}, received {function_code:02x}"
+            raise ValueError(msg)
 
         if sub_function_code != self.sub_function_code:
             msg = f"Invalid sub function code: expected {self.sub_function_code:02x}, received {sub_function_code:02x}"
