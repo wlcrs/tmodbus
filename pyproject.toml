@@ -13,7 +13,7 @@ tests = [
     "pytest-cov>=6.2.1",
 ]
 
-serial = [
+async-rtu = [
     "pyserial-asyncio-fast>=0.16",
 ]
 

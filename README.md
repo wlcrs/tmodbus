@@ -10,13 +10,40 @@ We choose to use the terminology _client_ and _server_ instead, as it is more cl
 - Pure Python library with minimal dependencies
 - Fully typed
 - Support for both Modbus TCP and RTU clients
+- Auto reconnect and retry functionality (which can be enabled optionally)
+- Extensible with custom Modbus functions and exception codes
 - Open source (BSD)
-- Asynchronous TCP client
-- Asynchronous RTU client
+
+## Supported function codes
+
+* Read coils (`0x01`)
+* Read discrete inputs (`0x02`)
+* Read holding registers (`0x03`)
+* Read input registers (`0x04`)
+* Write single coil (`0x05`)
+* Write single register (`0x06`)
+* Write multiple coils (`0x0f`)
+* Write multiple registers (`0x10`)
+* Read device identification (`0x2B / 0x0E`)
 
 ## Examples
 Various examples for Modbus RTU and TCP can be found in the [examples](./examples) folder.
 
+## Dependencies
+
+**async-rtu**
+
+This library uses [pyserial-asyncio-fast](https://pypi.org/project/pyserial-asyncio-fast/) to
+access the serial port when using async RTU.
+
+Use `pip install tmodbus[async-rtu]` to install.
+
+**smart**
+
+This library uses [tenacity](https://github.com/jd/tenacity) to implement the reconnect and retry-logic,
+giving you access to a powerful API to customize the retry behavior of this library.
+
+Use `pip install tmodbus[smart]` to install.
 
 ## Protocol-Specification
 
