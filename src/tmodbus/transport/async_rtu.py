@@ -322,7 +322,7 @@ class AsyncRtuTransport(AsyncBaseTransport):
             expected_total_frame_length = (
                 1  # Slave address
                 + 1  # Function code
-                + get_pdu_class(response_begin[1]).get_expected_response_data_length(response_begin[2:])
+                + get_pdu_class(response_begin[1:1]).get_expected_response_data_length(response_begin[2:])
                 + 2  # CRC
             )
 

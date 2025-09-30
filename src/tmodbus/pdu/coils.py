@@ -26,7 +26,7 @@ class ReadCoilsPDU(BasePDU[list[bool]]):
             ValueError: If start_address or quantity is invalid
 
         """
-        if not (0 <=  start_address < 65536):
+        if not (0 <= start_address < 65536):
             msg = "Address must be between 0 and 65535."
             raise ValueError(msg)
         self.start_address = start_address
@@ -153,7 +153,8 @@ class WriteSingleCoilPDU(BasePDU[bool]):
             ValueError: If address is invalid
 
         """
-        super().__init__(address)
+        super().__init__()
+        self.address = address
         self.value = value
 
     def encode_request(self) -> bytes:
