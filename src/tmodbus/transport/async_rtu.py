@@ -53,7 +53,7 @@ try:
 except ImportError as e:
     msg = (
         "The 'serial_asyncio_fast' package is required for AsyncRtuTransport."
-        " Install with 'pip install tmodbus[serial]'"
+        " Install with 'pip install tmodbus[async-rtu]'"
     )
     raise ImportError(msg) from e
 

@@ -15,7 +15,7 @@ jobs:
 
       - name: Install package and other dependencies
         run: |
-          pip install ".[tests]" pytest-md pytest-emoji
+          pip install ".[tests,async-rtu,smart]" pytest-md pytest-emoji
 
       - name: Run pytest
         uses: pavelzw/pytest-action@v2.2.0
