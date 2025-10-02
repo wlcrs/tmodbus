@@ -49,15 +49,23 @@ select = ["ALL"]
 
 "tests/**" = [
     "S101", # allow asserts in tests
+    "ANN001", 
     "ANN201", # no return type annotations needed
+    "ARG001", # not using all arguments is ok in tests
     "D100", # no docstrings for modules required in tests
+    "D101", # no docstrings for classes required in tests
+    "D103", # no docstrings for public methods required in tests
     "D104", # no docstrings for packages required in tests
+    "EM101", # dummy exceptions in tests
+    "SLF001", # access to private members is acceptable for testing purposes
 ]
 
 "integration-tests/**" = [
     "S101", # allow asserts in tests
     "ANN201", # no return type annotations needed
     "D100", # no docstrings for modules required in tests
+    "D101", # no docstrings for classes required in tests
+    "D103", # no docstrings for public methods required in tests
     "D104", # no docstrings for packages required in tests
 ]
 

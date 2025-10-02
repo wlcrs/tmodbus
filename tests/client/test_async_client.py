@@ -3,7 +3,8 @@ from typing import TypeVar
 import pytest
 
 from tmodbus.client.async_client import AsyncModbusClient
-from tmodbus.pdu import BasePDU, ReadCoilsPDU
+from tmodbus.pdu import BasePDU, ReadCoilsPDU, ReadDeviceIdentificationPDU, ReadDeviceIdentificationResponse
+from tmodbus.pdu.device import ConformityLevel
 from tmodbus.transport.async_base import AsyncBaseTransport
 
 RT = TypeVar("RT")
@@ -227,3 +228,105 @@ async def test_async_modbus_client_context_manager(dummy_client: AsyncModbusClie
 
     assert not client.transport.is_open()
     assert "close" in dummy_client.transport.performed_actions
+
+
+async def test_connected_property(dummy_client):
+    # Should reflect transport.is_open()
+    dummy_client.transport.opened = True
+    assert dummy_client.connected is True
+    dummy_client.transport.opened = False
+    assert dummy_client.connected is False
+
+
+async def test_connect_and_close_methods(dummy_client):
+    await dummy_client.connect()
+    assert dummy_client.transport.opened is True
+    await dummy_client.close()
+    assert dummy_client.transport.opened is False
+
+
+async def test_read_device_identification_single_response(monkeypatch, dummy_client):
+    # Patch execute to return a single response with more=False
+    called = {}
+
+    async def fake_execute(self, pdu: ReadDeviceIdentificationPDU, unit_id: int) -> ReadDeviceIdentificationResponse:
+        called["pdu"] = pdu
+        return ReadDeviceIdentificationResponse(
+            device_id_code=1,
+            conformity_level=ConformityLevel.BASIC,
+            objects={1: b"foo"},
+            more=False,
+            next_object_id=0,
+            number_of_objects=1,
+        )
+
+    monkeypatch.setattr(AsyncModbusClient, "execute", fake_execute)
+    result = await dummy_client.read_device_identification(1, 0, unit_id=1)
+    assert result == {1: b"foo"}
+    assert isinstance(called["pdu"], ReadDeviceIdentificationPDU)
+
+
+async def test_read_device_identification_multiple_responses(monkeypatch, dummy_client):
+    # Patch execute to simulate multiple responses with more=True then more=False
+    responses = [
+        ReadDeviceIdentificationResponse(
+            device_id_code=1,
+            conformity_level=ConformityLevel.BASIC,
+            objects={1: b"foo"},
+            more=True,
+            next_object_id=2,
+            number_of_objects=2,
+        ),
+        ReadDeviceIdentificationResponse(
+            device_id_code=1,
+            conformity_level=ConformityLevel.BASIC,
+            objects={2: b"bar"},
+            more=False,
+            next_object_id=0,
+            number_of_objects=2,
+        ),
+    ]
+    call_count = {"count": 0}
+
+    async def fake_execute(self, pdu: ReadDeviceIdentificationPDU, unit_id: int) -> ReadDeviceIdentificationResponse:
+        idx = call_count["count"]
+        call_count["count"] += 1
+        return responses[idx]
+
+    monkeypatch.setattr(AsyncModbusClient, "execute", fake_execute)
+    result = await dummy_client.read_device_identification(1, 0, unit_id=1)
+    assert result == {1: b"foo", 2: b"bar"}
+    assert call_count["count"] == 2
+
+
+async def test_read_device_identification_warns_on_number_of_objects_change(monkeypatch, dummy_client, caplog):
+    # Patch execute to simulate number_of_objects changing between responses
+    responses = [
+        ReadDeviceIdentificationResponse(
+            device_id_code=1,
+            conformity_level=ConformityLevel.BASIC,
+            objects={1: b"foo"},
+            more=True,
+            next_object_id=2,
+            number_of_objects=2,
+        ),
+        ReadDeviceIdentificationResponse(
+            device_id_code=1,
+            conformity_level=ConformityLevel.BASIC,
+            objects={2: b"bar"},
+            more=False,
+            next_object_id=0,
+            number_of_objects=3,
+        ),
+    ]
+    call_count = {"count": 0}
+
+    async def fake_execute(self, pdu: ReadDeviceIdentificationPDU, unit_id: int) -> ReadDeviceIdentificationResponse:
+        idx = call_count["count"]
+        call_count["count"] += 1
+        return responses[idx]
+
+    monkeypatch.setattr(AsyncModbusClient, "execute", fake_execute)
+    with caplog.at_level("WARNING"):
+        await dummy_client.read_device_identification(1, 0, unit_id=1)
+    assert any("Number of objects changed between requests" in r for r in caplog.text.splitlines())
