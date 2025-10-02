@@ -50,7 +50,7 @@ from typing import NotRequired, TypedDict, TypeVar, Unpack
 
 try:
     import serial_asyncio_fast
-except ImportError as e:
+except ImportError as e:  # pragma: no cover
     msg = (
         "The 'serial_asyncio_fast' package is required for AsyncRtuTransport."
         " Install with 'pip install tmodbus[async-rtu]'"
@@ -65,7 +65,7 @@ from tmodbus.exceptions import (
     RTUFrameError,
     error_code_to_exception_map,
 )
-from tmodbus.pdu import BasePDU, get_pdu_class
+from tmodbus.pdu import BaseClientPDU, get_pdu_class
 from tmodbus.utils.crc import calculate_crc16, validate_crc16
 from tmodbus.utils.raw_traffic_logger import log_raw_traffic as base_log_raw_traffic
 
@@ -215,7 +215,7 @@ class AsyncRtuTransport(AsyncBaseTransport):
 
         return not self._writer.is_closing()
 
-    async def send_and_receive(self, unit_id: int, pdu: BasePDU[RT]) -> RT:
+    async def send_and_receive(self, unit_id: int, pdu: BaseClientPDU[RT]) -> RT:
         """Async send PDU and receive response.
 
         Implements complete RTU protocol communication flow:

@@ -58,6 +58,7 @@ select = ["ALL"]
     "D104", # no docstrings for packages required in tests
     "EM101", # dummy exceptions in tests
     "SLF001", # access to private members is acceptable for testing purposes
+    "TRY003",
 ]
 
 "integration-tests/**" = [
