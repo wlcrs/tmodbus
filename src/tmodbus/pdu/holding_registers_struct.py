@@ -628,7 +628,7 @@ class HoldingRegisterWriteMixin(SupportsExecuteAsync):
 
         format_struct = WordOrderAwareStruct(f">{number_of_registers * 2}s", word_order=self.word_order)
         # Pad with null bytes if necessary
-        value_bytes = value_bytes.rjust(format_struct.size, b"\x00")
+        value_bytes = value_bytes.ljust(format_struct.size, b"\x00")
 
         return await self.write_simple_struct_format(
             start_address,
