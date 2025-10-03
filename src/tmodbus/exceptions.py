@@ -30,7 +30,7 @@ class InvalidRequestError(TModbusError):
     Raised when a request is malformed or invalid.
     """
 
-    def __init__(self, *args: Any, request_bytes: bytes | None = None, **kwargs: Any) -> None:
+    def __init__(self, *args: Any, request_bytes: bytes | None = None, **kwargs: Any) -> None:  # pragma: no cover
         """Initialize InvalidRequestError."""
         super().__init__(*args, **kwargs)
         self.request_bytes = request_bytes or b""

@@ -1,6 +1,10 @@
 import pytest
 
-from tmodbus.exceptions import ModbusResponseError
+from tmodbus.exceptions import (
+    ModbusResponseError,
+    error_code_to_exception_map,
+    register_custom_exception,
+)
 
 
 def test_modbus_response_error():
@@ -15,3 +19,14 @@ def test_modbus_response_error():
 
     with pytest.raises(AssertionError):
         TestError(0x01, 0x02)
+
+
+def test_register_custom_exception():
+    class CustomError(ModbusResponseError):
+        error_code = 0xFE
+
+    register_custom_exception(CustomError)
+    assert error_code_to_exception_map[0xFE] is CustomError
+    # Registering again should raise ValueError
+    with pytest.raises(ValueError, match=r".* already registered."):
+        register_custom_exception(CustomError)
