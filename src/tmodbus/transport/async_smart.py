@@ -23,7 +23,7 @@ try:
         stop_after_delay,
         wait_exponential,
     )
-except ImportError as ex:
+except ImportError as ex:  # pragma: no cover
     msg = "tenacity is required for Smart Transport functionality.Install with 'pip install tmodbus[smart]'"
     raise ImportError(msg) from ex
 
@@ -70,7 +70,7 @@ class AsyncSmartTransport(AsyncBaseTransport):
     _should_be_connected: bool = False
 
     auto_reconnect: AsyncRetrying | None = None
-    response_retry_strategy: AsyncRetrying | None = None
+    response_retry_strategy: AsyncRetrying
 
     def __init__(  # noqa: PLR0913
         self,
@@ -185,10 +185,8 @@ class AsyncSmartTransport(AsyncBaseTransport):
         """Reconnect to the Modbus device."""
         assert isinstance(self.auto_reconnect, AsyncRetrying)
 
-        auto_reconnect = self.auto_reconnect.copy()
-
         try:
-            async for attempt in auto_reconnect:
+            async for attempt in self.auto_reconnect:
                 with attempt:
                     logger.info("Attempting to reconnect.")
                     await self.open()
@@ -229,25 +227,19 @@ class AsyncSmartTransport(AsyncBaseTransport):
         # Ensure that only one request is processed at a time
         async with self._communication_lock:
             try:
-                # If a response retry strategy is configured, use it to retry on specified exceptions
-                if self.response_retry_strategy:
-                    try:
-                        async for attempt in self.response_retry_strategy:
-                            with attempt:
-                                response = await self._reconnect_send_and_receive(unit_id, pdu)
+                async for attempt in self.response_retry_strategy:
+                    with attempt:
+                        response = await self._reconnect_send_and_receive(unit_id, pdu)
 
-                            if attempt.retry_state.outcome and not attempt.retry_state.outcome.failed:
-                                attempt.retry_state.set_result(response)
-                    except RetryError as e:
-                        msg = (
-                            f"Failed to get a valid response after {attempt.retry_state.attempt_number} attempts "
-                            f"over {attempt.retry_state.seconds_since_start} seconds"
-                        )
-                        raise RequestRetryFailedError(msg) from e
-                    else:
-                        return response
-                else:
-                    response = await self._reconnect_send_and_receive(unit_id, pdu)
+                    if attempt.retry_state.outcome and not attempt.retry_state.outcome.failed:
+                        attempt.retry_state.set_result(response)
+            except RetryError as e:
+                msg = (
+                    f"Failed to get a valid response after {attempt.retry_state.attempt_number} attempts "
+                    f"over {attempt.retry_state.seconds_since_start} seconds"
+                )
+                raise RequestRetryFailedError(msg) from e
+            else:
+                return response  # type: ignore[report-return-type]
             finally:
                 self._last_request_finished_at = time.monotonic()
-            return response
