@@ -1,7 +1,8 @@
 """Holding Registers utilities."""
 
-import struct
-from typing import Any, Protocol, TypeVar
+from typing import Any, Literal, Protocol, TypeVar
+
+from tmodbus.utils.word_aware_struct import WordOrderAwareStruct
 
 from .base import BasePDU
 from .holding_registers import RawReadHoldingRegistersPDU, RawReadInputRegistersPDU, RawWriteMultipleRegistersPDU
@@ -20,11 +21,22 @@ class SupportsExecuteAsync(Protocol):
 class HoldingRegisterReadMixin(SupportsExecuteAsync):
     """Mixin for holding register read operations."""
 
+    word_order: Literal["big", "little"]
+
+    def __init__(self, word_order: Literal["big", "little"] = "big") -> None:
+        """Initialize the mixin.
+
+        Args:
+            word_order: Word order for multi-register values ('big' or 'little').
+
+        """
+        self.word_order = word_order
+
     async def read_struct_format[RT](
         self,
         start_address: int,
         *,
-        format_struct: struct.Struct,
+        format_struct: WordOrderAwareStruct,
         unit_id: int,
         input_register: bool = False,
     ) -> tuple[Any, ...]:
@@ -55,7 +67,7 @@ class HoldingRegisterReadMixin(SupportsExecuteAsync):
         self,
         start_address: int,
         *,
-        format_struct: struct.Struct,
+        format_struct: WordOrderAwareStruct,
         unit_id: int,
         input_register: bool = False,
     ) -> Any:
@@ -98,7 +110,7 @@ class HoldingRegisterReadMixin(SupportsExecuteAsync):
         """
         return await self.read_simple_struct_format(
             start_address,
-            format_struct=struct.Struct(">H"),
+            format_struct=WordOrderAwareStruct(">H", word_order=self.word_order),
             unit_id=unit_id,
             input_register=input_register,
         )
@@ -122,7 +134,7 @@ class HoldingRegisterReadMixin(SupportsExecuteAsync):
         """
         return await self.read_simple_struct_format(
             start_address,
-            format_struct=struct.Struct(">I"),
+            format_struct=WordOrderAwareStruct(">I", word_order=self.word_order),
             unit_id=unit_id,
             input_register=input_register,
         )
@@ -146,7 +158,7 @@ class HoldingRegisterReadMixin(SupportsExecuteAsync):
         """
         return await self.read_simple_struct_format(
             start_address,
-            format_struct=struct.Struct(">Q"),
+            format_struct=WordOrderAwareStruct(">Q", word_order=self.word_order),
             unit_id=unit_id,
             input_register=input_register,
         )
@@ -170,7 +182,7 @@ class HoldingRegisterReadMixin(SupportsExecuteAsync):
         """
         return await self.read_simple_struct_format(
             start_address,
-            format_struct=struct.Struct(">h"),
+            format_struct=WordOrderAwareStruct(">h", word_order=self.word_order),
             unit_id=unit_id,
             input_register=input_register,
         )
@@ -194,7 +206,7 @@ class HoldingRegisterReadMixin(SupportsExecuteAsync):
         """
         return await self.read_simple_struct_format(
             start_address,
-            format_struct=struct.Struct(">i"),
+            format_struct=WordOrderAwareStruct(">i", word_order=self.word_order),
             unit_id=unit_id,
             input_register=input_register,
         )
@@ -218,7 +230,7 @@ class HoldingRegisterReadMixin(SupportsExecuteAsync):
         """
         return await self.read_simple_struct_format(
             start_address,
-            format_struct=struct.Struct(">q"),
+            format_struct=WordOrderAwareStruct(">q", word_order=self.word_order),
             unit_id=unit_id,
             input_register=input_register,
         )
@@ -242,7 +254,7 @@ class HoldingRegisterReadMixin(SupportsExecuteAsync):
         """
         return await self.read_simple_struct_format(
             start_address,
-            format_struct=struct.Struct(">f"),
+            format_struct=WordOrderAwareStruct(">f", word_order=self.word_order),
             unit_id=unit_id,
             input_register=input_register,
         )
@@ -267,7 +279,7 @@ class HoldingRegisterReadMixin(SupportsExecuteAsync):
             Decoded string value.
 
         """
-        format_struct = struct.Struct(f">{number_of_registers * 2}s")
+        format_struct = WordOrderAwareStruct(f">{number_of_registers * 2}s", word_order=self.word_order)
         string_bytes = await self.read_simple_struct_format(
             start_address,
             format_struct=format_struct,
@@ -280,12 +292,23 @@ class HoldingRegisterReadMixin(SupportsExecuteAsync):
 class HoldingRegisterWriteMixin(SupportsExecuteAsync):
     """Mixin for holding register write operations."""
 
+    word_order: Literal["big", "little"]
+
+    def __init__(self, word_order: Literal["big", "little"] = "big") -> None:
+        """Initialize the mixin.
+
+        Args:
+            word_order: Word order for multi-register values ('big' or 'little').
+
+        """
+        self.word_order = word_order
+
     async def write_struct_format(
         self,
         start_address: int,
         values: tuple[Any, ...],
         *,
-        format_struct: struct.Struct,
+        format_struct: WordOrderAwareStruct,
         unit_id: int,
     ) -> int:
         """Write holding registers using the provided struct format.
@@ -313,7 +336,7 @@ class HoldingRegisterWriteMixin(SupportsExecuteAsync):
         address: int,
         value: Any,
         *,
-        format_struct: struct.Struct,
+        format_struct: WordOrderAwareStruct,
         unit_id: int,
     ) -> Any:
         """Write a single value to holding registers using the provided struct format.
@@ -362,7 +385,7 @@ class HoldingRegisterWriteMixin(SupportsExecuteAsync):
         return await self.write_simple_struct_format(
             address,
             value,
-            format_struct=struct.Struct(">H"),
+            format_struct=WordOrderAwareStruct(">H", word_order=self.word_order),
             unit_id=unit_id,
         )
 
@@ -393,7 +416,7 @@ class HoldingRegisterWriteMixin(SupportsExecuteAsync):
         return await self.write_simple_struct_format(
             address,
             value,
-            format_struct=struct.Struct(">I"),
+            format_struct=WordOrderAwareStruct(">I", word_order=self.word_order),
             unit_id=unit_id,
         )
 
@@ -424,7 +447,7 @@ class HoldingRegisterWriteMixin(SupportsExecuteAsync):
         return await self.write_simple_struct_format(
             address,
             value,
-            format_struct=struct.Struct(">Q"),
+            format_struct=WordOrderAwareStruct(">Q", word_order=self.word_order),
             unit_id=unit_id,
         )
 
@@ -455,7 +478,7 @@ class HoldingRegisterWriteMixin(SupportsExecuteAsync):
         return await self.write_simple_struct_format(
             address,
             value,
-            format_struct=struct.Struct(">h"),
+            format_struct=WordOrderAwareStruct(">h", word_order=self.word_order),
             unit_id=unit_id,
         )
 
@@ -486,7 +509,7 @@ class HoldingRegisterWriteMixin(SupportsExecuteAsync):
         return await self.write_simple_struct_format(
             address,
             value,
-            format_struct=struct.Struct(">i"),
+            format_struct=WordOrderAwareStruct(">i", word_order=self.word_order),
             unit_id=unit_id,
         )
 
@@ -517,7 +540,7 @@ class HoldingRegisterWriteMixin(SupportsExecuteAsync):
         return await self.write_simple_struct_format(
             address,
             value,
-            format_struct=struct.Struct(">q"),
+            format_struct=WordOrderAwareStruct(">q", word_order=self.word_order),
             unit_id=unit_id,
         )
 
@@ -544,7 +567,7 @@ class HoldingRegisterWriteMixin(SupportsExecuteAsync):
         return await self.write_simple_struct_format(
             address,
             value,
-            format_struct=struct.Struct(">f"),
+            format_struct=WordOrderAwareStruct(">f", word_order=self.word_order),
             unit_id=unit_id,
         )
 
@@ -571,7 +594,7 @@ class HoldingRegisterWriteMixin(SupportsExecuteAsync):
         return await self.write_simple_struct_format(
             address,
             value,
-            format_struct=struct.Struct(">d"),
+            format_struct=WordOrderAwareStruct(">d", word_order=self.word_order),
             unit_id=unit_id,
         )
 
@@ -603,7 +626,7 @@ class HoldingRegisterWriteMixin(SupportsExecuteAsync):
             msg = f"String length exceeds maximum size of {max_length} bytes."
             raise ValueError(msg)
 
-        format_struct = struct.Struct(f">{number_of_registers * 2}s")
+        format_struct = WordOrderAwareStruct(f">{number_of_registers * 2}s", word_order=self.word_order)
         # Pad with null bytes if necessary
         value_bytes = value_bytes.rjust(format_struct.size, b"\x00")
 

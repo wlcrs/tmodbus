@@ -38,13 +38,16 @@ class AsyncModbusClient(HoldingRegisterReadMixin, HoldingRegisterWriteMixin):
     completely encapsulating underlying byte operations, and support callback mechanisms.
     """
 
-    def __init__(self, transport: AsyncBaseTransport) -> None:
+    def __init__(self, transport: AsyncBaseTransport, word_order: Literal["big", "little"] = "big") -> None:
         """Initialize Async Modbus Client.
 
         Args:
             transport: Async transport layer instance (AsyncTcpTransport, etc.)
+            word_order: Word order for multi-register values ('big' or 'little').
 
         """
+        HoldingRegisterReadMixin.__init__(self, word_order=word_order)
+        HoldingRegisterWriteMixin.__init__(self, word_order=word_order)
         self.transport = transport
 
     async def connect(self) -> None:
