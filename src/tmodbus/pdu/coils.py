@@ -124,7 +124,7 @@ class ReadCoilsPDU(BasePDU[list[bool]]):
 
         return (
             struct.pack(
-                ">BHB",
+                ">BB",
                 self.function_code,
                 byte_count,
             )
@@ -318,11 +318,7 @@ class WriteMultipleCoilsPDU(BasePDU[int]):
             msg = "Request too short for Write Multiple Coils"
             raise InvalidRequestError(msg, request_bytes=request)
 
-        try:
-            function_code, start_address, quantity, byte_count = struct.unpack(">BHHB", request[:6])
-        except struct.error as e:
-            msg = "Expected request to start with function code, address, quantity and byte count"
-            raise InvalidRequestError(msg, request_bytes=request) from e
+        function_code, start_address, quantity, byte_count = struct.unpack(">BHHB", request[:6])
 
         if function_code != cls.function_code:
             msg = f"Invalid function code: expected {cls.function_code:02x}, received {function_code:02x}"
