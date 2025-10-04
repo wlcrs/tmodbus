@@ -8,8 +8,10 @@ We choose to use the terminology _client_ and _server_ instead, as it is more cl
 ## Features
 
 - Pure Python library with minimal dependencies
-- Fully typed
+- Fully **t**yped
+- Full **t**est coverage
 - Support for both Modbus TCP and RTU clients
+- Support for TCP over SSL connections
 - Auto reconnect and retry functionality (which can be enabled optionally)
 - Extensible with custom Modbus functions and exception codes
 - Open source (BSD)

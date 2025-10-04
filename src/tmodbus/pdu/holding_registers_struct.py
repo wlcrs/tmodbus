@@ -94,6 +94,8 @@ class HoldingRegisterReadMixin(SupportsExecuteAsync):
     ) -> int:
         """Read holding registers and decode them as an unsigned 16-bit integer.
 
+        An unsigned 16-bit integer is 2 bytes wide (1 register).
+
         Args:
             start_address: Starting address of the registers to read.
 
@@ -114,6 +116,8 @@ class HoldingRegisterReadMixin(SupportsExecuteAsync):
         input_register: bool = False,
     ) -> int:
         """Read holding registers and decode them as an unsigned 32-bit integer.
+
+        An unsigned 32-bit integer is 4 bytes wide (2 registers).
 
         Args:
             start_address: Starting address of the registers to read.
@@ -136,9 +140,10 @@ class HoldingRegisterReadMixin(SupportsExecuteAsync):
     ) -> int:
         """Read holding registers and decode them as an unsigned 64-bit integer.
 
+        An unsigned 64-bit integer is 8 bytes wide (4 registers).
+
         Args:
             start_address: Starting address of the registers to read.
-
 
         Returns:
             Decoded unsigned 64-bit integer.
@@ -157,6 +162,8 @@ class HoldingRegisterReadMixin(SupportsExecuteAsync):
         input_register: bool = False,
     ) -> int:
         """Read holding registers and decode them as a signed 16-bit integer.
+
+        A signed 16-bit integer is 2 bytes wide (1 register).
 
         Args:
             start_address: Starting address of the registers to read.
@@ -180,6 +187,8 @@ class HoldingRegisterReadMixin(SupportsExecuteAsync):
     ) -> int:
         """Read holding registers and decode them as a signed 32-bit integer.
 
+        A signed 32-bit integer is 4 bytes wide (2 registers).
+
         Args:
             start_address: Starting address of the registers to read.
 
@@ -201,6 +210,8 @@ class HoldingRegisterReadMixin(SupportsExecuteAsync):
     ) -> int:
         """Read holding registers and decode them as a signed 64-bit integer.
 
+        A signed 64-bit integer is 8 bytes wide (4 registers).
+
         Args:
             start_address: Starting address of the registers to read.
 
@@ -221,6 +232,8 @@ class HoldingRegisterReadMixin(SupportsExecuteAsync):
         input_register: bool = False,
     ) -> float:
         """Read holding registers and decode them as a float.
+
+        A float is 4 bytes wide (2 registers).
 
         Args:
             start_address: Starting address of the registers to read.

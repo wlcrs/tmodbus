@@ -70,6 +70,11 @@ select = ["ALL"]
     "D104", # no docstrings for packages required in tests
 ]
 
+"examples/**" = [
+    "INP001", # not a package
+    "T201", # use print statements in examples
+]
+
 
 [tool.pytest.ini_options]
 #addopts = "--cov=tmodbus --cov-report=term-missing "
