@@ -66,7 +66,7 @@ class ReadCoilsPDU(BasePDU[list[bool]]):
             raise InvalidResponseError(msg, response_bytes=response) from e
 
         if function_code != self.function_code:
-            msg = f"Invalid function code: expected {self.function_code:02x}, received {function_code:02x}"
+            msg = f"Invalid function code: expected {self.function_code:#04x}, received {function_code:#04x}"
             raise InvalidResponseError(msg, response_bytes=response)
 
         if len(response) != 2 + byte_count:
@@ -101,7 +101,7 @@ class ReadCoilsPDU(BasePDU[list[bool]]):
             raise InvalidRequestError(msg, request_bytes=request) from e
 
         if function_code != cls.function_code:
-            msg = f"Invalid function code: expected {cls.function_code:02x}, received {function_code:02x}"
+            msg = f"Invalid function code: expected {cls.function_code:#04x}, received {function_code:#04x}"
             raise InvalidRequestError(msg, request_bytes=request)
 
         return cls(address, quantity)
@@ -200,7 +200,7 @@ class WriteSingleCoilPDU(BasePDU[bool]):
             raise InvalidRequestError(msg, request_bytes=request) from e
 
         if function_code != cls.function_code:
-            msg = f"Invalid function code: expected {cls.function_code:02x}, received {function_code:02x}"
+            msg = f"Invalid function code: expected {cls.function_code:#04x}, received {function_code:#04x}"
             raise InvalidRequestError(msg, request_bytes=request)
 
         if coil_value not in (0x0000, 0xFF00):
@@ -321,7 +321,7 @@ class WriteMultipleCoilsPDU(BasePDU[int]):
         function_code, start_address, quantity, byte_count = struct.unpack(">BHHB", request[:6])
 
         if function_code != cls.function_code:
-            msg = f"Invalid function code: expected {cls.function_code:02x}, received {function_code:02x}"
+            msg = f"Invalid function code: expected {cls.function_code:#04x}, received {function_code:#04x}"
             raise InvalidRequestError(msg, request_bytes=request)
 
         if not (1 <= quantity <= 0x07B0):

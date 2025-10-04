@@ -45,7 +45,7 @@ class TestReadHoldingRegistersPDU:
             pdu.decode_response(bytearray.fromhex("FF"))
 
         # Invalid function code
-        with pytest.raises(InvalidResponseError, match=r"Invalid function code: expected 03, received 04"):
+        with pytest.raises(InvalidResponseError, match=r"Invalid function code: expected 0x03, received 0x04"):
             pdu.decode_response(bytearray.fromhex("04 01 05"))
 
         # Invalid length

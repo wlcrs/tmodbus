@@ -48,7 +48,7 @@ class TestReadCoilsPDU:
             pdu.decode_response(bytearray.fromhex("FF"))
 
         # Invalid function code
-        with pytest.raises(InvalidResponseError, match="Invalid function code: expected 01, received 02"):
+        with pytest.raises(InvalidResponseError, match="Invalid function code: expected 0x01, received 0x02"):
             pdu.decode_response(bytearray.fromhex("02 01 05"))
 
         # Invalid length
@@ -77,7 +77,7 @@ class TestReadCoilsPDU:
     def test_decode_request_invalid_function_code(self):
         """Test decode_request with invalid function code."""
         request = struct.pack(">BHH", 0x02, 100, 10)
-        with pytest.raises(InvalidRequestError, match=r"Invalid function code: expected 01, received 02"):
+        with pytest.raises(InvalidRequestError, match=r"Invalid function code: expected 0x01, received 0x02"):
             ReadCoilsPDU.decode_request(request)
 
     def test_encode_response_single_byte(self):
@@ -160,7 +160,7 @@ class TestWriteSingleCoilPDU:
     def test_decode_request_invalid_function_code(self):
         """Test decode_request with invalid function code."""
         request = struct.pack(">BHH", 0x06, 100, 0xFF00)
-        with pytest.raises(InvalidRequestError, match=r"Invalid function code: expected 05, received 06"):
+        with pytest.raises(InvalidRequestError, match=r"Invalid function code: expected 0x05, received 0x06"):
             WriteSingleCoilPDU.decode_request(request)
 
     def test_decode_request_invalid_coil_value(self):
@@ -259,7 +259,7 @@ class TestWriteMultipleCoilsPDU:
     def test_decode_request_invalid_function_code(self):
         """Test decode_request with invalid function code."""
         request = struct.pack(">BHHB", 0x10, 100, 5, 1) + b"\x15"
-        with pytest.raises(InvalidRequestError, match=r"Invalid function code: expected 0f, received 10"):
+        with pytest.raises(InvalidRequestError, match=r"Invalid function code: expected 0x0f, received 0x10"):
             WriteMultipleCoilsPDU.decode_request(request)
 
     def test_decode_request_invalid_quantity_too_low(self):

@@ -197,8 +197,8 @@ class AsyncTcpTransport(AsyncBaseTransport):
         # 6. Validate MBAP header
         if response_transaction_id != current_transaction_id:
             msg = (
-                f" Transaction ID mismatch: expected {current_transaction_id:02x}, "
-                f"received {response_transaction_id:02x}"
+                f" Transaction ID mismatch: expected {current_transaction_id:#04x}, "
+                f"received {response_transaction_id:#04x}"
             )
             raise InvalidResponseError(msg, response_bytes=response_mbap)
 
@@ -207,7 +207,7 @@ class AsyncTcpTransport(AsyncBaseTransport):
             raise InvalidResponseError(msg, response_bytes=response_mbap)
 
         if response_unit_id != unit_id:
-            msg = f"Unit ID mismatch: expected {unit_id:02x}, received {response_unit_id:02x}"
+            msg = f"Unit ID mismatch: expected {unit_id:#04x}, received {response_unit_id:#04x}"
             raise InvalidResponseError(msg, response_bytes=response_mbap)
 
         # 7. Async receive response PDU

@@ -111,7 +111,7 @@ class TestReadDeviceIdentificationPDU:
             0x00,
         )
 
-        with pytest.raises(ValueError, match=r"Invalid function code: expected 2b, received 03"):
+        with pytest.raises(ValueError, match=r"Invalid function code: expected 0x2b, received 0x03"):
             pdu.decode_response(response)
 
     def test_decode_response_invalid_sub_function_code(self):
@@ -129,7 +129,7 @@ class TestReadDeviceIdentificationPDU:
             0x00,
         )
 
-        with pytest.raises(ValueError, match=r"Invalid sub function code: expected 0e, received 0f"):
+        with pytest.raises(ValueError, match=r"Invalid sub function code: expected 0x0e, received 0x0f"):
             pdu.decode_response(response)
 
     def test_decode_response_invalid_more_value(self):
@@ -147,7 +147,7 @@ class TestReadDeviceIdentificationPDU:
             0x00,
         )
 
-        with pytest.raises(ValueError, match=r"Invalid 'more' value: 01"):
+        with pytest.raises(ValueError, match=r"Invalid 'more' value: 0x01"):
             pdu.decode_response(response)
 
     def test_decode_response_empty_objects(self):

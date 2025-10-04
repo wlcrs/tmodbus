@@ -103,15 +103,17 @@ class ReadDeviceIdentificationPDU(BaseSubFunctionClientPDU[ReadDeviceIdentificat
         ) = response_header_struct.unpack_from(response, 0)
 
         if function_code != self.function_code:
-            msg = f"Invalid function code: expected {self.function_code:02x}, received {function_code:02x}"
+            msg = f"Invalid function code: expected {self.function_code:#04x}, received {function_code:#04x}"
             raise ValueError(msg)
 
         if sub_function_code != self.sub_function_code:
-            msg = f"Invalid sub function code: expected {self.sub_function_code:02x}, received {sub_function_code:02x}"
+            msg = (
+                f"Invalid sub function code: expected {self.sub_function_code:#04x}, received {sub_function_code:#04x}"
+            )
             raise ValueError(msg)
 
         if more not in (0x00, 0xFF):
-            msg = f"Invalid 'more' value: {more:02x}"
+            msg = f"Invalid 'more' value: {more:#04x}"
             raise ValueError(msg)
 
         objects: dict[int, bytes] = {}

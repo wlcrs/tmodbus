@@ -66,7 +66,7 @@ class RawReadHoldingRegistersPDU(BasePDU[bytes]):
             raise InvalidResponseError(msg, response_bytes=response) from e
 
         if function_code != self.function_code:
-            msg = f"Invalid function code: expected {self.function_code:02x}, received {function_code:02x}"
+            msg = f"Invalid function code: expected {self.function_code:#04x}, received {function_code:#04x}"
             raise InvalidResponseError(msg, response_bytes=response)
 
         if len(response) != 2 + byte_count:
@@ -97,7 +97,7 @@ class RawReadHoldingRegistersPDU(BasePDU[bytes]):
             raise InvalidRequestError(msg, request_bytes=request) from e
 
         if function_code != cls.function_code:
-            msg = f"Invalid function code: expected {cls.function_code:02x}, received {function_code:02x}"
+            msg = f"Invalid function code: expected {cls.function_code:#04x}, received {function_code:#04x}"
             raise InvalidRequestError(msg, request_bytes=request)
 
         return cls(address, quantity)
@@ -177,7 +177,7 @@ class ReadHoldingRegistersPDU(BasePDU[list[int]]):
             raise InvalidRequestError(msg, request_bytes=request) from e
 
         if function_code != cls.function_code:
-            msg = f"Invalid function code: expected {cls.function_code:02x}, received {function_code:02x}"
+            msg = f"Invalid function code: expected {cls.function_code:#04x}, received {function_code:#04x}"
             raise InvalidRequestError(msg, request_bytes=request)
 
         return cls(address, quantity)
@@ -304,7 +304,7 @@ class WriteSingleRegisterPDU(BasePDU[int]):
             raise InvalidRequestError(msg, request_bytes=request) from e
 
         if function_code != cls.function_code:
-            msg = f"Invalid function code: expected {cls.function_code:02x}, received {function_code:02x}"
+            msg = f"Invalid function code: expected {cls.function_code:#04x}, received {function_code:#04x}"
             raise InvalidRequestError(msg, request_bytes=request)
 
         return cls(address, value)
@@ -419,7 +419,7 @@ class RawWriteMultipleRegistersPDU(BasePDU[int]):
         function_code, start_address, quantity, byte_count = struct.unpack(">BHHB", request[:6])
 
         if function_code != cls.function_code:
-            msg = f"Invalid function code: expected {cls.function_code:02x}, received {function_code:02x}"
+            msg = f"Invalid function code: expected {cls.function_code:#04x}, received {function_code:#04x}"
             raise InvalidRequestError(msg, request_bytes=request)
 
         if byte_count % 2 != 0:
