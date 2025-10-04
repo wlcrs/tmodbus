@@ -1,5 +1,6 @@
 import asyncio
 import time
+from typing import Never
 from unittest.mock import AsyncMock, MagicMock, patch
 
 import pytest
@@ -21,7 +22,6 @@ from tmodbus.transport.async_rtu import (
     compute_max_continuous_transmission_delay,
 )
 from tmodbus.utils.crc import calculate_crc16
-import contextlib
 
 
 def test_compute_delays():
@@ -147,7 +147,7 @@ async def test_close_early_return_and_logger(monkeypatch):
     t = AsyncRtuTransport("/dev/ttyUSB0", baudrate=9600)
     t._writer = None
     t._reader = None
-    from unittest.mock import patch, ANY
+    from unittest.mock import patch
 
     with patch("tmodbus.transport.async_rtu.logger") as log:
         await t.close()
@@ -178,7 +178,7 @@ async def test_interframe_sleep(monkeypatch):
     )
     sleep_called = False
 
-    async def fake_sleep(d):
+    async def fake_sleep(d) -> None:
         nonlocal sleep_called
         sleep_called = True
 
@@ -276,7 +276,7 @@ async def test_receive_response_remaining_modbus_connection_error(monkeypatch):
 
 
 async def test_send_and_receive_crc_and_address_and_exception(mock_asyncio_connection, monkeypatch):
-    reader, writer = mock_asyncio_connection
+    reader, _writer = mock_asyncio_connection
     # Test CRC error, slave address mismatch, and exception response mapping
     t = AsyncRtuTransport("/dev/ttyUSB0", baudrate=9600)
     await t.open()
@@ -406,14 +406,14 @@ async def test_receive_response_wait_for_timeout(mock_asyncio_connection, monkey
     t = AsyncRtuTransport("/dev/ttyUSB0", baudrate=9600)
     await t.open()
 
-    async def _fake_wait_for(coro, timeout, *args, **kwargs):
+    async def _fake_wait_for(coro, timeout, *args, **kwargs) -> Never:
         await coro
         raise TimeoutError("timed out")
 
     with patch("asyncio.wait_for", _fake_wait_for), pytest.raises(TimeoutError):
         await t._receive_response()
 
-    async def _fake_wait_for_with_runtime_error(coro, timeout, *args, **kwargs):
+    async def _fake_wait_for_with_runtime_error(coro, timeout, *args, **kwargs) -> Never:
         await coro
         raise RuntimeError("timed out")
 

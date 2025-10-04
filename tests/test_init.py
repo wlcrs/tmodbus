@@ -3,7 +3,6 @@ from typing import Any
 import pytest
 
 import tmodbus
-
 from tmodbus import create_async_rtu_client, create_async_tcp_client
 from tmodbus.transport.async_base import AsyncBaseTransport
 

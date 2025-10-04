@@ -13,7 +13,7 @@ from tmodbus.utils.word_aware_struct import WordOrderAwareStruct
 class MockClient(HoldingRegisterReadMixin, HoldingRegisterWriteMixin):
     """Mock client for testing mixins."""
 
-    def __init__(self, word_order="big"):
+    def __init__(self, word_order="big") -> None:
         HoldingRegisterReadMixin.__init__(self, word_order=word_order)
         HoldingRegisterWriteMixin.__init__(self, word_order=word_order)
         self.execute = AsyncMock()
@@ -572,7 +572,7 @@ class TestRoundTripReadWrite:
         # Capture the written bytes
         written_bytes = None
 
-        def capture_write(pdu, unit_id=1):
+        def capture_write(pdu, unit_id=1) -> int:
             nonlocal written_bytes
             written_bytes = pdu.content
             return 1
@@ -608,7 +608,7 @@ class TestRoundTripReadWrite:
 
         written_bytes = None
 
-        def capture_write(pdu, unit_id=1):
+        def capture_write(pdu, unit_id=1) -> int:
             nonlocal written_bytes
             written_bytes = pdu.content
             return 1
@@ -642,7 +642,7 @@ class TestRoundTripReadWrite:
 
         written_bytes = None
 
-        def capture_write(pdu, unit_id=1):
+        def capture_write(pdu, unit_id=1) -> int:
             nonlocal written_bytes
             written_bytes = pdu.content
             return 2
@@ -677,7 +677,7 @@ class TestRoundTripReadWrite:
 
         written_bytes = None
 
-        def capture_write(pdu, unit_id=1):
+        def capture_write(pdu, unit_id=1) -> int:
             nonlocal written_bytes
             written_bytes = pdu.content
             return 2
@@ -711,7 +711,7 @@ class TestRoundTripReadWrite:
 
         written_bytes = None
 
-        def capture_write(pdu, unit_id=1):
+        def capture_write(pdu, unit_id=1) -> int:
             nonlocal written_bytes
             written_bytes = pdu.content
             return 4
@@ -745,7 +745,7 @@ class TestRoundTripReadWrite:
 
         written_bytes = None
 
-        def capture_write(pdu, unit_id=1):
+        def capture_write(pdu, unit_id=1) -> int:
             nonlocal written_bytes
             written_bytes = pdu.content
             return 4
@@ -785,7 +785,7 @@ class TestRoundTripReadWrite:
 
         written_bytes = None
 
-        def capture_write(pdu, unit_id=1):
+        def capture_write(pdu, unit_id=1) -> int:
             nonlocal written_bytes
             written_bytes = pdu.content
             return 2
