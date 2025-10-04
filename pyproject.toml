@@ -1,10 +1,12 @@
 [project]
 name = "tmodbus"
-version = "0.1.0"
+authors= [{name="wlcrs"}]
 description = "A modern, strongly typed Modbus client library."
 readme = "README.md"
 requires-python = ">=3.12"
 keywords = ["modbus", "modbus-tcp", "modbus-rtu"]
+dynamic = ["version"]
+
 
 [project.optional-dependencies]
 tests = [
@@ -22,8 +24,17 @@ smart = [
 ]
 
 [build-system]
-requires = ["uv_build>=0.8.4,<0.9.0"]
-build-backend = "uv_build"
+requires = ["hatchling", "hatch-vcs"]
+build-backend = "hatchling.build"
+
+[tool.hatch.build.targets.wheel]
+only-packages = true
+
+[tool.hatch.build.targets.sdist]
+only-include = ["examples", "src", "tests"]
+
+[tool.hatch.version]
+source = "vcs"
 
 
 [tool.ruff]
