@@ -38,17 +38,30 @@ class AsyncModbusClient(HoldingRegisterReadMixin, HoldingRegisterWriteMixin):
     completely encapsulating underlying byte operations, and support callback mechanisms.
     """
 
-    def __init__(self, transport: AsyncBaseTransport, word_order: Literal["big", "little"] = "big") -> None:
+    def __init__(
+        self,
+        transport: AsyncBaseTransport,
+        *,
+        unit_id: int,
+        word_order: Literal["big", "little"] = "big",
+    ) -> None:
         """Initialize Async Modbus Client.
 
         Args:
             transport: Async transport layer instance (AsyncTcpTransport, etc.)
+            unit_id: Unit ID of the Modbus device
             word_order: Word order for multi-register values ('big' or 'little').
 
         """
         HoldingRegisterReadMixin.__init__(self, word_order=word_order)
         HoldingRegisterWriteMixin.__init__(self, word_order=word_order)
         self.transport = transport
+
+        if not (0 <= unit_id <= 255):
+            msg = "Unit ID must be in range 0-255"
+            raise ValueError(msg)
+
+        self.unit_id = unit_id
 
     async def connect(self) -> None:
         """Connect to the server."""
@@ -63,13 +76,11 @@ class AsyncModbusClient(HoldingRegisterReadMixin, HoldingRegisterWriteMixin):
         """Close the server connection."""
         await self.transport.close()
 
-    async def execute(self, pdu: BaseClientPDU[RT], *, unit_id: int) -> RT:
+    async def execute(self, pdu: BaseClientPDU[RT]) -> RT:
         """Execute PDU Request.
 
         Args:
             pdu: Modbus PDU instance
-            unit_id: Unit ID of the Modbus device
-
         Returns:
             Response PDU bytes
 
@@ -77,19 +88,16 @@ class AsyncModbusClient(HoldingRegisterReadMixin, HoldingRegisterWriteMixin):
             InvalidResponseError: If response is invalid or does not match request
 
         """
-        return await self.transport.send_and_receive(unit_id, pdu)
+        return await self.transport.send_and_receive(self.unit_id, pdu)
 
     async def read_coils(
         self,
         start_address: int,
         quantity: int,
-        *,
-        unit_id: int,
     ) -> list[bool]:
         """Read Coil Status (Function Code 0x01).
 
         Args:
-            unit_id: Unit ID
             start_address:  Starting address
             quantity:  Quantity to read (1-2000)
 
@@ -101,19 +109,16 @@ class AsyncModbusClient(HoldingRegisterReadMixin, HoldingRegisterWriteMixin):
             [True, False, True, False, False, False, True, False]
 
         """
-        return await self.execute(ReadCoilsPDU(start_address, quantity), unit_id=unit_id)
+        return await self.execute(ReadCoilsPDU(start_address, quantity))
 
     async def read_discrete_inputs(
         self,
         start_address: int,
         quantity: int,
-        *,
-        unit_id: int,
     ) -> list[bool]:
         """Read Discrete Inputs (Function Code 0x02).
 
         Args:
-            unit_id: Unit ID
             start_address:  Starting address
             quantity:  Quantity to read (1-2000)
 
@@ -125,85 +130,77 @@ class AsyncModbusClient(HoldingRegisterReadMixin, HoldingRegisterWriteMixin):
             [True, False, True, False, False, False, True, False]
 
         """
-        return await self.execute(ReadDiscreteInputsPDU(start_address, quantity), unit_id=unit_id)
+        return await self.execute(ReadDiscreteInputsPDU(start_address, quantity))
 
     async def read_holding_registers(
         self,
         start_address: int,
         quantity: int,
-        *,
-        unit_id: int,
     ) -> list[int]:
         """Read Holding Registers (Function Code 0x03).
 
         Args:
             start_address: Starting address
             quantity: Quantity to read (1-125)
-            unit_id: Unit ID
+
 
         Returns:
             List of register values, each value is a 16-bit unsigned integer (0-65535)
 
         Example:
-            >>> registers = await client.read_holding_registers(0, 4, unit_id=1)  # Read holding registers 0, 1, 2, 3
+            >>> registers = await client.read_holding_registers(0, 4)  # Read holding registers 0, 1, 2, 3
             [1234, 5678, 9012, 3456]
 
         """
-        return await self.execute(ReadHoldingRegistersPDU(start_address, quantity), unit_id=unit_id)
+        return await self.execute(ReadHoldingRegistersPDU(start_address, quantity))
 
     async def read_input_registers(
         self,
         start_address: int,
         quantity: int,
-        *,
-        unit_id: int,
     ) -> list[int]:
         """Read Input Registers (Function Code 0x04).
 
         Args:
             start_address: Starting address
             quantity: Quantity to read (1-125)
-            unit_id: Unit ID
+
 
         Returns:
             List of register values, each value is a 16-bit unsigned integer (0-65535)
 
         Example:
-            >>> registers = await client.read_input_registers(0, 4, unit_id=1) # Read input registers 0, 1, 2, 3
+            >>> registers = await client.read_input_registers(0, 4) # Read input registers 0, 1, 2, 3
             [1234, 5678, 9012, 3456]
 
         """
-        return await self.execute(ReadInputRegistersPDU(start_address, quantity), unit_id=unit_id)
+        return await self.execute(ReadInputRegistersPDU(start_address, quantity))
 
     async def write_single_coil(
         self,
         address: int,
         value: bool,  # noqa: FBT001
-        *,
-        unit_id: int,
     ) -> int:
         """Write Single Coil (Function Code 0x05).
 
         Args:
             address: Coil address
             value: Coil value (True for ON, False for OFF)
-            unit_id: Unit ID
+
 
         Returns:
             The value that was written
 
         Example:
-            >>> await client.write_single_coil(0, True, unit_id=1)  # Write ON to coil 0
+            >>> await client.write_single_coil(0, True)  # Write ON to coil 0
 
         """
-        return await self.execute(WriteSingleCoilPDU(address, value), unit_id=unit_id)
+        return await self.execute(WriteSingleCoilPDU(address, value))
 
     async def write_single_register(
         self,
         address: int,
         value: int,
-        *,
-        unit_id: int,
     ) -> int:
         """Write Single Register (Function Code 0x06).
 
@@ -215,76 +212,70 @@ class AsyncModbusClient(HoldingRegisterReadMixin, HoldingRegisterWriteMixin):
             the value that was written
 
         Example:
-            >>> await client.write_single_register(0, 1234, unit_id=1) # Write 1234 to register 0
+            >>> await client.write_single_register(0, 1234)  # Write 1234 to register 0
 
         """
-        return await self.execute(WriteSingleRegisterPDU(address, value), unit_id=unit_id)
+        return await self.execute(WriteSingleRegisterPDU(address, value))
 
     async def write_multiple_coils(
         self,
         start_address: int,
         values: list[bool],
-        *,
-        unit_id: int,
     ) -> int:
         """Write Multiple Coils (Function Code 0x0F).
 
         Args:
             start_address: Starting address
             values: List of coil values, True for ON, False for OFF
-            unit_id: Unit ID
+
 
         Returns:
             The number of coils that have been written to.
 
         Example:
-            >>> await client.write_multiple_coils(0, [True, False, True, False], unit_id=1)
+            >>> await client.write_multiple_coils(0, [True, False, True, False])
 
         """
-        return await self.execute(WriteMultipleCoilsPDU(start_address, values), unit_id=unit_id)
+        return await self.execute(WriteMultipleCoilsPDU(start_address, values))
 
     async def write_multiple_registers(
         self,
         start_address: int,
         values: list[int],
-        *,
-        unit_id: int,
     ) -> int:
         """Write Multiple Registers (Function Code 0x10).
 
         Args:
             start_address: Starting address
             values: List of register values, each value 0-65535
-            unit_id: Unit ID
+
 
         Returns:
             The number of registers that have been written to.
 
         Example:
-            >>> await client.write_multiple_registers(0, [1234, 5678, 9012], unit_id=1)
+            >>> await client.write_multiple_registers(0, [1234, 5678, 9012])
 
         """
-        return await self.execute(WriteMultipleRegistersPDU(start_address, values), unit_id=unit_id)
+        return await self.execute(WriteMultipleRegistersPDU(start_address, values))
 
     async def read_device_identification(
         self,
         device_code: Literal[0x01, 0x02, 0x03, 0x04],
         object_id: int,
-        *,
-        unit_id: int,
     ) -> dict[int, bytes]:
         """Read Device Identification (Function Code 0x2B/0x0E).
 
         Args:
             device_code: Device code (0x01 for Basic, 0x02 for Regular, 0x03 for Extended, 0x04 for Specific)
             object_id: Object ID to start reading from (0x00 to 0xFF)
-            unit_id: Unit ID
+
 
         Returns:
             A dictionary mapping object IDs to their corresponding string values.
 
         Example:
-            >>> device_info = await client.read_device_identification(1, 0, unit_id=1)
+            >>> device_info = await client.read_device_identification(1, 0)
             {0: 'VendorName', 1: 'ProductCode', ...}
 
         """
@@ -292,7 +283,7 @@ class AsyncModbusClient(HoldingRegisterReadMixin, HoldingRegisterWriteMixin):
         more = True
         number_of_objects: int | None = None
         while more:
-            response = await self.execute(ReadDeviceIdentificationPDU(device_code, object_id), unit_id=unit_id)
+            response = await self.execute(ReadDeviceIdentificationPDU(device_code, object_id))
             result.update(response.objects)
             more = response.more
             object_id = response.next_object_id
@@ -321,3 +312,15 @@ class AsyncModbusClient(HoldingRegisterReadMixin, HoldingRegisterWriteMixin):
     ) -> None:
         """Async context manager exit."""
         await self.transport.close()
+
+    def for_unit_id(self, unit_id: int) -> "AsyncModbusClient":
+        """Create a new client instance for a different unit ID, but using the same connection.
+
+        Args:
+            unit_id: The unit ID for the new client instance.
+
+        Returns:
+            A new instance of AsyncModbusClient configured for the specified unit ID.
+
+        """
+        return AsyncModbusClient(self.transport, unit_id=unit_id, word_order=self.word_order)

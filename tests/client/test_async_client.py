@@ -46,7 +46,7 @@ class DummyAsyncTransport(AsyncBaseTransport):
 def dummy_client() -> AsyncModbusClient:
     """Create a dummy async Modbus client."""
     transport = DummyAsyncTransport()
-    return AsyncModbusClient(transport)
+    return AsyncModbusClient(transport, unit_id=1)
 
 
 async def test_async_modbus_client_open_close(dummy_client: AsyncModbusClient):
@@ -70,9 +70,26 @@ async def test_async_modbus_client_open_close(dummy_client: AsyncModbusClient):
 def test_async_modbus_client_initialization():
     """Test initialization of AsyncModbusClient with DummyAsyncTransport."""
     transport = DummyAsyncTransport()
-    client = AsyncModbusClient(transport)
+    client = AsyncModbusClient(transport, unit_id=1)
     assert client.transport == transport
     assert isinstance(client.transport, AsyncBaseTransport)
+
+
+@pytest.mark.parametrize("unit_id", [-1, 256, 999, -100])
+def test_async_modbus_client_unit_id_out_of_bounds(unit_id):
+    """Test that AsyncModbusClient raises ValueError for out-of-bounds unit_id."""
+    transport = DummyAsyncTransport()
+    with pytest.raises(ValueError, match="Unit ID must be in range 0-255"):
+        AsyncModbusClient(transport, unit_id=unit_id)
+
+
+@pytest.mark.parametrize("unit_id", [0, 1, 255])
+def test_async_modbus_client_unit_id_in_bounds(unit_id):
+    """Test that AsyncModbusClient accepts valid unit_id values."""
+    transport = DummyAsyncTransport()
+    client = AsyncModbusClient(transport, unit_id=unit_id)
+    assert client.unit_id == unit_id
+    assert isinstance(client, AsyncModbusClient)
 
 
 async def test_async_modbus_client_execute(dummy_client: AsyncModbusClient):
@@ -83,7 +100,7 @@ async def test_async_modbus_client_execute(dummy_client: AsyncModbusClient):
     pdu = ReadCoilsPDU(start_address=0, quantity=8)
 
     # Execute the PDU request
-    response = await dummy_client.execute(pdu, unit_id=unit_id)
+    response = await dummy_client.execute(pdu)
 
     # Check if the transport method was called correctly
     assert dummy_client.transport.performed_actions == [["send_and_receive", unit_id, "ReadCoilsPDU"]]
@@ -98,7 +115,7 @@ async def test_async_modbus_client_read_coils(dummy_client: AsyncModbusClient):
     quantity = 8
 
     # Execute the read_coils request
-    response = await dummy_client.read_coils(start_address, quantity, unit_id=unit_id)
+    response = await dummy_client.read_coils(start_address, quantity)
 
     # Check if the transport method was called correctly
     assert dummy_client.transport.performed_actions == [["send_and_receive", unit_id, "ReadCoilsPDU"]]
@@ -114,7 +131,7 @@ async def test_async_modbus_client_read_discrete_inputs(dummy_client: AsyncModbu
     quantity = 8
 
     # Execute the read_discrete_inputs request
-    response = await dummy_client.read_discrete_inputs(start_address, quantity, unit_id=unit_id)
+    response = await dummy_client.read_discrete_inputs(start_address, quantity)
 
     # Check if the transport method was called correctly
     assert dummy_client.transport.performed_actions == [["send_and_receive", unit_id, "ReadDiscreteInputsPDU"]]
@@ -130,7 +147,7 @@ async def test_async_modbus_client_read_holding_registers(dummy_client: AsyncMod
     quantity = 8
 
     # Execute the read_holding_registers request
-    response = await dummy_client.read_holding_registers(start_address, quantity, unit_id=unit_id)
+    response = await dummy_client.read_holding_registers(start_address, quantity)
 
     # Check if the transport method was called correctly
     assert dummy_client.transport.performed_actions == [["send_and_receive", unit_id, "ReadHoldingRegistersPDU"]]
@@ -146,7 +163,7 @@ async def test_async_modbus_client_read_input_registers(dummy_client: AsyncModbu
     quantity = 8
 
     # Execute the read_input_registers request
-    response = await dummy_client.read_input_registers(start_address, quantity, unit_id=unit_id)
+    response = await dummy_client.read_input_registers(start_address, quantity)
 
     # Check if the transport method was called correctly
     assert dummy_client.transport.performed_actions == [["send_and_receive", unit_id, "ReadInputRegistersPDU"]]
@@ -162,7 +179,7 @@ async def test_async_modbus_client_write_single_coil(dummy_client: AsyncModbusCl
     value = True
 
     # Execute the write_single_coil request
-    response = await dummy_client.write_single_coil(address, value, unit_id=unit_id)
+    response = await dummy_client.write_single_coil(address, value)
 
     # Check if the transport method was called correctly
     assert dummy_client.transport.performed_actions == [["send_and_receive", unit_id, "WriteSingleCoilPDU"]]
@@ -178,7 +195,7 @@ async def test_async_modbus_client_write_multiple_coils(dummy_client: AsyncModbu
     values = [True, False, True, False]
 
     # Execute the write_multiple_coils request
-    response = await dummy_client.write_multiple_coils(start_address, values, unit_id=unit_id)
+    response = await dummy_client.write_multiple_coils(start_address, values)
 
     # Check if the transport method was called correctly
     assert dummy_client.transport.performed_actions == [["send_and_receive", unit_id, "WriteMultipleCoilsPDU"]]
@@ -194,7 +211,7 @@ async def test_async_modbus_client_write_single_register(dummy_client: AsyncModb
     value = 1234
 
     # Execute the write_single_register request
-    response = await dummy_client.write_single_register(address, value, unit_id=unit_id)
+    response = await dummy_client.write_single_register(address, value)
 
     # Check if the transport method was called correctly
     assert dummy_client.transport.performed_actions == [["send_and_receive", unit_id, "WriteSingleRegisterPDU"]]
@@ -210,7 +227,7 @@ async def test_async_modbus_client_write_multiple_registers(dummy_client: AsyncM
     values = [1234, 5678, 123]
 
     # Execute the write_multiple_registers request
-    response = await dummy_client.write_multiple_registers(start_address, values, unit_id=unit_id)
+    response = await dummy_client.write_multiple_registers(start_address, values)
 
     # Check if the transport method was called correctly
     assert dummy_client.transport.performed_actions == [["send_and_receive", unit_id, "WriteMultipleRegistersPDU"]]
@@ -249,7 +266,7 @@ async def test_read_device_identification_single_response(monkeypatch, dummy_cli
     # Patch execute to return a single response with more=False
     called = {}
 
-    async def fake_execute(self, pdu: ReadDeviceIdentificationPDU, unit_id: int) -> ReadDeviceIdentificationResponse:
+    async def fake_execute(self, pdu: ReadDeviceIdentificationPDU) -> ReadDeviceIdentificationResponse:
         called["pdu"] = pdu
         return ReadDeviceIdentificationResponse(
             device_id_code=1,
@@ -261,7 +278,7 @@ async def test_read_device_identification_single_response(monkeypatch, dummy_cli
         )
 
     monkeypatch.setattr(AsyncModbusClient, "execute", fake_execute)
-    result = await dummy_client.read_device_identification(1, 0, unit_id=1)
+    result = await dummy_client.read_device_identification(1, 0)
     assert result == {1: b"foo"}
     assert isinstance(called["pdu"], ReadDeviceIdentificationPDU)
 
@@ -288,13 +305,13 @@ async def test_read_device_identification_multiple_responses(monkeypatch, dummy_
     ]
     call_count = {"count": 0}
 
-    async def fake_execute(self, pdu: ReadDeviceIdentificationPDU, unit_id: int) -> ReadDeviceIdentificationResponse:
+    async def fake_execute(self, pdu: ReadDeviceIdentificationPDU) -> ReadDeviceIdentificationResponse:
         idx = call_count["count"]
         call_count["count"] += 1
         return responses[idx]
 
     monkeypatch.setattr(AsyncModbusClient, "execute", fake_execute)
-    result = await dummy_client.read_device_identification(1, 0, unit_id=1)
+    result = await dummy_client.read_device_identification(1, 0)
     assert result == {1: b"foo", 2: b"bar"}
     assert call_count["count"] == 2
 
@@ -321,12 +338,12 @@ async def test_read_device_identification_warns_on_number_of_objects_change(monk
     ]
     call_count = {"count": 0}
 
-    async def fake_execute(self, pdu: ReadDeviceIdentificationPDU, unit_id: int) -> ReadDeviceIdentificationResponse:
+    async def fake_execute(self, pdu: ReadDeviceIdentificationPDU) -> ReadDeviceIdentificationResponse:
         idx = call_count["count"]
         call_count["count"] += 1
         return responses[idx]
 
     monkeypatch.setattr(AsyncModbusClient, "execute", fake_execute)
     with caplog.at_level("WARNING"):
-        await dummy_client.read_device_identification(1, 0, unit_id=1)
+        await dummy_client.read_device_identification(1, 0)
     assert any("Number of objects changed between requests" in r for r in caplog.text.splitlines())

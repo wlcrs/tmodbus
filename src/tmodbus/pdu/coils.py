@@ -20,7 +20,6 @@ class ReadCoilsPDU(BasePDU[list[bool]]):
         Args:
             start_address: Starting address of the coils to read
             quantity: Number of coils to read
-            unit_id: Unit ID of the Modbus device
 
         Raises:
             ValueError: If start_address or quantity is invalid

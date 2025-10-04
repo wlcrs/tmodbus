@@ -13,7 +13,7 @@ RT = TypeVar("RT")
 class SupportsExecuteAsync(Protocol):
     """Protocol for classes that support the execute method."""
 
-    async def execute(self, pdu: BasePDU[RT], *, unit_id: int) -> RT:
+    async def execute(self, pdu: BasePDU[RT]) -> RT:
         """Send the PDU and return the response."""
         ...
 
@@ -37,7 +37,6 @@ class HoldingRegisterReadMixin(SupportsExecuteAsync):
         start_address: int,
         *,
         format_struct: WordOrderAwareStruct,
-        unit_id: int,
         input_register: bool = False,
     ) -> tuple[Any, ...]:
         """Read holding registers and decode them using the provided struct format.
@@ -45,7 +44,6 @@ class HoldingRegisterReadMixin(SupportsExecuteAsync):
         Args:
             struct_format: Struct format to decode the response
             start_address: Starting address of the registers to read
-            unit_id: Unit ID
             input_register: Whether to read holding registers (False) or input registers (True)
 
         Returns:
@@ -58,8 +56,7 @@ class HoldingRegisterReadMixin(SupportsExecuteAsync):
             pdu_class(
                 start_address,
                 quantity=format_struct.size // 2,
-            ),
-            unit_id=unit_id,
+            )
         )
         return format_struct.unpack_from(response_bytes)
 
@@ -68,7 +65,6 @@ class HoldingRegisterReadMixin(SupportsExecuteAsync):
         start_address: int,
         *,
         format_struct: WordOrderAwareStruct,
-        unit_id: int,
         input_register: bool = False,
     ) -> Any:
         """Read holding registers and decode them as a single value using the provided struct format.
@@ -76,7 +72,7 @@ class HoldingRegisterReadMixin(SupportsExecuteAsync):
         Args:
             struct_format: Struct format to decode the response
             start_address: Starting address of the registers to read
-            unit_id: Unit ID
+
 
         Returns:
             Decoded response data as a single value
@@ -86,7 +82,6 @@ class HoldingRegisterReadMixin(SupportsExecuteAsync):
             await self.read_struct_format(
                 start_address,
                 format_struct=format_struct,
-                unit_id=unit_id,
                 input_register=input_register,
             )
         )[0]
@@ -95,14 +90,12 @@ class HoldingRegisterReadMixin(SupportsExecuteAsync):
         self,
         start_address: int,
         *,
-        unit_id: int,
         input_register: bool = False,
     ) -> int:
         """Read holding registers and decode them as an unsigned 16-bit integer.
 
         Args:
             start_address: Starting address of the registers to read.
-            unit_id: Unit ID.
 
         Returns:
             Decoded unsigned 16-bit integer.
@@ -111,7 +104,6 @@ class HoldingRegisterReadMixin(SupportsExecuteAsync):
         return await self.read_simple_struct_format(
             start_address,
             format_struct=WordOrderAwareStruct(">H", word_order=self.word_order),
-            unit_id=unit_id,
             input_register=input_register,
         )
 
@@ -119,14 +111,12 @@ class HoldingRegisterReadMixin(SupportsExecuteAsync):
         self,
         start_address: int,
         *,
-        unit_id: int,
         input_register: bool = False,
     ) -> int:
         """Read holding registers and decode them as an unsigned 32-bit integer.
 
         Args:
             start_address: Starting address of the registers to read.
-            unit_id: Unit ID.
 
         Returns:
             Decoded unsigned 32-bit integer.
@@ -135,7 +125,6 @@ class HoldingRegisterReadMixin(SupportsExecuteAsync):
         return await self.read_simple_struct_format(
             start_address,
             format_struct=WordOrderAwareStruct(">I", word_order=self.word_order),
-            unit_id=unit_id,
             input_register=input_register,
         )
 
@@ -143,14 +132,13 @@ class HoldingRegisterReadMixin(SupportsExecuteAsync):
         self,
         start_address: int,
         *,
-        unit_id: int,
         input_register: bool = False,
     ) -> int:
         """Read holding registers and decode them as an unsigned 64-bit integer.
 
         Args:
             start_address: Starting address of the registers to read.
-            unit_id: Unit ID.
+
 
         Returns:
             Decoded unsigned 64-bit integer.
@@ -159,7 +147,6 @@ class HoldingRegisterReadMixin(SupportsExecuteAsync):
         return await self.read_simple_struct_format(
             start_address,
             format_struct=WordOrderAwareStruct(">Q", word_order=self.word_order),
-            unit_id=unit_id,
             input_register=input_register,
         )
 
@@ -167,14 +154,13 @@ class HoldingRegisterReadMixin(SupportsExecuteAsync):
         self,
         start_address: int,
         *,
-        unit_id: int,
         input_register: bool = False,
     ) -> int:
         """Read holding registers and decode them as a signed 16-bit integer.
 
         Args:
             start_address: Starting address of the registers to read.
-            unit_id: Unit ID.
+
 
         Returns:
             Decoded signed 16-bit integer.
@@ -183,7 +169,6 @@ class HoldingRegisterReadMixin(SupportsExecuteAsync):
         return await self.read_simple_struct_format(
             start_address,
             format_struct=WordOrderAwareStruct(">h", word_order=self.word_order),
-            unit_id=unit_id,
             input_register=input_register,
         )
 
@@ -191,14 +176,12 @@ class HoldingRegisterReadMixin(SupportsExecuteAsync):
         self,
         start_address: int,
         *,
-        unit_id: int,
         input_register: bool = False,
     ) -> int:
         """Read holding registers and decode them as a signed 32-bit integer.
 
         Args:
             start_address: Starting address of the registers to read.
-            unit_id: Unit ID.
 
         Returns:
             Decoded signed 32-bit integer.
@@ -207,7 +190,6 @@ class HoldingRegisterReadMixin(SupportsExecuteAsync):
         return await self.read_simple_struct_format(
             start_address,
             format_struct=WordOrderAwareStruct(">i", word_order=self.word_order),
-            unit_id=unit_id,
             input_register=input_register,
         )
 
@@ -215,14 +197,12 @@ class HoldingRegisterReadMixin(SupportsExecuteAsync):
         self,
         start_address: int,
         *,
-        unit_id: int,
         input_register: bool = False,
     ) -> int:
         """Read holding registers and decode them as a signed 64-bit integer.
 
         Args:
             start_address: Starting address of the registers to read.
-            unit_id: Unit ID.
 
         Returns:
             Decoded signed 64-bit integer.
@@ -231,7 +211,6 @@ class HoldingRegisterReadMixin(SupportsExecuteAsync):
         return await self.read_simple_struct_format(
             start_address,
             format_struct=WordOrderAwareStruct(">q", word_order=self.word_order),
-            unit_id=unit_id,
             input_register=input_register,
         )
 
@@ -239,14 +218,12 @@ class HoldingRegisterReadMixin(SupportsExecuteAsync):
         self,
         start_address: int,
         *,
-        unit_id: int,
         input_register: bool = False,
     ) -> float:
         """Read holding registers and decode them as a float.
 
         Args:
             start_address: Starting address of the registers to read.
-            unit_id: Unit ID.
 
         Returns:
             Decoded float value.
@@ -255,7 +232,6 @@ class HoldingRegisterReadMixin(SupportsExecuteAsync):
         return await self.read_simple_struct_format(
             start_address,
             format_struct=WordOrderAwareStruct(">f", word_order=self.word_order),
-            unit_id=unit_id,
             input_register=input_register,
         )
 
@@ -264,7 +240,6 @@ class HoldingRegisterReadMixin(SupportsExecuteAsync):
         start_address: int,
         *,
         number_of_registers: int,
-        unit_id: int,
         input_register: bool = False,
         encoding: str = "ascii",
     ) -> str:
@@ -273,7 +248,6 @@ class HoldingRegisterReadMixin(SupportsExecuteAsync):
         Args:
             start_address: Starting address of the registers to read.
             length: Length of the string to decode.
-            unit_id: Unit ID.
 
         Returns:
             Decoded string value.
@@ -283,7 +257,6 @@ class HoldingRegisterReadMixin(SupportsExecuteAsync):
         string_bytes = await self.read_simple_struct_format(
             start_address,
             format_struct=format_struct,
-            unit_id=unit_id,
             input_register=input_register,
         )
         return string_bytes.decode(encoding)
@@ -309,7 +282,6 @@ class HoldingRegisterWriteMixin(SupportsExecuteAsync):
         values: tuple[Any, ...],
         *,
         format_struct: WordOrderAwareStruct,
-        unit_id: int,
     ) -> int:
         """Write holding registers using the provided struct format.
 
@@ -317,7 +289,6 @@ class HoldingRegisterWriteMixin(SupportsExecuteAsync):
             start_address: Starting address of the registers to write
             values: Values to encode and write
             format_struct: Struct format to encode the values
-            unit_id: Unit ID
 
         Returns:
             The number of registers that have been written.
@@ -328,7 +299,6 @@ class HoldingRegisterWriteMixin(SupportsExecuteAsync):
                 start_address,
                 content=format_struct.pack(*values),
             ),
-            unit_id=unit_id,
         )
 
     async def write_simple_struct_format(
@@ -337,7 +307,6 @@ class HoldingRegisterWriteMixin(SupportsExecuteAsync):
         value: Any,
         *,
         format_struct: WordOrderAwareStruct,
-        unit_id: int,
     ) -> Any:
         """Write a single value to holding registers using the provided struct format.
 
@@ -345,7 +314,6 @@ class HoldingRegisterWriteMixin(SupportsExecuteAsync):
             address: Address of the register to write.
             value: Value to encode and write.
             format_struct: Struct format to encode the value.
-            unit_id: Unit ID.
 
         Returns:
             None
@@ -355,15 +323,12 @@ class HoldingRegisterWriteMixin(SupportsExecuteAsync):
             address,
             values=(value,),
             format_struct=format_struct,
-            unit_id=unit_id,
         )
 
     async def write_uint16(
         self,
         address: int,
         value: int,
-        *,
-        unit_id: int,
     ) -> Any:
         """Write an unsigned 16-bit integer to holding registers.
 
@@ -372,7 +337,6 @@ class HoldingRegisterWriteMixin(SupportsExecuteAsync):
         Args:
             address: Address of the register to write.
             value: Unsigned 16-bit integer value to write.
-            unit_id: Unit ID.
 
         Returns:
             None
@@ -386,15 +350,12 @@ class HoldingRegisterWriteMixin(SupportsExecuteAsync):
             address,
             value,
             format_struct=WordOrderAwareStruct(">H", word_order=self.word_order),
-            unit_id=unit_id,
         )
 
     async def write_uint32(
         self,
         address: int,
         value: int,
-        *,
-        unit_id: int,
     ) -> Any:
         """Write an unsigned 32-bit integer to holding registers.
 
@@ -403,7 +364,6 @@ class HoldingRegisterWriteMixin(SupportsExecuteAsync):
         Args:
             address: Address of the register to write.
             value: Unsigned 32-bit integer value to write.
-            unit_id: Unit ID.
 
         Returns:
             None
@@ -417,15 +377,12 @@ class HoldingRegisterWriteMixin(SupportsExecuteAsync):
             address,
             value,
             format_struct=WordOrderAwareStruct(">I", word_order=self.word_order),
-            unit_id=unit_id,
         )
 
     async def write_uint64(
         self,
         address: int,
         value: int,
-        *,
-        unit_id: int,
     ) -> Any:
         """Write an unsigned 64-bit integer to holding registers.
 
@@ -434,7 +391,6 @@ class HoldingRegisterWriteMixin(SupportsExecuteAsync):
         Args:
             address: Address of the register to write.
             value: Unsigned 64-bit integer value to write.
-            unit_id: Unit ID.
 
         Returns:
             None
@@ -448,15 +404,12 @@ class HoldingRegisterWriteMixin(SupportsExecuteAsync):
             address,
             value,
             format_struct=WordOrderAwareStruct(">Q", word_order=self.word_order),
-            unit_id=unit_id,
         )
 
     async def write_int16(
         self,
         address: int,
         value: int,
-        *,
-        unit_id: int,
     ) -> Any:
         """Write a signed 16-bit integer to holding registers.
 
@@ -465,7 +418,6 @@ class HoldingRegisterWriteMixin(SupportsExecuteAsync):
         Args:
             address: Address of the register to write.
             value: Signed 16-bit integer value to write.
-            unit_id: Unit ID.
 
         Returns:
             None
@@ -479,15 +431,12 @@ class HoldingRegisterWriteMixin(SupportsExecuteAsync):
             address,
             value,
             format_struct=WordOrderAwareStruct(">h", word_order=self.word_order),
-            unit_id=unit_id,
         )
 
     async def write_int32(
         self,
         address: int,
         value: int,
-        *,
-        unit_id: int,
     ) -> Any:
         """Write a signed 32-bit integer to holding registers.
 
@@ -496,7 +445,6 @@ class HoldingRegisterWriteMixin(SupportsExecuteAsync):
         Args:
             address: Address of the register to write.
             value: Signed 32-bit integer value to write.
-            unit_id: Unit ID.
 
         Returns:
             None
@@ -510,15 +458,12 @@ class HoldingRegisterWriteMixin(SupportsExecuteAsync):
             address,
             value,
             format_struct=WordOrderAwareStruct(">i", word_order=self.word_order),
-            unit_id=unit_id,
         )
 
     async def write_int64(
         self,
         address: int,
         value: int,
-        *,
-        unit_id: int,
     ) -> Any:
         """Write a signed 64-bit integer to holding registers.
 
@@ -527,7 +472,6 @@ class HoldingRegisterWriteMixin(SupportsExecuteAsync):
         Args:
             address: Address of the register to write.
             value: Signed 64-bit integer value to write.
-            unit_id: Unit ID.
 
         Returns:
             None
@@ -541,15 +485,12 @@ class HoldingRegisterWriteMixin(SupportsExecuteAsync):
             address,
             value,
             format_struct=WordOrderAwareStruct(">q", word_order=self.word_order),
-            unit_id=unit_id,
         )
 
     async def write_float(
         self,
         address: int,
         value: float,
-        *,
-        unit_id: int,
     ) -> Any:
         """Write a float to holding registers.
 
@@ -558,7 +499,6 @@ class HoldingRegisterWriteMixin(SupportsExecuteAsync):
         Args:
             address: Address of the register to write.
             value: Float value to write.
-            unit_id: Unit ID.
 
         Returns:
             None
@@ -568,15 +508,12 @@ class HoldingRegisterWriteMixin(SupportsExecuteAsync):
             address,
             value,
             format_struct=WordOrderAwareStruct(">f", word_order=self.word_order),
-            unit_id=unit_id,
         )
 
     async def write_double(
         self,
         address: int,
         value: float,
-        *,
-        unit_id: int,
     ) -> Any:
         """Write a double to holding registers.
 
@@ -585,17 +522,14 @@ class HoldingRegisterWriteMixin(SupportsExecuteAsync):
         Args:
             address: Address of the register to write.
             value: Float value to write.
-            unit_id: Unit ID.
 
         Returns:
             None
-
         """
         return await self.write_simple_struct_format(
             address,
             value,
             format_struct=WordOrderAwareStruct(">d", word_order=self.word_order),
-            unit_id=unit_id,
         )
 
     async def write_string(
@@ -604,7 +538,6 @@ class HoldingRegisterWriteMixin(SupportsExecuteAsync):
         value: str,
         *,
         number_of_registers: int,
-        unit_id: int,
         encoding: str = "ascii",
     ) -> Any:
         """Write a string to holding registers.
@@ -613,7 +546,6 @@ class HoldingRegisterWriteMixin(SupportsExecuteAsync):
             start_address: Starting address of the registers to write.
             value: String value to write.
             number_of_registers: Number of registers to write.
-            unit_id: Unit ID.
             encoding: Encoding format for the string (default is "ascii").
 
         Returns:
@@ -634,5 +566,4 @@ class HoldingRegisterWriteMixin(SupportsExecuteAsync):
             start_address,
             value_bytes,
             format_struct=format_struct,
-            unit_id=unit_id,
         )

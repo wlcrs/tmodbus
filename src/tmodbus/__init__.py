@@ -15,6 +15,7 @@ def create_async_tcp_client(  # noqa: PLR0913
     host: str,
     port: int = 502,
     *,
+    unit_id: int,
     timeout: float = 10.0,
     connect_timeout: float = 10.0,
     wait_between_requests: float = 0.0,
@@ -26,11 +27,12 @@ def create_async_tcp_client(  # noqa: PLR0913
     retry_on_device_failure: bool = False,
     **connection_kwargs: Any,
 ) -> AsyncModbusClient:
-    """Create an asynchronous TCP Modbus client.
+    """Create an asynchronous TCP Modbus client with automatic reconnect and request retry functionality.
 
     Args:
         host: The IP address or hostname of the Modbus server.
         port: The port number of the Modbus server (default is 502).
+        unit_id: The unit ID to use for requests.
         timeout: Timeout in seconds, default 10.0s
         connect_timeout: Timeout for establishing connection, default 10.0s
         wait_between_requests: Wait time between requests in seconds (default: 0.0s)
@@ -64,12 +66,13 @@ def create_async_tcp_client(  # noqa: PLR0913
         retry_on_device_busy=retry_on_device_busy,
         retry_on_device_failure=retry_on_device_failure,
     )
-    return AsyncModbusClient(smart_transport)
+    return AsyncModbusClient(smart_transport, unit_id=unit_id)
 
 
 def create_async_rtu_client(  # noqa: PLR0913
     port: str,
     *,
+    unit_id: int,
     wait_between_requests: float = 0.0,
     wait_after_connect: float = 0.0,
     auto_reconnect: "bool | AsyncRetrying" = True,
@@ -79,11 +82,11 @@ def create_async_rtu_client(  # noqa: PLR0913
     retry_on_device_failure: bool = False,
     **pyserial_options: Unpack[PySerialOptions],
 ) -> AsyncModbusClient:
-    """Create an asynchronous TCP Modbus client.
+    """Create an asynchronous RTU Modbus client with automatic reconnect and request retry functionality.
 
     Args:
-        host: The IP address or hostname of the Modbus server.
         port: The port number of the Modbus server (default is 502).
+        unit_id: The unit ID to use for requests.
         timeout: Timeout in seconds, default 10.0s
         connect_timeout: Timeout for establishing connection, default 10.0s
         wait_between_requests: Wait time between requests in seconds (default: 0.0s)
@@ -114,7 +117,7 @@ def create_async_rtu_client(  # noqa: PLR0913
         retry_on_device_busy=retry_on_device_busy,
         retry_on_device_failure=retry_on_device_failure,
     )
-    return AsyncModbusClient(smart_transport)
+    return AsyncModbusClient(smart_transport, unit_id=unit_id)
 
 
 __all__ = [

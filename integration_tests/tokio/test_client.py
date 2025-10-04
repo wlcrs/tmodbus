@@ -61,24 +61,24 @@ def server() -> Generator[None]:
     ids=["tcp", "rtu"],
 )
 async def test_client(log_traffic, server, transport):
-    client = AsyncModbusClient(transport=transport)
+    client = AsyncModbusClient(transport=transport, unit_id=1)
     await client.connect()
     # Perform read/write operations using the client
 
     # First write to some registers
-    await client.write_multiple_registers(0, [10, 20, 30, 40], unit_id=1)
+    await client.write_multiple_registers(0, [10, 20, 30, 40])
 
     # now read the contents of the registers back
-    hr0_4 = await client.read_holding_registers(0, 4, unit_id=1)
+    hr0_4 = await client.read_holding_registers(0, 4)
     assert hr0_4 == [10, 20, 30, 40]
 
     # Write a single register
-    await client.write_single_register(0, 50, unit_id=1)
-    hr0_4 = await client.read_holding_registers(0, 4, unit_id=1)
+    await client.write_single_register(0, 50)
+    hr0_4 = await client.read_holding_registers(0, 4)
     assert hr0_4 == [50, 20, 30, 40]
 
     # Read the input registers
-    ir0_1 = await client.read_input_registers(0, 2, unit_id=1)
+    ir0_1 = await client.read_input_registers(0, 2)
     assert ir0_1 == [1234, 5678]
 
     await client.close()

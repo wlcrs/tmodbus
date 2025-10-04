@@ -31,7 +31,7 @@ class TestHoldingRegisterReadMixin:
         client.execute.return_value = b"\x0a\x0b\x0c\x0d"
 
         format_struct = WordOrderAwareStruct(">I", word_order=word_order)
-        result = await client.read_struct_format(100, format_struct=format_struct, unit_id=1)
+        result = await client.read_struct_format(100, format_struct=format_struct)
 
         # Verify execute was called with correct PDU
         assert client.execute.called
@@ -51,7 +51,7 @@ class TestHoldingRegisterReadMixin:
         client.execute.return_value = b"\x01\x02"
 
         format_struct = WordOrderAwareStruct(">H", word_order=word_order)
-        result = await client.read_struct_format(50, format_struct=format_struct, unit_id=1, input_register=True)
+        result = await client.read_struct_format(50, format_struct=format_struct, input_register=True)
 
         assert client.execute.called
         assert result == (0x0102,)
@@ -64,7 +64,7 @@ class TestHoldingRegisterReadMixin:
         client.execute.return_value = b"\x12\x34"
 
         format_struct = WordOrderAwareStruct(">H", word_order=word_order)
-        result = await client.read_simple_struct_format(100, format_struct=format_struct, unit_id=1)
+        result = await client.read_simple_struct_format(100, format_struct=format_struct)
 
         # Should return single value, not tuple
         assert result == 0x1234
@@ -82,7 +82,7 @@ class TestHoldingRegisterReadMixin:
         client = MockClient(word_order=word_order)
         client.execute.return_value = b"\x12\x34"
 
-        result = await client.read_uint16(100, unit_id=1)
+        result = await client.read_uint16(100)
 
         assert result == expected
         assert client.execute.called
@@ -100,7 +100,7 @@ class TestHoldingRegisterReadMixin:
         client = MockClient(word_order=word_order)
         client.execute.return_value = response
 
-        result = await client.read_uint32(100, unit_id=1)
+        result = await client.read_uint32(100)
 
         assert result == expected
 
@@ -117,7 +117,7 @@ class TestHoldingRegisterReadMixin:
         client = MockClient(word_order=word_order)
         client.execute.return_value = response
 
-        result = await client.read_uint64(100, unit_id=1)
+        result = await client.read_uint64(100)
 
         assert result == expected
 
@@ -128,7 +128,7 @@ class TestHoldingRegisterReadMixin:
         client = MockClient(word_order=word_order)
         client.execute.return_value = b"\xff\xff"  # -1
 
-        result = await client.read_int16(100, unit_id=1)
+        result = await client.read_int16(100)
 
         assert result == -1
 
@@ -153,7 +153,7 @@ class TestHoldingRegisterReadMixin:
         client = MockClient(word_order=word_order)
         client.execute.return_value = response
 
-        result = await client.read_int32(100, unit_id=1)
+        result = await client.read_int32(100)
 
         assert result == expected
 
@@ -164,7 +164,7 @@ class TestHoldingRegisterReadMixin:
         client = MockClient(word_order=word_order)
         client.execute.return_value = b"\xff\xff\xff\xff\xff\xff\xff\xff"  # -1
 
-        result = await client.read_int64(100, unit_id=1)
+        result = await client.read_int64(100)
 
         assert result == -1
 
@@ -182,7 +182,7 @@ class TestHoldingRegisterReadMixin:
 
         client.execute.return_value = float_bytes
 
-        result = await client.read_float(100, unit_id=1)
+        result = await client.read_float(100)
 
         assert abs(result - 1.0) < 0.0001  # Float comparison with tolerance
 
@@ -200,7 +200,7 @@ class TestHoldingRegisterReadMixin:
         # 4 registers = 8 bytes
         client.execute.return_value = response
 
-        result = await client.read_string(100, number_of_registers=4, unit_id=1)
+        result = await client.read_string(100, number_of_registers=4)
 
         assert "HELLO" in result
 
@@ -217,7 +217,7 @@ class TestHoldingRegisterReadMixin:
         client = MockClient(word_order=word_order)
         client.execute.return_value = response
 
-        result = await client.read_string(100, number_of_registers=4, unit_id=1, encoding="utf-8")
+        result = await client.read_string(100, number_of_registers=4, encoding="utf-8")
 
         assert "TEST" in result
 
@@ -228,7 +228,7 @@ class TestHoldingRegisterReadMixin:
         client = MockClient(word_order=word_order)
         client.execute.return_value = b"\x12\x34"
 
-        await client.read_uint16(100, unit_id=1, input_register=True)
+        await client.read_uint16(100, input_register=True)
 
         # Verify the PDU type by checking the execute call
         pdu = client.execute.call_args[0][0]
@@ -247,7 +247,7 @@ class TestHoldingRegisterWriteMixin:
         client.execute.return_value = 2  # Number of registers written
 
         format_struct = WordOrderAwareStruct(">I", word_order=word_order)
-        result = await client.write_struct_format(100, (0x0A0B0C0D,), format_struct=format_struct, unit_id=1)
+        result = await client.write_struct_format(100, (0x0A0B0C0D,), format_struct=format_struct)
 
         assert result == 2
         assert client.execute.called
@@ -265,7 +265,7 @@ class TestHoldingRegisterWriteMixin:
         client.execute.return_value = 1
 
         format_struct = WordOrderAwareStruct(">H", word_order=word_order)
-        result = await client.write_simple_struct_format(100, 0x1234, format_struct=format_struct, unit_id=1)
+        result = await client.write_simple_struct_format(100, 0x1234, format_struct=format_struct)
 
         assert result == 1
         assert client.execute.called
@@ -283,7 +283,7 @@ class TestHoldingRegisterWriteMixin:
         client = MockClient(word_order=word_order)
         client.execute.return_value = 1
 
-        await client.write_uint16(100, 0x1234, unit_id=1)
+        await client.write_uint16(100, 0x1234)
 
         assert client.execute.called
         pdu = client.execute.call_args[0][0]
@@ -295,7 +295,7 @@ class TestHoldingRegisterWriteMixin:
         client = MockClient()
 
         with pytest.raises(ValueError, match="Value out of range for uint16"):
-            await client.write_uint16(100, -1, unit_id=1)
+            await client.write_uint16(100, -1)
 
     @pytest.mark.asyncio
     async def test_write_uint16_out_of_range_high(self):
@@ -303,7 +303,7 @@ class TestHoldingRegisterWriteMixin:
         client = MockClient()
 
         with pytest.raises(ValueError, match="Value out of range for uint16"):
-            await client.write_uint16(100, 0x10000, unit_id=1)
+            await client.write_uint16(100, 0x10000)
 
     @pytest.mark.asyncio
     @pytest.mark.parametrize(
@@ -318,7 +318,7 @@ class TestHoldingRegisterWriteMixin:
         client = MockClient(word_order=word_order)
         client.execute.return_value = 2
 
-        await client.write_uint32(100, 0x12345678, unit_id=1)
+        await client.write_uint32(100, 0x12345678)
 
         assert client.execute.called
         pdu = client.execute.call_args[0][0]
@@ -330,7 +330,7 @@ class TestHoldingRegisterWriteMixin:
         client = MockClient()
 
         with pytest.raises(ValueError, match="Value out of range for uint32"):
-            await client.write_uint32(100, 0x1_0000_0000, unit_id=1)
+            await client.write_uint32(100, 0x1_0000_0000)
 
     @pytest.mark.asyncio
     @pytest.mark.parametrize(
@@ -345,7 +345,7 @@ class TestHoldingRegisterWriteMixin:
         client = MockClient(word_order=word_order)
         client.execute.return_value = 4
 
-        await client.write_uint64(100, 0x123456789ABCDEF0, unit_id=1)
+        await client.write_uint64(100, 0x123456789ABCDEF0)
 
         assert client.execute.called
         pdu = client.execute.call_args[0][0]
@@ -357,7 +357,7 @@ class TestHoldingRegisterWriteMixin:
         client = MockClient()
 
         with pytest.raises(ValueError, match="Value out of range for uint64"):
-            await client.write_uint64(100, 0x1_0000_0000_0000_0000, unit_id=1)
+            await client.write_uint64(100, 0x1_0000_0000_0000_0000)
 
     @pytest.mark.asyncio
     @pytest.mark.parametrize(
@@ -372,7 +372,7 @@ class TestHoldingRegisterWriteMixin:
         client = MockClient(word_order=word_order)
         client.execute.return_value = 1
 
-        await client.write_int16(100, -1234, unit_id=1)
+        await client.write_int16(100, -1234)
 
         assert client.execute.called
         pdu = client.execute.call_args[0][0]
@@ -384,7 +384,7 @@ class TestHoldingRegisterWriteMixin:
         client = MockClient()
 
         with pytest.raises(ValueError, match="Value out of range for int16"):
-            await client.write_int16(100, -0x8001, unit_id=1)
+            await client.write_int16(100, -0x8001)
 
     @pytest.mark.asyncio
     async def test_write_int16_out_of_range_high(self):
@@ -392,7 +392,7 @@ class TestHoldingRegisterWriteMixin:
         client = MockClient()
 
         with pytest.raises(ValueError, match="Value out of range for int16"):
-            await client.write_int16(100, 0x8000, unit_id=1)
+            await client.write_int16(100, 0x8000)
 
     @pytest.mark.asyncio
     @pytest.mark.parametrize(
@@ -407,7 +407,7 @@ class TestHoldingRegisterWriteMixin:
         client = MockClient(word_order=word_order)
         client.execute.return_value = 2
 
-        await client.write_int32(100, -123456, unit_id=1)
+        await client.write_int32(100, -123456)
 
         assert client.execute.called
         pdu = client.execute.call_args[0][0]
@@ -419,7 +419,7 @@ class TestHoldingRegisterWriteMixin:
         client = MockClient()
 
         with pytest.raises(ValueError, match="Value out of range for int32"):
-            await client.write_int32(100, -0x8000_0001, unit_id=1)
+            await client.write_int32(100, -0x8000_0001)
 
     @pytest.mark.asyncio
     @pytest.mark.parametrize(
@@ -434,7 +434,7 @@ class TestHoldingRegisterWriteMixin:
         client = MockClient(word_order=word_order)
         client.execute.return_value = 4
 
-        await client.write_int64(100, -123456789, unit_id=1)
+        await client.write_int64(100, -123456789)
 
         assert client.execute.called
         pdu = client.execute.call_args[0][0]
@@ -446,7 +446,7 @@ class TestHoldingRegisterWriteMixin:
         client = MockClient()
 
         with pytest.raises(ValueError, match="Value out of range for int64"):
-            await client.write_int64(100, -0x8000_0000_0000_0001, unit_id=1)
+            await client.write_int64(100, -0x8000_0000_0000_0001)
 
     @pytest.mark.asyncio
     @pytest.mark.parametrize(
@@ -461,7 +461,7 @@ class TestHoldingRegisterWriteMixin:
         client = MockClient(word_order=word_order)
         client.execute.return_value = 2
 
-        await client.write_float(100, 3.14159, unit_id=1)
+        await client.write_float(100, 3.14159)
 
         assert client.execute.called
         pdu = client.execute.call_args[0][0]
@@ -480,7 +480,7 @@ class TestHoldingRegisterWriteMixin:
         client = MockClient(word_order=word_order)
         client.execute.return_value = 4
 
-        await client.write_double(100, 3.141592653589793, unit_id=1)
+        await client.write_double(100, 3.141592653589793)
 
         assert client.execute.called
         pdu = client.execute.call_args[0][0]
@@ -499,7 +499,7 @@ class TestHoldingRegisterWriteMixin:
         client = MockClient(word_order=word_order)
         client.execute.return_value = 4
 
-        await client.write_string(100, "HELLO", number_of_registers=4, unit_id=1)
+        await client.write_string(100, "HELLO", number_of_registers=4)
 
         assert client.execute.called
         pdu = client.execute.call_args[0][0]
@@ -511,7 +511,7 @@ class TestHoldingRegisterWriteMixin:
         client = MockClient()
 
         with pytest.raises(ValueError, match="String length exceeds maximum size"):
-            await client.write_string(100, "VERYLONGSTRING", number_of_registers=2, unit_id=1)
+            await client.write_string(100, "VERYLONGSTRING", number_of_registers=2)
 
     @pytest.mark.asyncio
     @pytest.mark.parametrize("word_order", ["big", "little"])
@@ -520,7 +520,7 @@ class TestHoldingRegisterWriteMixin:
         client = MockClient(word_order=word_order)
         client.execute.return_value = 3
 
-        await client.write_string(100, "TEST", number_of_registers=3, unit_id=1, encoding="utf-8")
+        await client.write_string(100, "TEST", number_of_registers=3, encoding="utf-8")
 
         assert client.execute.called
 
@@ -537,7 +537,7 @@ class TestHoldingRegisterWriteMixin:
         client = MockClient(word_order=word_order)
         client.execute.return_value = 4
 
-        await client.write_string(100, "TEST", number_of_registers=4, unit_id=1)
+        await client.write_string(100, "TEST", number_of_registers=4)
 
         assert client.execute.called
         pdu = client.execute.call_args[0][0]
@@ -572,18 +572,18 @@ class TestRoundTripReadWrite:
         # Capture the written bytes
         written_bytes = None
 
-        def capture_write(pdu, unit_id=1) -> int:
+        def capture_write(pdu) -> int:
             nonlocal written_bytes
             written_bytes = pdu.content
             return 1
 
         client.execute.side_effect = capture_write
-        await client.write_uint16(100, value, unit_id=1)
+        await client.write_uint16(100, value)
 
         # Now read it back
         client.execute.side_effect = None
         client.execute.return_value = written_bytes
-        result = await client.read_uint16(100, unit_id=1)
+        result = await client.read_uint16(100)
 
         assert result == value
 
@@ -608,17 +608,17 @@ class TestRoundTripReadWrite:
 
         written_bytes = None
 
-        def capture_write(pdu, unit_id=1) -> int:
+        def capture_write(pdu) -> int:
             nonlocal written_bytes
             written_bytes = pdu.content
             return 1
 
         client.execute.side_effect = capture_write
-        await client.write_int16(100, value, unit_id=1)
+        await client.write_int16(100, value)
 
         client.execute.side_effect = None
         client.execute.return_value = written_bytes
-        result = await client.read_int16(100, unit_id=1)
+        result = await client.read_int16(100)
 
         assert result == value
 
@@ -642,17 +642,17 @@ class TestRoundTripReadWrite:
 
         written_bytes = None
 
-        def capture_write(pdu, unit_id=1) -> int:
+        def capture_write(pdu) -> int:
             nonlocal written_bytes
             written_bytes = pdu.content
             return 2
 
         client.execute.side_effect = capture_write
-        await client.write_uint32(100, value, unit_id=1)
+        await client.write_uint32(100, value)
 
         client.execute.side_effect = None
         client.execute.return_value = written_bytes
-        result = await client.read_uint32(100, unit_id=1)
+        result = await client.read_uint32(100)
 
         assert result == value
 
@@ -677,17 +677,17 @@ class TestRoundTripReadWrite:
 
         written_bytes = None
 
-        def capture_write(pdu, unit_id=1) -> int:
+        def capture_write(pdu) -> int:
             nonlocal written_bytes
             written_bytes = pdu.content
             return 2
 
         client.execute.side_effect = capture_write
-        await client.write_int32(100, value, unit_id=1)
+        await client.write_int32(100, value)
 
         client.execute.side_effect = None
         client.execute.return_value = written_bytes
-        result = await client.read_int32(100, unit_id=1)
+        result = await client.read_int32(100)
 
         assert result == value
 
@@ -711,17 +711,17 @@ class TestRoundTripReadWrite:
 
         written_bytes = None
 
-        def capture_write(pdu, unit_id=1) -> int:
+        def capture_write(pdu) -> int:
             nonlocal written_bytes
             written_bytes = pdu.content
             return 4
 
         client.execute.side_effect = capture_write
-        await client.write_uint64(100, value, unit_id=1)
+        await client.write_uint64(100, value)
 
         client.execute.side_effect = None
         client.execute.return_value = written_bytes
-        result = await client.read_uint64(100, unit_id=1)
+        result = await client.read_uint64(100)
 
         assert result == value
 
@@ -745,17 +745,17 @@ class TestRoundTripReadWrite:
 
         written_bytes = None
 
-        def capture_write(pdu, unit_id=1) -> int:
+        def capture_write(pdu) -> int:
             nonlocal written_bytes
             written_bytes = pdu.content
             return 4
 
         client.execute.side_effect = capture_write
-        await client.write_int64(100, value, unit_id=1)
+        await client.write_int64(100, value)
 
         client.execute.side_effect = None
         client.execute.return_value = written_bytes
-        result = await client.read_int64(100, unit_id=1)
+        result = await client.read_int64(100)
 
         assert result == value
 
@@ -785,17 +785,17 @@ class TestRoundTripReadWrite:
 
         written_bytes = None
 
-        def capture_write(pdu, unit_id=1) -> int:
+        def capture_write(pdu) -> int:
             nonlocal written_bytes
             written_bytes = pdu.content
             return 2
 
         client.execute.side_effect = capture_write
-        await client.write_float(100, value, unit_id=1)
+        await client.write_float(100, value)
 
         client.execute.side_effect = None
         client.execute.return_value = written_bytes
-        result = await client.read_float(100, unit_id=1)
+        result = await client.read_float(100)
 
         # Handle special float values
         if math.isnan(value):  # NaN check
@@ -834,17 +834,17 @@ class TestRoundTripReadWrite:
 
         written_bytes = None
 
-        def capture_write(pdu, unit_id=1):
+        def capture_write(pdu):
             nonlocal written_bytes
             written_bytes = pdu.content
             return num_registers
 
         client.execute.side_effect = capture_write
-        await client.write_string(100, value, number_of_registers=num_registers, unit_id=1)
+        await client.write_string(100, value, number_of_registers=num_registers)
 
         client.execute.side_effect = None
         client.execute.return_value = written_bytes
-        result = await client.read_string(100, number_of_registers=num_registers, unit_id=1)
+        result = await client.read_string(100, number_of_registers=num_registers)
 
         # Strip null bytes and whitespace for comparison
         assert result.rstrip("\x00") == value
@@ -868,17 +868,17 @@ class TestRoundTripReadWrite:
 
         written_bytes = None
 
-        def capture_write(pdu, unit_id=1):
+        def capture_write(pdu):
             nonlocal written_bytes
             written_bytes = pdu.content
             return num_registers
 
         client.execute.side_effect = capture_write
-        await client.write_string(100, value, number_of_registers=num_registers, unit_id=1, encoding="utf-8")
+        await client.write_string(100, value, number_of_registers=num_registers, encoding="utf-8")
 
         client.execute.side_effect = None
         client.execute.return_value = written_bytes
-        result = await client.read_string(100, number_of_registers=num_registers, unit_id=1, encoding="utf-8")
+        result = await client.read_string(100, number_of_registers=num_registers, encoding="utf-8")
 
         # Strip null bytes and whitespace for comparison
         assert result.rstrip("\x00") == value
