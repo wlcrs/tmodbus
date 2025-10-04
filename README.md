@@ -45,6 +45,10 @@ giving you access to a powerful API to customize the retry behavior of this libr
 
 Use `pip install tmodbus[smart]` to install.
 
+## Versioning
+
+This library follows the [Semantic Versioning](https://semver.org/) specification.
+
 ## Protocol-Specification
 
 - [Modbus Application Protocol Specification v1.1b3 (PDF)](http://modbus.org/docs/Modbus_Application_Protocol_V1_1b3.pdf)
