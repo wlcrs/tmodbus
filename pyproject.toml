@@ -88,5 +88,5 @@ select = ["ALL"]
 
 
 [tool.pytest.ini_options]
-#addopts = "--cov=tmodbus --cov-report=term-missing "
+addopts = "--cov=tmodbus --cov-report=term-missing "
 asyncio_mode = "auto"

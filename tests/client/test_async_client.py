@@ -347,3 +347,31 @@ async def test_read_device_identification_warns_on_number_of_objects_change(monk
     with caplog.at_level("WARNING"):
         await dummy_client.read_device_identification(1, 0)
     assert any("Number of objects changed between requests" in r for r in caplog.text.splitlines())
+
+
+def test_for_unit_id_creates_new_instance_with_different_unit_id():
+    transport = DummyAsyncTransport()
+    client1 = AsyncModbusClient(transport, unit_id=1)
+    client2 = client1.for_unit_id(42)
+    assert isinstance(client2, AsyncModbusClient)
+    assert client2.unit_id == 42
+    assert client2.transport is client1.transport
+    assert client2.word_order == client1.word_order
+    assert client2 is not client1
+
+
+@pytest.mark.parametrize("word_order", ["big", "little"])
+def test_for_unit_id_preserves_word_order(word_order):
+    transport = DummyAsyncTransport()
+    client1 = AsyncModbusClient(transport, unit_id=5, word_order=word_order)
+    client2 = client1.for_unit_id(10)
+    assert client2.word_order == word_order
+
+
+def test_for_unit_id_raises_value_error_for_invalid_unit_id():
+    transport = DummyAsyncTransport()
+    client = AsyncModbusClient(transport, unit_id=1)
+    with pytest.raises(ValueError, match="Unit ID must be in range 0-255"):
+        client.for_unit_id(-1)
+    with pytest.raises(ValueError, match="Unit ID must be in range 0-255"):
+        client.for_unit_id(256)

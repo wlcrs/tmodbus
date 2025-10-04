@@ -14,8 +14,9 @@ class _DummyTransport:
 
 
 class _DummyClient:
-    def __init__(self, transport: AsyncBaseTransport) -> None:
+    def __init__(self, transport: AsyncBaseTransport, *, unit_id: int) -> None:
         self.transport = transport
+        self.unit_id = unit_id
 
 
 # Patch AsyncSmartTransport, AsyncTcpTransport, AsyncRtuTransport, AsyncModbusClient for isolation
@@ -31,6 +32,7 @@ async def test_create_async_tcp_client():
     client = create_async_tcp_client(
         "127.0.0.1",
         port=1502,
+        unit_id=1,
         timeout=5.0,
         connect_timeout=2.0,
         wait_between_requests=0.1,
@@ -56,6 +58,7 @@ async def test_create_async_tcp_client():
 async def test_create_async_rtu_client():
     client = create_async_rtu_client(
         "/dev/ttyUSB0",
+        unit_id=1,
         wait_between_requests=0.1,
         wait_after_connect=0.2,
         auto_reconnect=True,
