@@ -137,8 +137,7 @@ class AsyncSmartTransport(AsyncBaseTransport):
         if retry_on_device_failure:
             retry_functions.append(retry_if_exception_type(ServerDeviceFailureError))
 
-        if retry_functions:
-            self.response_retry_strategy = response_retry_strategy.copy(retry=retry_any(*retry_functions))
+        self.response_retry_strategy = response_retry_strategy.copy(retry=retry_any(*retry_functions))
 
         self._last_request_finished_at: float | None = None
 
