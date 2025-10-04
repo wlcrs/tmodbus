@@ -191,7 +191,7 @@ class BaseSubFunctionPDU[RT](BaseSubFunctionClientPDU, BasePDU):
         # Always assume that the first byte of the data-part of the frame contains the sub-function code
         if data[0] != cls.sub_function_code:
             msg = f"Expected sub-function code {cls.sub_function_code}, got {data[0]}"
-            raise InvalidRequestError(msg, response_bytes=data)
+            raise InvalidRequestError(msg, request_bytes=data)
 
         # if a fixed length is defined for the request PDU, return it
         if cls.rtu_request_data_length is not None:
