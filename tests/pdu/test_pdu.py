@@ -1,23 +1,273 @@
 import pytest
 
 from tmodbus.const import FunctionCode
-from tmodbus.pdu import get_pdu_class
+from tmodbus.pdu import (
+    BaseClientPDU,
+    BaseSubFunctionClientPDU,
+    get_pdu_class,
+    register_pdu_class,
+)
 
 
-def test_get_pdu_class():
-    """Test getting PDU class by function code."""
-    # Test valid function code
-    pdu_class = get_pdu_class(bytes([int(FunctionCode.READ_HOLDING_REGISTERS)]))
-    assert pdu_class.__name__ == "ReadHoldingRegistersPDU"
+class TestGetPDUClass:
+    """Tests for get_pdu_class function."""
 
-    # Test valid function code as int
-    pdu_class = get_pdu_class(bytes([0x03]))  # FunctionCode.READ_HOLDING_REGISTERS
-    assert pdu_class.__name__ == "ReadHoldingRegistersPDU"
+    def test_get_pdu_class_valid_function_code(self):
+        """Test getting PDU class by valid function code."""
+        pdu_class = get_pdu_class(bytes([int(FunctionCode.READ_HOLDING_REGISTERS)]))
+        assert pdu_class.__name__ == "ReadHoldingRegistersPDU"
 
-    # Test unknown function code
-    with pytest.raises(ValueError, match="Unsupported function code: 0x99"):
-        get_pdu_class(bytes([0x99]))
+    def test_get_pdu_class_valid_function_code_as_int(self):
+        """Test getting PDU class by function code as int."""
+        pdu_class = get_pdu_class(bytes([0x03]))  # FunctionCode.READ_HOLDING_REGISTERS
+        assert pdu_class.__name__ == "ReadHoldingRegistersPDU"
 
-    # Test unknown function code
-    with pytest.raises(ValueError, match="Unsupported function code: 0x18"):
-        get_pdu_class(bytes([FunctionCode.READ_FIFO_QUEUE]))
+    def test_get_pdu_class_unknown_function_code(self):
+        """Test unknown function code raises ValueError."""
+        with pytest.raises(ValueError, match="Unsupported function code: 0x99"):
+            get_pdu_class(bytes([0x99]))
+
+    def test_get_pdu_class_unsupported_function_code(self):
+        """Test unsupported function code raises ValueError."""
+        with pytest.raises(ValueError, match="Unsupported function code: 0x18"):
+            get_pdu_class(bytes([FunctionCode.READ_FIFO_QUEUE]))
+
+    def test_get_pdu_class_with_sub_function(self):
+        """Test getting PDU class with sub-function code."""
+        # ReadDeviceIdentificationPDU uses function code 0x2B and sub-function code 0x0E
+        pdu_class = get_pdu_class(bytes([0x2B, 0x0E]))
+        assert pdu_class.__name__ == "ReadDeviceIdentificationPDU"
+
+    def test_get_pdu_class_unknown_sub_function_code(self):
+        """Test unknown sub-function code raises ValueError."""
+        # Function code 0x2B is valid, but sub-function 0xFF is not registered
+        with pytest.raises(
+            ValueError,
+            match="Unsupported sub-function code: 0xff for function code 0x2b",
+        ):
+            get_pdu_class(bytes([0x2B, 0xFF]))
+
+
+class TestRegisterPDUClass:
+    """Tests for register_pdu_class function."""
+
+    def test_register_normal_pdu_class(self):
+        """Test registering a normal PDU class."""
+
+        class CustomPDU(BaseClientPDU):
+            function_code = 0xF0
+
+            def encode_request(self) -> bytes:
+                return b""
+
+            def decode_response(self, response: bytes) -> None:
+                pass
+
+        # Register the custom PDU
+        register_pdu_class(CustomPDU)
+
+        # Verify it can be retrieved
+        pdu_class = get_pdu_class(bytes([0xF0]))
+        assert pdu_class == CustomPDU
+
+    def test_register_duplicate_normal_pdu_class(self):
+        """Test registering a duplicate function code raises ValueError."""
+
+        class CustomPDU1(BaseClientPDU):
+            function_code = 0xF1
+
+            def encode_request(self) -> bytes:
+                return b""
+
+            def decode_response(self, response: bytes) -> None:
+                pass
+
+        class CustomPDU2(BaseClientPDU):
+            function_code = 0xF1
+
+            def encode_request(self) -> bytes:
+                return b""
+
+            def decode_response(self, response: bytes) -> None:
+                pass
+
+        # Register first PDU
+        register_pdu_class(CustomPDU1)
+
+        # Try to register duplicate
+        with pytest.raises(
+            ValueError,
+            match=r"Function code 0xf1 is already registered to CustomPDU1",
+        ):
+            register_pdu_class(CustomPDU2)
+
+    def test_register_sub_function_pdu_class(self):
+        """Test registering a sub-function PDU class."""
+
+        class CustomSubFunctionPDU(BaseSubFunctionClientPDU):
+            function_code = 0xF2
+            sub_function_code = 0x01
+
+            def encode_request(self) -> bytes:
+                return b""
+
+            def decode_response(self, response: bytes) -> None:
+                pass
+
+        # Register the custom sub-function PDU
+        register_pdu_class(CustomSubFunctionPDU)
+
+        # Verify it can be retrieved
+        pdu_class = get_pdu_class(bytes([0xF2, 0x01]))
+        assert pdu_class == CustomSubFunctionPDU
+
+    def test_register_duplicate_sub_function_pdu_class(self):
+        """Test registering a duplicate sub-function code raises ValueError."""
+
+        class CustomSubFunctionPDU1(BaseSubFunctionClientPDU):
+            function_code = 0xF3
+            sub_function_code = 0x01
+
+            def encode_request(self) -> bytes:
+                return b""
+
+            def decode_response(self, response: bytes) -> None:
+                pass
+
+        class CustomSubFunctionPDU2(BaseSubFunctionClientPDU):
+            function_code = 0xF3
+            sub_function_code = 0x01
+
+            def encode_request(self) -> bytes:
+                return b""
+
+            def decode_response(self, response: bytes) -> None:
+                pass
+
+        # Register first sub-function PDU
+        register_pdu_class(CustomSubFunctionPDU1)
+
+        # Try to register duplicate
+        with pytest.raises(
+            ValueError,
+            match=(
+                r"A PDU with function code 0xf3, "
+                r"and sub-function code 0x01 is already registered: "
+                r"CustomSubFunctionPDU1\."
+            ),
+        ):
+            register_pdu_class(CustomSubFunctionPDU2)
+
+    def test_register_sub_function_pdu_when_normal_exists(self):
+        """Test registering a sub-function PDU when a normal PDU already exists."""
+
+        class NormalPDU(BaseClientPDU):
+            function_code = 0xF4
+
+            def encode_request(self) -> bytes:
+                return b""
+
+            def decode_response(self, response: bytes) -> None:
+                pass
+
+        class SubFunctionPDU(BaseSubFunctionClientPDU):
+            function_code = 0xF4
+            sub_function_code = 0x01
+
+            def encode_request(self) -> bytes:
+                return b""
+
+            def decode_response(self, response: bytes) -> None:
+                pass
+
+        # Register normal PDU first
+        register_pdu_class(NormalPDU)
+
+        # Try to register sub-function PDU with same function code
+        with pytest.raises(
+            ValueError,
+            match=(
+                r"Function code 0xf4 is already registered "
+                r"for a non-subfunction PDU NormalPDU\."
+            ),
+        ):
+            register_pdu_class(SubFunctionPDU)
+
+    def test_register_normal_pdu_when_sub_function_exists(self):
+        """Test registering a normal PDU when sub-function PDUs already exist."""
+
+        class SubFunctionPDU1(BaseSubFunctionClientPDU):
+            function_code = 0xF5
+            sub_function_code = 0x01
+
+            def encode_request(self) -> bytes:
+                return b""
+
+            def decode_response(self, response: bytes) -> None:
+                pass
+
+        class SubFunctionPDU2(BaseSubFunctionClientPDU):
+            function_code = 0xF5
+            sub_function_code = 0x02
+
+            def encode_request(self) -> bytes:
+                return b""
+
+            def decode_response(self, response: bytes) -> None:
+                pass
+
+        class NormalPDU(BaseClientPDU):
+            function_code = 0xF5
+
+            def encode_request(self) -> bytes:
+                return b""
+
+            def decode_response(self, response: bytes) -> None:
+                pass
+
+        # Register sub-function PDUs first
+        register_pdu_class(SubFunctionPDU1)
+        register_pdu_class(SubFunctionPDU2)
+
+        # Try to register normal PDU with same function code
+        with pytest.raises(
+            ValueError,
+            match=(
+                r"Function code 0xf5 is already registered with sub-functions: "
+                r"0x01: SubFunctionPDU1, 0x02: SubFunctionPDU2"
+            ),
+        ):
+            register_pdu_class(NormalPDU)
+
+    def test_register_multiple_sub_functions_same_function_code(self):
+        """Test registering multiple sub-function PDUs with the same function code."""
+
+        class SubFunctionPDUA(BaseSubFunctionClientPDU):
+            function_code = 0xF6
+            sub_function_code = 0x01
+
+            def encode_request(self) -> bytes:
+                return b""
+
+            def decode_response(self, response: bytes) -> None:
+                pass
+
+        class SubFunctionPDUB(BaseSubFunctionClientPDU):
+            function_code = 0xF6
+            sub_function_code = 0x02
+
+            def encode_request(self) -> bytes:
+                return b""
+
+            def decode_response(self, response: bytes) -> None:
+                pass
+
+        # Register both sub-function PDUs
+        register_pdu_class(SubFunctionPDUA)
+        register_pdu_class(SubFunctionPDUB)
+
+        # Verify both can be retrieved
+        pdu_class_a = get_pdu_class(bytes([0xF6, 0x01]))
+        pdu_class_b = get_pdu_class(bytes([0xF6, 0x02]))
+        assert pdu_class_a == SubFunctionPDUA
+        assert pdu_class_b == SubFunctionPDUB

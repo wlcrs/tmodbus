@@ -98,7 +98,7 @@ class ModbusResponseError(TModbusError):
             function_code: Function code of the request that caused the exception
 
         """
-        super().__init__(f"Modbus Exception 0x{error_code:02x} for function code 0x{function_code:02x}")
+        super().__init__(f"Modbus Exception {error_code:#04x} for function code 0x{function_code:#04x}")
         assert self.error_code == error_code
         self.function_code = function_code
 

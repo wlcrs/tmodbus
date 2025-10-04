@@ -44,7 +44,7 @@ def register_pdu_class(pdu_class: type[BaseClientPDU[Any]]) -> None:
     if issubclass(pdu_class, BaseSubFunctionClientPDU):
         if existing_pdu_class := function_code_to_pdu_map.get(function_code):
             msg = (
-                f"Function code {function_code:02x} is already registered "
+                f"Function code {function_code:#04x} is already registered "
                 f"for a non-subfunction PDU {existing_pdu_class.__name__}."
             )
             raise ValueError(msg)
@@ -55,8 +55,8 @@ def register_pdu_class(pdu_class: type[BaseClientPDU[Any]]) -> None:
 
         if sub_function_code in sub_function_code_to_pdu_map[function_code]:
             msg = (
-                f"A PDU with function code {function_code:02x}, "
-                f"and sub-function code {sub_function_code:02x} is already registered: "
+                f"A PDU with function code {function_code:#04x}, "
+                f"and sub-function code {sub_function_code:#04x} is already registered: "
                 f"{sub_function_code_to_pdu_map[function_code][sub_function_code].__name__}."
             )
             raise ValueError(msg)
@@ -65,10 +65,10 @@ def register_pdu_class(pdu_class: type[BaseClientPDU[Any]]) -> None:
     else:  # Registering a normal PDU class
         if existing_sub_pdus := sub_function_code_to_pdu_map.get(function_code):
             existing_sub_pdus_list = ", ".join(
-                f"{sub_function_code:#02x}: {c.__name__}" for sub_function_code, c in existing_sub_pdus.items()
+                f"{sub_function_code:#04x}: {c.__name__}" for sub_function_code, c in existing_sub_pdus.items()
             )
             msg = (
-                f"Function code {function_code:#02x} is already registered with sub-functions: {existing_sub_pdus_list}"
+                f"Function code {function_code:#04x} is already registered with sub-functions: {existing_sub_pdus_list}"
             )
             raise ValueError(msg)
 
