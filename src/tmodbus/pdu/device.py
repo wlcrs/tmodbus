@@ -61,6 +61,7 @@ class ReadDeviceIdentificationResponse:
     objects: dict[int, bytes]
 
 
+@dataclass(frozen=True)
 class ReadDeviceIdentificationPDU(BaseSubFunctionClientPDU[ReadDeviceIdentificationResponse]):
     """Modbus Request to read a device identifier."""
 
@@ -70,14 +71,11 @@ class ReadDeviceIdentificationPDU(BaseSubFunctionClientPDU[ReadDeviceIdentificat
     read_device_id_code: Literal[0x01, 0x02, 0x03, 0x04]
     object_id: int
 
-    def __init__(self, read_device_id_code: Literal[0x01, 0x02, 0x03, 0x04], object_id: int) -> None:
-        """Create ReadDeviceIdentificationPDU."""
-        self.read_device_id_code = read_device_id_code
-
-        if not (0x00 <= object_id < 0xFF):
+    def __post_init__(self) -> None:
+        """Validate ReadDeviceIdentificationPDU."""
+        if not (0x00 <= self.object_id < 0xFF):
             msg = "Object ID must be between 0x00 and 0xFF."
             raise ValueError(msg)
-        self.object_id = object_id
 
     def encode_request(self) -> bytes:
         """Encode ReadDeviceIdentifierPDU."""
