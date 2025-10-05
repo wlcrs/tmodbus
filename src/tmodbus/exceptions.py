@@ -16,7 +16,7 @@ class ModbusConnectionError(TModbusError):
     """
 
     response_bytes: bytes
-    """The bytes that were read before the connection error occured. Can be empty."""
+    """The bytes that were read before the connection error occurred. Can be empty."""
 
     def __init__(self, *args: Any, bytes_read: bytes | None = None, **kwargs: Any) -> None:
         """Initialize RTUFrameError."""

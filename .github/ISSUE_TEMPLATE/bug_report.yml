@@ -1,3 +1,4 @@
+---
 name: "Bug Report"
 description: "Report a bug to help us improve"
 labels: ["bug"]
@@ -33,6 +34,8 @@ body:
   - type: textarea
     attributes:
       label: "Proposed changes"
-      description: "If you have a proposed change, workaround or fix, describe the rationale behind it."
+      description: >
+        If you have a proposed change, workaround or fix,
+        describe the rationale behind it.
     validations:
       required: false

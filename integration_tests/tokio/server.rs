@@ -145,7 +145,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
         });
     }
 
-    
+
 
     let rtu_socket_addr : SocketAddr = "127.0.0.1:5503".parse().unwrap();
     let rtu_listener = TcpListener::bind(rtu_socket_addr).await?;
@@ -184,5 +184,3 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     server.serve(&on_connected, on_process_error).await?;
     Ok(())
 }
-
-

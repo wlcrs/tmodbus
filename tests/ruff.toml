@@ -10,6 +10,3 @@ lint.extend-ignore = [
   "SLF001", # Tests will access private/protected members...
   "TC002", # pytest doesn't like this one...
 ]
-
-
-

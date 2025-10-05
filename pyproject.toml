@@ -9,11 +9,6 @@ dynamic = ["version"]
 
 
 [project.optional-dependencies]
-tests = [
-    "pytest>=8.4.1",
-    "pytest-asyncio>=1.1.0",
-    "pytest-cov>=6.2.1",
-]
 
 async-rtu = [
     "pyserial-asyncio-fast>=0.16",
@@ -36,7 +31,6 @@ only-include = ["examples", "src", "tests"]
 [tool.hatch.version]
 source = "vcs"
 
-
 [tool.ruff]
 line-length = 120
 
@@ -56,5 +50,30 @@ ignore = [
 select = ["ALL"]
 
 [tool.pytest.ini_options]
-addopts = "--cov=tmodbus --cov-report=term-missing "
+addopts = "--cov"
 asyncio_mode = "auto"
+
+[tool.coverage.run]
+plugins = ["covdefaults"]
+source = ["tmodbus"]
+
+[tool.coverage.report]
+show_missing = true
+fail_under = 100
+
+[tool.uv]
+prerelease = "allow"
+
+[dependency-groups]
+dev = [
+  "codespell==2.4.1",
+  "covdefaults==2.3.0",
+  "coverage[toml]==7.10.7",
+  "pre-commit==4.3.0",
+  "pre-commit-hooks==6.0.0",
+  "pytest==8.4.2",
+  "pytest-asyncio==1.2.0",
+  "pytest-cov==7.0.0",
+  "ruff==0.13.3",
+  "yamllint==1.37.1",
+]

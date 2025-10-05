@@ -13,8 +13,8 @@ wheels/
 # coverage
 .coverage
 
-# ruff 
+# ruff
 .ruff_cache/
 
-# pytest 
+# pytest
 .pytest_cache/
