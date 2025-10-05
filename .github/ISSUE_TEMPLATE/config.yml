@@ -1,0 +1,5 @@
+blank_issues_enabled: false
+contact_links:
+  - name: "Support request"
+    url: https://github.com/wlcrs/tmodbus/discussions
+    about: "If you have a question or need help, please start a discussion."

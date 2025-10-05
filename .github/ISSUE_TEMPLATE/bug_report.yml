@@ -1,0 +1,38 @@
+name: "Bug Report"
+description: "Report a bug to help us improve"
+labels: ["bug"]
+body:
+  - type: textarea
+    attributes:
+      label: "Problem/Motivation"
+      description: "Why the issue was filed."
+    validations:
+      required: true
+
+  - type: textarea
+    attributes:
+      label: "Expected behavior"
+      description: "What you expected to happen."
+    validations:
+      required: true
+
+  - type: textarea
+    attributes:
+      label: "Actual behavior"
+      description: "What actually happened."
+    validations:
+      required: false
+
+  - type: textarea
+    attributes:
+      label: "Steps to reproduce"
+      description: "How can someone else make/see it happen."
+    validations:
+      required: false
+
+  - type: textarea
+    attributes:
+      label: "Proposed changes"
+      description: "If you have a proposed change, workaround or fix, describe the rationale behind it."
+    validations:
+      required: false
