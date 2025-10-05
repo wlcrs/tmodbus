@@ -83,6 +83,12 @@ repos:
         types: [text]
         entry: uv run end-of-file-fixer
         stages: [pre-commit, pre-push, manual]
+      - id: mypy
+        name: 🆎 Static type checking using mypy
+        language: system
+        types: [python]
+        entry: uv run mypy
+        require_serial: true
       - id: pytest
         name: 🧪 Running tests and test coverage with pytest
         language: system

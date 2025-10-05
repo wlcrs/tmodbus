@@ -9,7 +9,7 @@ from tmodbus.pdu.base import BaseClientPDU
 from tmodbus.transport.async_tcp import AsyncTcpTransport
 
 
-class _DummyPDU(BaseClientPDU):
+class _DummyPDU(BaseClientPDU[tuple[str, bytes]]):
     def encode_request(self) -> bytes:
         return b"\x03\x04"
 

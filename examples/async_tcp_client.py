@@ -25,11 +25,11 @@ async def example_tcp_client() -> None:
         print("Contents of holding registers 100 and 101: ", response)
 
         client_for_unit_id_2 = client.for_unit_id(2)
-        response = await client_for_unit_id_2.read_holding_registers(start_address=100, quantity=2)
-        print("Contents of holding registers 100 and 101 for unit ID 2: ", response)
+        response2 = await client_for_unit_id_2.read_holding_registers(start_address=100, quantity=2)
+        print("Contents of holding registers 100 and 101 for unit ID 2: ", response2)
 
-        response = await client.for_unit_id(6).read_float(start_address=1)
-        print("Float value at address 1 for unit ID 6: ", response)
+        response6 = await client.for_unit_id(6).read_float(start_address=1)
+        print("Float value at address 1 for unit ID 6: ", response6)
 
         # Write value 123 to holding register at address 1
         await client.write_single_register(address=1, value=123)
@@ -51,8 +51,7 @@ async def example_tcp_client() -> None:
     # Alternatively, you can use the client as an async context manager
     # which automatically handles connection and disconnection
     async with create_async_tcp_client(host, port, unit_id=unit_id) as client2:
-        response = await client2.read_coils(start_address=0, quantity=8)
-        print("Status of coils 0-7: ", response)
+        print("Status of coils 0-7: ", await client2.read_coils(start_address=0, quantity=8))
 
 
 if __name__ == "__main__":

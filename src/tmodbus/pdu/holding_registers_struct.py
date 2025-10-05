@@ -1,6 +1,6 @@
 """Holding Registers utilities."""
 
-from typing import Any, Literal, Protocol, TypeVar
+from typing import Any, Literal, Protocol, TypeVar, cast
 
 from tmodbus.utils.word_aware_struct import WordOrderAwareStruct
 
@@ -106,10 +106,13 @@ class HoldingRegisterReadMixin(SupportsExecuteAsync):
             Decoded unsigned 16-bit integer.
 
         """
-        return await self.read_simple_struct_format(
-            start_address,
-            format_struct=WordOrderAwareStruct(">H", word_order=self.word_order),
-            input_register=input_register,
+        return cast(
+            "int",
+            await self.read_simple_struct_format(
+                start_address,
+                format_struct=WordOrderAwareStruct(">H", word_order=self.word_order),
+                input_register=input_register,
+            ),
         )
 
     async def read_uint32(
@@ -130,10 +133,13 @@ class HoldingRegisterReadMixin(SupportsExecuteAsync):
             Decoded unsigned 32-bit integer.
 
         """
-        return await self.read_simple_struct_format(
-            start_address,
-            format_struct=WordOrderAwareStruct(">I", word_order=self.word_order),
-            input_register=input_register,
+        return cast(
+            "int",
+            await self.read_simple_struct_format(
+                start_address,
+                format_struct=WordOrderAwareStruct(">I", word_order=self.word_order),
+                input_register=input_register,
+            ),
         )
 
     async def read_uint64(
@@ -154,10 +160,13 @@ class HoldingRegisterReadMixin(SupportsExecuteAsync):
             Decoded unsigned 64-bit integer.
 
         """
-        return await self.read_simple_struct_format(
-            start_address,
-            format_struct=WordOrderAwareStruct(">Q", word_order=self.word_order),
-            input_register=input_register,
+        return cast(
+            "int",
+            await self.read_simple_struct_format(
+                start_address,
+                format_struct=WordOrderAwareStruct(">Q", word_order=self.word_order),
+                input_register=input_register,
+            ),
         )
 
     async def read_int16(
@@ -179,10 +188,13 @@ class HoldingRegisterReadMixin(SupportsExecuteAsync):
             Decoded signed 16-bit integer.
 
         """
-        return await self.read_simple_struct_format(
-            start_address,
-            format_struct=WordOrderAwareStruct(">h", word_order=self.word_order),
-            input_register=input_register,
+        return cast(
+            "int",
+            await self.read_simple_struct_format(
+                start_address,
+                format_struct=WordOrderAwareStruct(">h", word_order=self.word_order),
+                input_register=input_register,
+            ),
         )
 
     async def read_int32(
@@ -203,10 +215,13 @@ class HoldingRegisterReadMixin(SupportsExecuteAsync):
             Decoded signed 32-bit integer.
 
         """
-        return await self.read_simple_struct_format(
-            start_address,
-            format_struct=WordOrderAwareStruct(">i", word_order=self.word_order),
-            input_register=input_register,
+        return cast(
+            "int",
+            await self.read_simple_struct_format(
+                start_address,
+                format_struct=WordOrderAwareStruct(">i", word_order=self.word_order),
+                input_register=input_register,
+            ),
         )
 
     async def read_int64(
@@ -227,10 +242,13 @@ class HoldingRegisterReadMixin(SupportsExecuteAsync):
             Decoded signed 64-bit integer.
 
         """
-        return await self.read_simple_struct_format(
-            start_address,
-            format_struct=WordOrderAwareStruct(">q", word_order=self.word_order),
-            input_register=input_register,
+        return cast(
+            "int",
+            await self.read_simple_struct_format(
+                start_address,
+                format_struct=WordOrderAwareStruct(">q", word_order=self.word_order),
+                input_register=input_register,
+            ),
         )
 
     async def read_float(
@@ -251,10 +269,13 @@ class HoldingRegisterReadMixin(SupportsExecuteAsync):
             Decoded float value.
 
         """
-        return await self.read_simple_struct_format(
-            start_address,
-            format_struct=WordOrderAwareStruct(">f", word_order=self.word_order),
-            input_register=input_register,
+        return cast(
+            "float",
+            await self.read_simple_struct_format(
+                start_address,
+                format_struct=WordOrderAwareStruct(">f", word_order=self.word_order),
+                input_register=input_register,
+            ),
         )
 
     async def read_string(
@@ -279,10 +300,13 @@ class HoldingRegisterReadMixin(SupportsExecuteAsync):
 
         """
         format_struct = WordOrderAwareStruct(f">{number_of_registers * 2}s", word_order=self.word_order)
-        string_bytes = await self.read_simple_struct_format(
-            start_address,
-            format_struct=format_struct,
-            input_register=input_register,
+        string_bytes = cast(
+            "bytes",
+            await self.read_simple_struct_format(
+                start_address,
+                format_struct=format_struct,
+                input_register=input_register,
+            ),
         )
         return string_bytes.decode(encoding)
 

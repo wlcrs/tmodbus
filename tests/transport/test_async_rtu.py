@@ -37,7 +37,7 @@ def test_compute_delays() -> None:
     assert compute_max_continuous_transmission_delay(one_char) == pytest.approx(1.5 * one_char)
 
 
-class _DummyPDU(BaseClientPDU):
+class _DummyPDU(BaseClientPDU[tuple[str, bytes]]):
     function_code = 0x03
 
     def encode_request(self) -> bytes:
@@ -444,14 +444,24 @@ async def test_receive_response_wait_for_timeout() -> None:
     t = AsyncRtuTransport("/dev/ttyUSB0", baudrate=9600)
     await t.open()
 
-    async def _fake_wait_for(coro: Coroutine, timeout: int, *_args: Any, **_kwargs: Any) -> Never:  # noqa: ARG001, ASYNC109
+    async def _fake_wait_for_with_timeout_error(
+        coro: Coroutine[Any, Any, Any],
+        timeout: int,  # noqa: ARG001, ASYNC109
+        *_args: Any,
+        **_kwargs: Any,
+    ) -> Never:
         await coro
         raise TimeoutError
 
-    with patch("asyncio.wait_for", _fake_wait_for), pytest.raises(TimeoutError):
+    with patch("asyncio.wait_for", _fake_wait_for_with_timeout_error), pytest.raises(TimeoutError):
         await t._receive_response()
 
-    async def _fake_wait_for_with_runtime_error(coro: Coroutine, timeout: int, *_args: Any, **_kwargs: Any) -> Never:  # noqa: ARG001, ASYNC109
+    async def _fake_wait_for_with_runtime_error(
+        coro: Coroutine[Any, Any, Any],
+        timeout: int,  # noqa: ARG001, ASYNC109
+        *_args: Any,
+        **_kwargs: Any,
+    ) -> Never:
         await coro
         raise RuntimeError
 

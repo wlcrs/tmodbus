@@ -36,11 +36,11 @@ class DummyAsyncTransport(AsyncBaseTransport):
         self.performed_actions.append("is_open")
         return self.opened
 
-    async def send_and_receive(self, unit_id: int, pdu: BasePDU[RT]) -> RT:
+    async def send_and_receive(self, unit_id: int, pdu: BasePDU[RT]) -> RT:  # type: ignore[override]
         """Send a PDU and receive a response."""
         self.performed_actions.append(["send_and_receive", unit_id, type(pdu).__name__])
         # For testing, just return None
-        return DUMMY_RESPONSE  # type: ignore[report-return-type]
+        return DUMMY_RESPONSE  # type: ignore[return-value]
 
 
 async def test_async_base_transport_context_manager() -> None:

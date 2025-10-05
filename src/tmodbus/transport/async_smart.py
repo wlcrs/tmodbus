@@ -130,7 +130,7 @@ class AsyncSmartTransport(AsyncBaseTransport):
         if not response_retry_strategy:
             response_retry_strategy = DEFAULT_RESPONSE_RETRY_STRATEGY
         elif response_retry_strategy.retry:
-            retry_functions.append(response_retry_strategy.retry)  # type: ignore[report-argument-type]
+            retry_functions.append(response_retry_strategy.retry)  # type: ignore[arg-type]
 
         if retry_on_device_busy:
             retry_functions.append(retry_if_exception_type(ServerDeviceBusyError))
@@ -240,6 +240,6 @@ class AsyncSmartTransport(AsyncBaseTransport):
                 )
                 raise RequestRetryFailedError(msg) from e
             else:
-                return response  # type: ignore[report-return-type]
+                return response
             finally:
                 self._last_request_finished_at = time.monotonic()

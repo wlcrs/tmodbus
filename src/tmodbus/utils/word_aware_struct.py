@@ -24,7 +24,10 @@ Example:
 
 import re
 import struct
-from typing import Any, Literal
+from typing import TYPE_CHECKING, Any, Literal
+
+if TYPE_CHECKING:
+    from _typeshed import ReadableBuffer, WriteableBuffer
 
 BYTES_PER_REGISTER = 2
 
@@ -77,10 +80,11 @@ class WordOrderAwareStruct(struct.Struct):
 
         return lengths
 
-    def _swap_word_order(self, data: bytes) -> bytes:
+    def _swap_word_order(self, data: "ReadableBuffer") -> bytes:
+        """Swap the word order of the data if needed."""
         if not self._value_lengths:
             # big endian word order, no need to swap
-            return data
+            return bytes(data)
 
         # Swap the order of 2-byte registers, but do not reverse bytes within each register
         start_idx = 0
@@ -106,18 +110,18 @@ class WordOrderAwareStruct(struct.Struct):
                 src_idx = start_idx + swap_idx * BYTES_PER_REGISTER
                 dst_idx = start_idx + current_length - swap_idx * BYTES_PER_REGISTER - BYTES_PER_REGISTER
 
-                swapped_data[dst_idx : dst_idx + BYTES_PER_REGISTER] = data[src_idx : src_idx + BYTES_PER_REGISTER]
+                swapped_data[dst_idx : dst_idx + BYTES_PER_REGISTER] = data[src_idx : src_idx + BYTES_PER_REGISTER]  # type: ignore[index]
 
             start_idx += current_length
             current_length = 0
 
         return bytes(swapped_data)
 
-    def unpack(self, buffer: bytes) -> tuple[Any, ...]:
+    def unpack(self, buffer: "ReadableBuffer") -> tuple[Any, ...]:
         """Unpack buffer with word order consideration."""
         return super().unpack(self._swap_word_order(buffer))
 
-    def unpack_from(self, buffer: bytes, offset: int = 0) -> tuple[Any, ...]:
+    def unpack_from(self, buffer: "ReadableBuffer", offset: int = 0) -> tuple[Any, ...]:
         """Unpack from buffer with word order consideration."""
         return super().unpack_from(self._swap_word_order(buffer), offset)
 
@@ -125,7 +129,7 @@ class WordOrderAwareStruct(struct.Struct):
         """Pack values into bytes with word order consideration."""
         return self._swap_word_order(super().pack(*args))
 
-    def pack_into(self, buffer: bytearray, offset: int, *args: Any) -> None:
+    def pack_into(self, buffer: "WriteableBuffer", offset: int, *args: Any) -> None:
         """Pack values into buffer with word order consideration."""
         packed_data = self._swap_word_order(super().pack(*args))
-        buffer[offset : offset + len(packed_data)] = packed_data
+        buffer[offset : offset + len(packed_data)] = packed_data  # type: ignore[index]

@@ -1,6 +1,8 @@
 """Tests for tmodbus/ __init__.py functions."""
 
+from collections.abc import Generator
 from typing import Any
+from unittest import mock
 
 import pytest
 import tmodbus
@@ -22,12 +24,15 @@ class _DummyClient:
 
 # Patch AsyncSmartTransport, AsyncTcpTransport, AsyncRtuTransport, AsyncModbusClient for isolation
 @pytest.fixture(autouse=True)
-def patch_module() -> None:
+def patch_module() -> Generator[None, None, None]:
     """Patch tmodbus module classes for isolation."""
-    tmodbus.AsyncSmartTransport = _DummyTransport
-    tmodbus.AsyncTcpTransport = _DummyTransport
-    tmodbus.AsyncRtuTransport = _DummyTransport
-    tmodbus.AsyncModbusClient = _DummyClient
+    with (
+        mock.patch.object(tmodbus, "AsyncSmartTransport", _DummyTransport),
+        mock.patch.object(tmodbus, "AsyncTcpTransport", _DummyTransport),
+        mock.patch.object(tmodbus, "AsyncRtuTransport", _DummyTransport),
+        mock.patch.object(tmodbus, "AsyncModbusClient", _DummyClient),
+    ):
+        yield
 
 
 async def test_create_async_tcp_client() -> None:

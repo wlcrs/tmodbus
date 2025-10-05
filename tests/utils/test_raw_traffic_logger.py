@@ -8,7 +8,7 @@ from tmodbus.utils.raw_traffic_logger import _format_bytes, log_raw_traffic
 
 class _DummyLogger:
     def __init__(self) -> None:
-        self.records = []
+        self.records: list[tuple[Any, dict[str, Any]]] = []
 
     def debug(self, *args: Any, **kwargs: Any) -> None:
         self.records.append((args, kwargs))

@@ -1,6 +1,7 @@
 """Tests for tmodbus/client/async_client.py ."""
 
-from typing import Literal, TypeVar
+from typing import Any, Literal, TypeVar
+from unittest.mock import MagicMock
 
 import pytest
 from tmodbus.client.async_client import AsyncModbusClient
@@ -18,7 +19,7 @@ class DummyAsyncTransport(AsyncBaseTransport):
 
     def __init__(self) -> None:
         """Initialize the dummy transport."""
-        self.performed_actions = []
+        self.performed_actions: list[Any] = []
         self.opened = False
 
     async def open(self) -> None:
@@ -36,11 +37,11 @@ class DummyAsyncTransport(AsyncBaseTransport):
         self.performed_actions.append("is_open")
         return self.opened
 
-    async def send_and_receive(self, unit_id: int, pdu: BasePDU[RT]) -> RT:
+    async def send_and_receive(self, unit_id: int, pdu: BasePDU[RT]) -> RT:  # type: ignore[override]
         """Send a PDU and receive a response."""
         self.performed_actions.append(["send_and_receive", unit_id, type(pdu).__name__])
         # For testing, just return a fixed dummy response
-        return DUMMY_RESPONSE  # type: ignore[report-return-type]
+        return DUMMY_RESPONSE  # type: ignore[return-value]
 
 
 @pytest.fixture
@@ -248,7 +249,7 @@ async def test_async_modbus_client_context_manager(dummy_client: AsyncModbusClie
     assert "close" in dummy_client.transport.performed_actions
 
 
-async def test_connected_property(dummy_client: AsyncModbusClient) -> None:
+async def test_connected_property(dummy_client: MagicMock) -> None:
     """Test the connected property of AsyncModbusClient."""
     # Should reflect transport.is_open()
     dummy_client.transport.opened = True
@@ -257,7 +258,7 @@ async def test_connected_property(dummy_client: AsyncModbusClient) -> None:
     assert dummy_client.connected is False
 
 
-async def test_connect_and_close_methods(dummy_client: AsyncModbusClient) -> None:
+async def test_connect_and_close_methods(dummy_client: MagicMock) -> None:
     """Test the connect and close methods of AsyncModbusClient."""
     await dummy_client.connect()
     assert dummy_client.transport.opened is True

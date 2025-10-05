@@ -58,7 +58,7 @@ class BaseClientPDU[RT](ABC):
         )
 
 
-class BasePDU[RT](BaseClientPDU):
+class BasePDU[RT](BaseClientPDU[RT]):
     """Base class that defines the functions needed to handle Modbus PDUs on both the client-side and server-side."""
 
     rtu_request_data_length: int | None = None
@@ -106,7 +106,7 @@ class BasePDU[RT](BaseClientPDU):
         )
 
 
-class BaseSubFunctionClientPDU[RT](BaseClientPDU):
+class BaseSubFunctionClientPDU[RT](BaseClientPDU[RT]):
     """Extends the BaseClientPDU to include sub-function code.
 
     Only the get_expected_response_data_length method is changed in this class.
@@ -142,7 +142,7 @@ class BaseSubFunctionClientPDU[RT](BaseClientPDU):
         )
 
 
-class BaseSubFunctionPDU[RT](BaseSubFunctionClientPDU, BasePDU):
+class BaseSubFunctionPDU[RT](BaseSubFunctionClientPDU[RT], BasePDU[RT]):
     """Extends the BaseServerPDU to include sub-function code.
 
     Only the get_expected_response_data_length method is changed in this class.

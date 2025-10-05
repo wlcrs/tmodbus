@@ -6,7 +6,7 @@ from tmodbus.transport.base import BaseTransport
 class _DummyTransport(BaseTransport):
     def __init__(self) -> None:
         self.opened = False
-        self.sent = []
+        self.sent: list[tuple[int, bytes]] = []
 
     def open(self) -> None:
         self.opened = True

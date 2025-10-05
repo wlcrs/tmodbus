@@ -14,6 +14,8 @@ from tmodbus.utils.word_aware_struct import WordOrderAwareStruct
 class MockClient(HoldingRegisterReadMixin, HoldingRegisterWriteMixin):
     """Mock client for testing mixins."""
 
+    execute: AsyncMock
+
     def __init__(self, word_order: Literal["big", "little"] = "big") -> None:
         """Mock Client."""
         HoldingRegisterReadMixin.__init__(self, word_order=word_order)
@@ -538,9 +540,9 @@ class TestRoundTripReadWrite:
         # Capture the written bytes
         written_bytes = None
 
-        def capture_write(pdu: BaseClientPDU) -> int:
+        def capture_write(pdu: BaseClientPDU[int]) -> int:
             nonlocal written_bytes
-            written_bytes = pdu.content
+            written_bytes = pdu.content  # type: ignore[attr-defined]
             return 1
 
         client.execute.side_effect = capture_write
@@ -573,9 +575,9 @@ class TestRoundTripReadWrite:
 
         written_bytes = None
 
-        def capture_write(pdu: BaseClientPDU) -> int:
+        def capture_write(pdu: BaseClientPDU[int]) -> int:
             nonlocal written_bytes
-            written_bytes = pdu.content
+            written_bytes = pdu.content  # type: ignore[attr-defined]
             return 1
 
         client.execute.side_effect = capture_write
@@ -606,9 +608,9 @@ class TestRoundTripReadWrite:
 
         written_bytes = None
 
-        def capture_write(pdu: BaseClientPDU) -> int:
+        def capture_write(pdu: BaseClientPDU[int]) -> int:
             nonlocal written_bytes
-            written_bytes = pdu.content
+            written_bytes = pdu.content  # type: ignore[attr-defined]
             return 2
 
         client.execute.side_effect = capture_write
@@ -640,9 +642,9 @@ class TestRoundTripReadWrite:
 
         written_bytes = None
 
-        def capture_write(pdu: BaseClientPDU) -> int:
+        def capture_write(pdu: BaseClientPDU[int]) -> int:
             nonlocal written_bytes
-            written_bytes = pdu.content
+            written_bytes = pdu.content  # type: ignore[attr-defined]
             return 2
 
         client.execute.side_effect = capture_write
@@ -673,9 +675,9 @@ class TestRoundTripReadWrite:
 
         written_bytes = None
 
-        def capture_write(pdu: BaseClientPDU) -> int:
+        def capture_write(pdu: BaseClientPDU[int]) -> int:
             nonlocal written_bytes
-            written_bytes = pdu.content
+            written_bytes = pdu.content  # type: ignore[attr-defined]
             return 4
 
         client.execute.side_effect = capture_write
@@ -706,9 +708,9 @@ class TestRoundTripReadWrite:
 
         written_bytes = None
 
-        def capture_write(pdu: BaseClientPDU) -> int:
+        def capture_write(pdu: BaseClientPDU[int]) -> int:
             nonlocal written_bytes
-            written_bytes = pdu.content
+            written_bytes = pdu.content  # type: ignore[attr-defined]
             return 4
 
         client.execute.side_effect = capture_write
@@ -745,9 +747,9 @@ class TestRoundTripReadWrite:
 
         written_bytes = None
 
-        def capture_write(pdu: BaseClientPDU) -> int:
+        def capture_write(pdu: BaseClientPDU[float]) -> int:
             nonlocal written_bytes
-            written_bytes = pdu.content
+            written_bytes = pdu.content  # type: ignore[attr-defined]
             return 2
 
         client.execute.side_effect = capture_write
@@ -793,9 +795,9 @@ class TestRoundTripReadWrite:
 
         written_bytes = None
 
-        def _capture_write(pdu: BaseClientPDU) -> int:
+        def _capture_write(pdu: BaseClientPDU[str]) -> int:
             nonlocal written_bytes
-            written_bytes = pdu.content
+            written_bytes = pdu.content  # type: ignore[attr-defined]
             return num_registers
 
         client.execute.side_effect = _capture_write
@@ -828,9 +830,9 @@ class TestRoundTripReadWrite:
 
         written_bytes = None
 
-        def _capture_write(pdu: BaseClientPDU) -> int:
+        def _capture_write(pdu: BaseClientPDU[str]) -> int:
             nonlocal written_bytes
-            written_bytes = pdu.content
+            written_bytes = pdu.content  # type: ignore[attr-defined]
             return num_registers
 
         client.execute.side_effect = _capture_write

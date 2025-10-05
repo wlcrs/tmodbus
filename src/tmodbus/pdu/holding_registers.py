@@ -309,7 +309,7 @@ class WriteSingleRegisterPDU(BasePDU[int]):
 
         return cls(address, value)
 
-    def encode_response(self, value: int) -> bytes:  # type: ignore[override]
+    def encode_response(self, value: int) -> bytes:
         """Encode the response PDU.
 
         Returns:

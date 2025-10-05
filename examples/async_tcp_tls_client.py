@@ -24,9 +24,9 @@ async def example_tcp_client() -> None:
     try:
         await client.connect()
         # Read 2 holding registers starting at address 100
-        response = await client.read_holding_registers(start_address=100, quantity=2)
+        coils_response = await client.read_holding_registers(start_address=100, quantity=2)
 
-        print("Contents of holding registers 100 and 101: ", response)
+        print("Contents of holding registers 100 and 101: ", coils_response)
 
         # Write value 123 to holding register at address 1
         await client.write_single_register(address=1, value=123)
@@ -53,8 +53,7 @@ async def example_tcp_client() -> None:
     ssl_context.verify_mode = ssl.CERT_REQUIRED
 
     async with create_async_tcp_client(host, port, unit_id=unit_id, ssl=ssl_context) as client2:
-        response = await client2.read_coils(start_address=0, quantity=8)
-        print("Status of coils 0-7: ", response)
+        print("Status of coils 0-7: ", await client2.read_coils(start_address=0, quantity=8))
 
 
 if __name__ == "__main__":
