@@ -24,7 +24,6 @@ class MockClient(HoldingRegisterReadMixin, HoldingRegisterWriteMixin):
 class TestHoldingRegisterReadMixin:
     """Test HoldingRegisterReadMixin class."""
 
-    @pytest.mark.asyncio
     @pytest.mark.parametrize("word_order", ["big", "little"])
     async def test_read_struct_format(self, word_order: Literal["big", "little"]) -> None:
         """Test read_struct_format with both word orders."""
@@ -45,7 +44,6 @@ class TestHoldingRegisterReadMixin:
         assert isinstance(result, tuple)
         assert len(result) == 1
 
-    @pytest.mark.asyncio
     @pytest.mark.parametrize("word_order", ["big", "little"])
     async def test_read_struct_format_input_register(self, word_order: Literal["big", "little"]) -> None:
         """Test read_struct_format with input registers."""
@@ -58,7 +56,6 @@ class TestHoldingRegisterReadMixin:
         assert client.execute.called
         assert result == (0x0102,)
 
-    @pytest.mark.asyncio
     @pytest.mark.parametrize("word_order", ["big", "little"])
     async def test_read_simple_struct_format(self, word_order: Literal["big", "little"]) -> None:
         """Test read_simple_struct_format returns single value."""
@@ -71,7 +68,6 @@ class TestHoldingRegisterReadMixin:
         # Should return single value, not tuple
         assert result == 0x1234
 
-    @pytest.mark.asyncio
     @pytest.mark.parametrize(
         ("word_order", "expected"),
         [
@@ -89,7 +85,6 @@ class TestHoldingRegisterReadMixin:
         assert result == expected
         assert client.execute.called
 
-    @pytest.mark.asyncio
     @pytest.mark.parametrize(
         ("word_order", "response", "expected"),
         [
@@ -106,7 +101,6 @@ class TestHoldingRegisterReadMixin:
 
         assert result == expected
 
-    @pytest.mark.asyncio
     @pytest.mark.parametrize(
         ("word_order", "response", "expected"),
         [
@@ -123,7 +117,6 @@ class TestHoldingRegisterReadMixin:
 
         assert result == expected
 
-    @pytest.mark.asyncio
     @pytest.mark.parametrize("word_order", ["big", "little"])
     async def test_read_int16(self, word_order: Literal["big", "little"]) -> None:
         """Test read_int16 with negative value."""
@@ -134,7 +127,6 @@ class TestHoldingRegisterReadMixin:
 
         assert result == -1
 
-    @pytest.mark.asyncio
     @pytest.mark.parametrize(
         ("word_order", "response", "expected"),
         [
@@ -159,7 +151,6 @@ class TestHoldingRegisterReadMixin:
 
         assert result == expected
 
-    @pytest.mark.asyncio
     @pytest.mark.parametrize("word_order", ["big", "little"])
     async def test_read_int64(self, word_order: Literal["big", "little"]) -> None:
         """Test read_int64 with negative value."""
@@ -170,7 +161,6 @@ class TestHoldingRegisterReadMixin:
 
         assert result == -1
 
-    @pytest.mark.asyncio
     @pytest.mark.parametrize("word_order", ["big", "little"])
     async def test_read_float(self, word_order: Literal["big", "little"]) -> None:
         """Test read_float with both word orders."""
@@ -188,7 +178,6 @@ class TestHoldingRegisterReadMixin:
 
         assert abs(result - 1.0) < 0.0001  # Float comparison with tolerance
 
-    @pytest.mark.asyncio
     @pytest.mark.parametrize(
         ("word_order", "response"),
         [
@@ -206,7 +195,6 @@ class TestHoldingRegisterReadMixin:
 
         assert "HELLO" in result
 
-    @pytest.mark.asyncio
     @pytest.mark.parametrize(
         ("word_order", "response"),
         [
@@ -223,7 +211,6 @@ class TestHoldingRegisterReadMixin:
 
         assert "TEST" in result
 
-    @pytest.mark.asyncio
     @pytest.mark.parametrize("word_order", ["big", "little"])
     async def test_read_input_register_flag(self, word_order: Literal["big", "little"]) -> None:
         """Test that input_register flag is passed through correctly."""
@@ -241,7 +228,6 @@ class TestHoldingRegisterReadMixin:
 class TestHoldingRegisterWriteMixin:
     """Test HoldingRegisterWriteMixin class."""
 
-    @pytest.mark.asyncio
     @pytest.mark.parametrize("word_order", ["big", "little"])
     async def test_write_struct_format(self, word_order: Literal["big", "little"]) -> None:
         """Test write_struct_format with both word orders."""
@@ -259,7 +245,6 @@ class TestHoldingRegisterWriteMixin:
         assert pdu.start_address == 100
         assert len(pdu.content) == 4  # 4 bytes for uint32
 
-    @pytest.mark.asyncio
     @pytest.mark.parametrize("word_order", ["big", "little"])
     async def test_write_simple_struct_format(self, word_order: Literal["big", "little"]) -> None:
         """Test write_simple_struct_format."""
@@ -272,7 +257,6 @@ class TestHoldingRegisterWriteMixin:
         assert result == 1
         assert client.execute.called
 
-    @pytest.mark.asyncio
     @pytest.mark.parametrize(
         ("word_order", "expected_bytes"),
         [
@@ -291,7 +275,6 @@ class TestHoldingRegisterWriteMixin:
         pdu = client.execute.call_args[0][0]
         assert pdu.content == expected_bytes
 
-    @pytest.mark.asyncio
     async def test_write_uint16_out_of_range_low(self) -> None:
         """Test write_uint16 with value below range."""
         client = MockClient()
@@ -299,7 +282,6 @@ class TestHoldingRegisterWriteMixin:
         with pytest.raises(ValueError, match="Value out of range for uint16"):
             await client.write_uint16(100, -1)
 
-    @pytest.mark.asyncio
     async def test_write_uint16_out_of_range_high(self) -> None:
         """Test write_uint16 with value above range."""
         client = MockClient()
@@ -307,7 +289,6 @@ class TestHoldingRegisterWriteMixin:
         with pytest.raises(ValueError, match="Value out of range for uint16"):
             await client.write_uint16(100, 0x10000)
 
-    @pytest.mark.asyncio
     @pytest.mark.parametrize(
         ("word_order", "expected_bytes"),
         [
@@ -326,7 +307,6 @@ class TestHoldingRegisterWriteMixin:
         pdu = client.execute.call_args[0][0]
         assert pdu.content == expected_bytes
 
-    @pytest.mark.asyncio
     async def test_write_uint32_out_of_range(self) -> None:
         """Test write_uint32 with value out of range."""
         client = MockClient()
@@ -334,7 +314,6 @@ class TestHoldingRegisterWriteMixin:
         with pytest.raises(ValueError, match="Value out of range for uint32"):
             await client.write_uint32(100, 0x1_0000_0000)
 
-    @pytest.mark.asyncio
     @pytest.mark.parametrize(
         ("word_order", "expected_bytes"),
         [
@@ -353,7 +332,6 @@ class TestHoldingRegisterWriteMixin:
         pdu = client.execute.call_args[0][0]
         assert pdu.content == expected_bytes
 
-    @pytest.mark.asyncio
     async def test_write_uint64_out_of_range(self) -> None:
         """Test write_uint64 with value out of range."""
         client = MockClient()
@@ -361,7 +339,6 @@ class TestHoldingRegisterWriteMixin:
         with pytest.raises(ValueError, match="Value out of range for uint64"):
             await client.write_uint64(100, 0x1_0000_0000_0000_0000)
 
-    @pytest.mark.asyncio
     @pytest.mark.parametrize(
         ("word_order", "expected_bytes"),
         [
@@ -380,7 +357,6 @@ class TestHoldingRegisterWriteMixin:
         pdu = client.execute.call_args[0][0]
         assert pdu.content == expected_bytes
 
-    @pytest.mark.asyncio
     async def test_write_int16_out_of_range_low(self) -> None:
         """Test write_int16 with value below range."""
         client = MockClient()
@@ -388,7 +364,6 @@ class TestHoldingRegisterWriteMixin:
         with pytest.raises(ValueError, match="Value out of range for int16"):
             await client.write_int16(100, -0x8001)
 
-    @pytest.mark.asyncio
     async def test_write_int16_out_of_range_high(self) -> None:
         """Test write_int16 with value above range."""
         client = MockClient()
@@ -396,7 +371,6 @@ class TestHoldingRegisterWriteMixin:
         with pytest.raises(ValueError, match="Value out of range for int16"):
             await client.write_int16(100, 0x8000)
 
-    @pytest.mark.asyncio
     @pytest.mark.parametrize(
         ("word_order", "expected_bytes"),
         [
@@ -415,7 +389,6 @@ class TestHoldingRegisterWriteMixin:
         pdu = client.execute.call_args[0][0]
         assert pdu.content == expected_bytes
 
-    @pytest.mark.asyncio
     async def test_write_int32_out_of_range(self) -> None:
         """Test write_int32 with value out of range."""
         client = MockClient()
@@ -423,7 +396,6 @@ class TestHoldingRegisterWriteMixin:
         with pytest.raises(ValueError, match="Value out of range for int32"):
             await client.write_int32(100, -0x8000_0001)
 
-    @pytest.mark.asyncio
     @pytest.mark.parametrize(
         ("word_order", "expected_bytes"),
         [
@@ -442,7 +414,6 @@ class TestHoldingRegisterWriteMixin:
         pdu = client.execute.call_args[0][0]
         assert pdu.content == expected_bytes
 
-    @pytest.mark.asyncio
     async def test_write_int64_out_of_range(self) -> None:
         """Test write_int64 with value out of range."""
         client = MockClient()
@@ -450,7 +421,6 @@ class TestHoldingRegisterWriteMixin:
         with pytest.raises(ValueError, match="Value out of range for int64"):
             await client.write_int64(100, -0x8000_0000_0000_0001)
 
-    @pytest.mark.asyncio
     @pytest.mark.parametrize(
         ("word_order", "expected_bytes"),
         [
@@ -469,7 +439,6 @@ class TestHoldingRegisterWriteMixin:
         pdu = client.execute.call_args[0][0]
         assert pdu.content == expected_bytes
 
-    @pytest.mark.asyncio
     @pytest.mark.parametrize(
         ("word_order", "expected_bytes"),
         [
@@ -488,7 +457,6 @@ class TestHoldingRegisterWriteMixin:
         pdu = client.execute.call_args[0][0]
         assert pdu.content == expected_bytes
 
-    @pytest.mark.asyncio
     @pytest.mark.parametrize(
         ("word_order", "expected_bytes"),
         [
@@ -507,7 +475,6 @@ class TestHoldingRegisterWriteMixin:
         pdu = client.execute.call_args[0][0]
         assert pdu.content == expected_bytes
 
-    @pytest.mark.asyncio
     async def test_write_string_too_long(self) -> None:
         """Test write_string with string too long for register count."""
         client = MockClient()
@@ -515,7 +482,6 @@ class TestHoldingRegisterWriteMixin:
         with pytest.raises(ValueError, match="String length exceeds maximum size"):
             await client.write_string(100, "VERYLONGSTRING", number_of_registers=2)
 
-    @pytest.mark.asyncio
     @pytest.mark.parametrize("word_order", ["big", "little"])
     async def test_write_string_with_encoding(self, word_order: Literal["big", "little"]) -> None:
         """Test write_string with custom encoding."""
@@ -526,7 +492,6 @@ class TestHoldingRegisterWriteMixin:
 
         assert client.execute.called
 
-    @pytest.mark.asyncio
     @pytest.mark.parametrize(
         ("word_order", "bytes_result"),
         [
@@ -552,7 +517,6 @@ class TestHoldingRegisterWriteMixin:
 class TestRoundTripReadWrite:
     """Test round-trip write then read operations."""
 
-    @pytest.mark.asyncio
     @pytest.mark.parametrize("word_order", ["big", "little"])
     @pytest.mark.parametrize(
         "value",
@@ -589,7 +553,6 @@ class TestRoundTripReadWrite:
 
         assert result == value
 
-    @pytest.mark.asyncio
     @pytest.mark.parametrize("word_order", ["big", "little"])
     @pytest.mark.parametrize(
         "value",
@@ -624,7 +587,6 @@ class TestRoundTripReadWrite:
 
         assert result == value
 
-    @pytest.mark.asyncio
     @pytest.mark.parametrize("word_order", ["big", "little"])
     @pytest.mark.parametrize(
         "value",
@@ -658,7 +620,6 @@ class TestRoundTripReadWrite:
 
         assert result == value
 
-    @pytest.mark.asyncio
     @pytest.mark.parametrize("word_order", ["big", "little"])
     @pytest.mark.parametrize(
         "value",
@@ -693,7 +654,6 @@ class TestRoundTripReadWrite:
 
         assert result == value
 
-    @pytest.mark.asyncio
     @pytest.mark.parametrize("word_order", ["big", "little"])
     @pytest.mark.parametrize(
         "value",
@@ -727,7 +687,6 @@ class TestRoundTripReadWrite:
 
         assert result == value
 
-    @pytest.mark.asyncio
     @pytest.mark.parametrize("word_order", ["big", "little"])
     @pytest.mark.parametrize(
         "value",
@@ -761,7 +720,6 @@ class TestRoundTripReadWrite:
 
         assert result == value
 
-    @pytest.mark.asyncio
     @pytest.mark.parametrize("word_order", ["big", "little"])
     @pytest.mark.parametrize(
         "value",
@@ -810,7 +768,6 @@ class TestRoundTripReadWrite:
             # Float comparison with tolerance
             assert abs(result - value) < abs(value * 1e-6) if value != 0 else abs(result) < 1e-6
 
-    @pytest.mark.asyncio
     @pytest.mark.parametrize("word_order", ["big", "little"])
     @pytest.mark.parametrize(
         ("value", "num_registers"),
@@ -851,7 +808,6 @@ class TestRoundTripReadWrite:
         # Strip null bytes and whitespace for comparison
         assert result.rstrip("\x00") == value
 
-    @pytest.mark.asyncio
     @pytest.mark.parametrize("word_order", ["big", "little"])
     @pytest.mark.parametrize(
         ("value", "num_registers"),

@@ -1,3 +1,5 @@
+"""Tests for tmodbus/pdu/pdu.py ."""
+
 import pytest
 from tmodbus.const import FunctionCode
 from tmodbus.pdu import (

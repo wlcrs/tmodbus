@@ -1,3 +1,5 @@
+"""Test module for tmodbus/pdu/coils.py ."""
+
 import struct
 
 import pytest

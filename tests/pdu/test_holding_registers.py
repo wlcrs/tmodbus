@@ -1,3 +1,5 @@
+"""Tests for tmodbus/pdu/holding_registers.py ."""
+
 import pytest
 from tmodbus.exceptions import InvalidRequestError, InvalidResponseError
 from tmodbus.pdu import ReadHoldingRegistersPDU, WriteMultipleRegistersPDU, WriteSingleRegisterPDU

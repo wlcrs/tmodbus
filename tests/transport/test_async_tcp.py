@@ -1,3 +1,5 @@
+"""Tests for tmodbus/transport/async_tcp.py ."""
+
 import asyncio
 from unittest.mock import ANY, AsyncMock, MagicMock, patch
 
@@ -16,6 +18,7 @@ class _DummyPDU(BaseClientPDU):
 
 
 async def test_invalid_constructor_args() -> None:
+    """Test that invalid constructor arguments raise ValueError."""
     with pytest.raises(ValueError, match=r"Port must be .*"):
         AsyncTcpTransport("host", port=0)
     with pytest.raises(ValueError, match=r"Timeout must .*"):
@@ -25,6 +28,7 @@ async def test_invalid_constructor_args() -> None:
 
 
 async def test_open_and_close(monkeypatch: pytest.MonkeyPatch) -> None:
+    """Test open and close functionality."""
     reader = AsyncMock()
     writer = MagicMock()
     writer.is_closing.return_value = False
@@ -37,6 +41,7 @@ async def test_open_and_close(monkeypatch: pytest.MonkeyPatch) -> None:
 
 
 async def test_open_connection_error(monkeypatch: pytest.MonkeyPatch) -> None:
+    """Test that connection errors during open are handled."""
     monkeypatch.setattr(asyncio, "open_connection", AsyncMock(side_effect=Exception("fail")))
     t = AsyncTcpTransport("host", port=1234)
     with pytest.raises(ModbusConnectionError):
@@ -44,11 +49,13 @@ async def test_open_connection_error(monkeypatch: pytest.MonkeyPatch) -> None:
 
 
 async def test_is_open_false_when_not_connected() -> None:
+    """Test is_open returns False when not connected."""
     t = AsyncTcpTransport("host", port=1234)
     assert not t.is_open()
 
 
 async def test_transaction_id_wraparound() -> None:
+    """Test that Transaction ID wraps around after reaching 0xFFFF."""
     t = AsyncTcpTransport("host", port=1234)
     t._next_transaction_id = 0xFFFF
     tid1 = t._get_transaction_id()
@@ -59,6 +66,7 @@ async def test_transaction_id_wraparound() -> None:
 
 @pytest.fixture
 def mock_asyncio_connection(monkeypatch: pytest.MonkeyPatch) -> tuple[MagicMock, MagicMock]:
+    """Fixture to mock asyncio open_connection."""
     reader = MagicMock(asyncio.StreamReader)
     writer = MagicMock(asyncio.StreamWriter)
     writer.is_closing.return_value = False
@@ -68,6 +76,7 @@ def mock_asyncio_connection(monkeypatch: pytest.MonkeyPatch) -> tuple[MagicMock,
 
 
 async def test_send_and_receive_success(mock_asyncio_connection: tuple[MagicMock, MagicMock]) -> None:
+    """Test successful send and receive of a PDU."""
     reader, _writer = mock_asyncio_connection
 
     # MBAP header: tid=1, pid=0, len=3, uid=1
@@ -82,6 +91,7 @@ async def test_send_and_receive_success(mock_asyncio_connection: tuple[MagicMock
 
 
 async def test_send_and_receive_not_connected() -> None:
+    """Test that sending when not connected raises ModbusConnectionError."""
     t = AsyncTcpTransport("host", port=1234)
     pdu = _DummyPDU()
     with pytest.raises(ModbusConnectionError):
@@ -89,6 +99,7 @@ async def test_send_and_receive_not_connected() -> None:
 
 
 async def test_do_send_and_receive_invalid_tid(mock_asyncio_connection: tuple[MagicMock, MagicMock]) -> None:
+    """Test that an invalid Transaction ID in the MBAP header raises InvalidResponseError."""
     reader, _writer = mock_asyncio_connection
     # MBAP header: tid=2 (should be 1), pid=0, len=3, uid=1
     mbap = b"\x00\x02\x00\x00\x00\x03\x01"
@@ -102,6 +113,7 @@ async def test_do_send_and_receive_invalid_tid(mock_asyncio_connection: tuple[Ma
 
 
 async def test_do_send_and_receive_exception_response(mock_asyncio_connection: tuple[MagicMock, MagicMock]) -> None:
+    """Test that a Modbus exception response raises ModbusResponseError."""
     reader, _writer = mock_asyncio_connection
     # MBAP header: tid=1, pid=0, len=3, uid=1
     mbap = b"\x00\x01\x00\x00\x00\x03\x01"
@@ -116,6 +128,7 @@ async def test_do_send_and_receive_exception_response(mock_asyncio_connection: t
 
 
 async def test_receive_exact_timeout(mock_asyncio_connection: tuple[MagicMock, MagicMock]) -> None:
+    """Test that a TimeoutError during exact read raises TimeoutError."""
     reader, _writer = mock_asyncio_connection
     reader.readexactly = AsyncMock(side_effect=asyncio.TimeoutError)
     t = AsyncTcpTransport("host", port=1234)
@@ -126,6 +139,7 @@ async def test_receive_exact_timeout(mock_asyncio_connection: tuple[MagicMock, M
 
 
 async def test_receive_exact_incomplete(mock_asyncio_connection: tuple[MagicMock, MagicMock]) -> None:
+    """Test that IncompleteReadError during exact read raises ModbusConnectionError."""
     reader, _writer = mock_asyncio_connection
     reader.readexactly = AsyncMock(side_effect=asyncio.IncompleteReadError(partial=b"abc", expected=5))
     t = AsyncTcpTransport("host", port=1234)
@@ -136,6 +150,7 @@ async def test_receive_exact_incomplete(mock_asyncio_connection: tuple[MagicMock
 
 @pytest.mark.usefixtures("mock_asyncio_connection")
 async def test_open_already_open() -> None:
+    """Test that opening an already open transport logs and returns early."""
     t = AsyncTcpTransport("host", port=1234)
     await t.open()
     # Should early return and log if already open
@@ -145,6 +160,7 @@ async def test_open_already_open() -> None:
 
 
 async def test_close_already_closed() -> None:
+    """Test that closing an already closed transport logs and returns early."""
     t = AsyncTcpTransport("host", port=1234)
     # Should early return and log if already closed
     with patch("tmodbus.transport.async_tcp.logger") as log:
@@ -153,6 +169,7 @@ async def test_close_already_closed() -> None:
 
 
 async def test_open_timeout(monkeypatch: pytest.MonkeyPatch) -> None:
+    """Test that a timeout during open is logged."""
     monkeypatch.setattr(asyncio, "open_connection", AsyncMock(side_effect=asyncio.TimeoutError))
     t = AsyncTcpTransport("host", port=1234)
     with patch("tmodbus.transport.async_tcp.logger") as log:
@@ -162,6 +179,7 @@ async def test_open_timeout(monkeypatch: pytest.MonkeyPatch) -> None:
 
 
 async def test_open_other_exception(monkeypatch: pytest.MonkeyPatch) -> None:
+    """Test that exceptions during open are logged and re-raised as ModbusConnectionError."""
     monkeypatch.setattr(asyncio, "open_connection", AsyncMock(side_effect=RuntimeError("fail")))
     t = AsyncTcpTransport("host", port=1234)
     with patch("tmodbus.transport.async_tcp.logger") as log:
@@ -171,6 +189,7 @@ async def test_open_other_exception(monkeypatch: pytest.MonkeyPatch) -> None:
 
 
 async def test_close_exception(mock_asyncio_connection: tuple[MagicMock, MagicMock]) -> None:
+    """Test that exceptions during close are logged but do not raise."""
     _reader, writer = mock_asyncio_connection
     writer.close.side_effect = Exception("fail")
     writer.wait_closed = AsyncMock()
@@ -184,6 +203,7 @@ async def test_close_exception(mock_asyncio_connection: tuple[MagicMock, MagicMo
 
 
 async def test_do_send_and_receive_invalid_protocol_id(mock_asyncio_connection: tuple[MagicMock, MagicMock]) -> None:
+    """Test that an invalid Protocol ID in the MBAP header raises InvalidResponseError."""
     reader, _writer = mock_asyncio_connection
     # MBAP header: tid=1, pid=1 (should be 0), len=3, uid=1
     mbap = b"\x00\x01\x00\x01\x00\x03\x01"
@@ -197,6 +217,7 @@ async def test_do_send_and_receive_invalid_protocol_id(mock_asyncio_connection: 
 
 
 async def test_do_send_and_receive_invalid_unit_id(mock_asyncio_connection: tuple[MagicMock, MagicMock]) -> None:
+    """Test that an invalid Unit ID in the MBAP header raises InvalidResponseError."""
     reader, _writer = mock_asyncio_connection
     # MBAP header: tid=1, pid=0, len=3, uid=2 (should be 1)
     mbap = b"\x00\x01\x00\x00\x00\x03\x02"
@@ -210,6 +231,7 @@ async def test_do_send_and_receive_invalid_unit_id(mock_asyncio_connection: tupl
 
 
 async def test_do_send_and_receive_invalid_pdu_length(mock_asyncio_connection: tuple[MagicMock, MagicMock]) -> None:
+    """Test that an invalid PDU length in the MBAP header raises InvalidResponseError."""
     reader, _writer = mock_asyncio_connection
     # MBAP header: tid=1, pid=0, len=0, uid=1 (pdu_length = -1)
     mbap = b"\x00\x01\x00\x00\x00\x00\x01"
@@ -222,6 +244,7 @@ async def test_do_send_and_receive_invalid_pdu_length(mock_asyncio_connection: t
 
 
 async def test_do_send_and_receive_incomplete_read_error(mock_asyncio_connection: tuple[MagicMock, MagicMock]) -> None:
+    """Test that an IncompleteReadError during PDU read raises ModbusConnectionError."""
     reader, writer = mock_asyncio_connection
     writer.drain = AsyncMock()
     # MBAP header: tid=1, pid=0, len=3, uid=1
@@ -238,6 +261,7 @@ async def test_do_send_and_receive_incomplete_read_error(mock_asyncio_connection
 
 
 async def test_receive_exact_other_exception(mock_asyncio_connection: tuple[MagicMock, MagicMock]) -> None:
+    """Test that a non-timeout, non-IncompleteReadError exception during readexactly raises ModbusConnectionError."""
     reader, _writer = mock_asyncio_connection
     reader.readexactly = AsyncMock(side_effect=RuntimeError("fail"))
 
@@ -252,6 +276,7 @@ async def test_receive_exact_other_exception(mock_asyncio_connection: tuple[Magi
 
 
 async def test_close_during_send_and_receive() -> None:
+    """Test that a ModbusConnectionError is raised if the connection is closed during send_and_receive."""
     t = AsyncTcpTransport("host", port=1234)
     t._writer = None
     with patch.object(t, "is_open", return_value=True):
@@ -261,6 +286,7 @@ async def test_close_during_send_and_receive() -> None:
 
 
 async def test_close_logs_info(mock_asyncio_connection: tuple[MagicMock, MagicMock]) -> None:
+    """Test that close logs info when closing normally."""
     _reader, writer = mock_asyncio_connection
     writer.close = MagicMock()
     writer.wait_closed = AsyncMock()
@@ -272,6 +298,7 @@ async def test_close_logs_info(mock_asyncio_connection: tuple[MagicMock, MagicMo
 
 
 async def test_close_exception_logs(mock_asyncio_connection: tuple[MagicMock, MagicMock]) -> None:
+    """Test that exceptions during close are logged but do not raise."""
     _reader, writer = mock_asyncio_connection
     writer.close.side_effect = Exception("fail")
     writer.wait_closed = AsyncMock()

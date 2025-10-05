@@ -1,3 +1,5 @@
+"""Tests for tmodbus/pdu/base.py ."""
+
 import pytest
 from tmodbus.exceptions import InvalidRequestError, InvalidResponseError
 from tmodbus.pdu.base import (

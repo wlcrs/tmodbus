@@ -1,3 +1,5 @@
+"""Tests for tmodbus/ __init__.py functions."""
+
 from typing import Any
 
 import pytest
@@ -21,6 +23,7 @@ class _DummyClient:
 # Patch AsyncSmartTransport, AsyncTcpTransport, AsyncRtuTransport, AsyncModbusClient for isolation
 @pytest.fixture(autouse=True)
 def patch_module() -> None:
+    """Patch tmodbus module classes for isolation."""
     tmodbus.AsyncSmartTransport = _DummyTransport
     tmodbus.AsyncTcpTransport = _DummyTransport
     tmodbus.AsyncRtuTransport = _DummyTransport
@@ -28,6 +31,7 @@ def patch_module() -> None:
 
 
 async def test_create_async_tcp_client() -> None:
+    """Test create_async_tcp_client function."""
     client = create_async_tcp_client(
         "127.0.0.1",
         port=1502,
@@ -55,6 +59,7 @@ async def test_create_async_tcp_client() -> None:
 
 
 async def test_create_async_rtu_client() -> None:
+    """Test create_async_rtu_client function."""
     client = create_async_rtu_client(
         "/dev/ttyUSB0",
         unit_id=1,

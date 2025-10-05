@@ -1,3 +1,5 @@
+"""Tests for tmodbus/transport/async_base.py ."""
+
 from typing import TypeVar
 
 from tmodbus.pdu import BasePDU

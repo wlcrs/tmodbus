@@ -1,3 +1,5 @@
+"""Tests for tmodbus/utils/crc.py ."""
+
 from tmodbus.utils.crc import calculate_crc16, validate_crc16
 
 

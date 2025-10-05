@@ -1,3 +1,5 @@
+"""Tests for tmodbus/transport/async_rtu.py ."""
+
 import asyncio
 import time
 from collections.abc import Coroutine
@@ -25,6 +27,7 @@ from tmodbus.utils.crc import calculate_crc16
 
 
 def test_compute_delays() -> None:
+    """Test computation of interframe and max continuous transmission delays."""
     # baudrate >= 19200 uses at least 1.75ms
     d = compute_interframe_delay(11 / 19200)
     assert d >= 0.00175
@@ -44,8 +47,8 @@ class _DummyPDU(BaseClientPDU):
         return ("decoded", data)
 
 
-@pytest.mark.asyncio
 async def test_open_already_open() -> None:
+    """Test that open early-returns if already open and logs debug."""
     reader = AsyncMock()
     writer = MagicMock()
     writer.is_closing.return_value = False
@@ -59,8 +62,8 @@ async def test_open_already_open() -> None:
         log.debug.assert_called()
 
 
-@pytest.mark.asyncio
 async def test_open_timeout(monkeypatch: pytest.MonkeyPatch) -> None:
+    """Test that open raises TimeoutError when open_serial_connection times out."""
     # simulate open_serial_connection timing out
     monkeypatch.setattr(
         "tmodbus.transport.async_rtu.serial_asyncio_fast.open_serial_connection",
@@ -73,6 +76,7 @@ async def test_open_timeout(monkeypatch: pytest.MonkeyPatch) -> None:
 
 @pytest.fixture
 def mock_asyncio_connection(monkeypatch: pytest.MonkeyPatch) -> tuple[MagicMock, MagicMock]:
+    """Fixture to mock serial_asyncio_fast connection."""
     reader = MagicMock(asyncio.StreamReader)
     writer = MagicMock(asyncio.StreamWriter)
     writer.is_closing.return_value = False
@@ -83,6 +87,7 @@ def mock_asyncio_connection(monkeypatch: pytest.MonkeyPatch) -> tuple[MagicMock,
 
 @pytest.mark.usefixtures("mock_asyncio_connection")
 async def test_open_close_is_open() -> None:
+    """Test open, close, and is_open functionality."""
     # simulate serial_asyncio_fast open
     t = AsyncRtuTransport("/dev/ttyUSB0", baudrate=9600)
     await t.open()
@@ -95,6 +100,7 @@ async def test_send_and_receive_success(
     mock_asyncio_connection: tuple[MagicMock, MagicMock],
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
+    """Test successful send_and_receive with a valid response."""
     reader, writer = mock_asyncio_connection
 
     t = AsyncRtuTransport("/dev/ttyUSB0", baudrate=9600)
@@ -129,6 +135,7 @@ async def test_send_and_receive_success(
 
 
 async def test_receive_response_no_reader() -> None:
+    """Test that if _reader is None, ModbusConnectionError is raised."""
     t = AsyncRtuTransport("/dev/ttyUSB0", baudrate=9600)
     t._reader = None
     with pytest.raises(ModbusConnectionError):
@@ -138,6 +145,7 @@ async def test_receive_response_no_reader() -> None:
 async def test_receive_response_incomplete(
     mock_asyncio_connection: tuple[MagicMock, MagicMock],
 ) -> None:
+    """Test that if readexactly raises IncompleteReadError, it is propagated as RTUFrameError."""
     reader, _writer = mock_asyncio_connection
     reader.readexactly = AsyncMock(side_effect=asyncio.IncompleteReadError(partial=b"abc", expected=10))
     t = AsyncRtuTransport("/dev/ttyUSB0", baudrate=9600)
@@ -147,8 +155,8 @@ async def test_receive_response_incomplete(
         await t._receive_response()
 
 
-@pytest.mark.asyncio
 async def test_close_early_return_and_logger() -> None:
+    """Test that close early-returns if not open and logs debug if writer is None."""
     # when _writer is None, close should log debug and return
     t = AsyncRtuTransport("/dev/ttyUSB0", baudrate=9600)
     t._writer = None
@@ -159,8 +167,8 @@ async def test_close_early_return_and_logger() -> None:
         log.debug.assert_called()
 
 
-@pytest.mark.asyncio
 async def test_interframe_sleep(monkeypatch: pytest.MonkeyPatch) -> None:
+    """Test that if the last frame ended recently, send_and_receive waits the interframe delay."""
     # ensure sleep is awaited when last frame ended recently
     t = AsyncRtuTransport("/dev/ttyUSB0", baudrate=9600)
     reader = AsyncMock()
@@ -192,8 +200,8 @@ async def test_interframe_sleep(monkeypatch: pytest.MonkeyPatch) -> None:
     assert sleep_called
 
 
-@pytest.mark.asyncio
 async def test_send_and_receive_writer_none_after_is_open(monkeypatch: pytest.MonkeyPatch) -> None:
+    """Test that if writer is None after is_open returns True, ModbusConnectionError is raised."""
     # Force is_open to return True but writer None to hit connection-not-established branch
     t = AsyncRtuTransport("/dev/ttyUSB0", baudrate=9600)
     t._reader = AsyncMock()
@@ -209,6 +217,7 @@ async def test_expected_length_exceeds_max(
     mock_asyncio_connection: tuple[MagicMock, MagicMock],
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
+    """Test that if the expected length exceeds MAX_RTU_FRAME_SIZE, RTUFrameError is raised."""
     # craft response_begin with non-exception function code and force get_pdu_class to return large length
     unit_id = 1
     function = 0x03
@@ -231,6 +240,7 @@ async def test_expected_length_exceeds_max(
 async def test_receive_response_remaining_raises_rtuframe(
     mock_asyncio_connection: tuple[MagicMock, MagicMock], monkeypatch: pytest.MonkeyPatch
 ) -> None:
+    """Test that if the remaining read raises RTUFrameError, it is propagated and response_bytes includes all bytes."""
     reader, _writer = mock_asyncio_connection
     # make initial read succeed, then remaining raises RTUFrameError
     unit_id = 1
@@ -252,8 +262,8 @@ async def test_receive_response_remaining_raises_rtuframe(
     assert excinfo.value.response_bytes.startswith(response_begin)
 
 
-@pytest.mark.asyncio
 async def test_receive_response_initial_timeout() -> None:
+    """Test that if the initial read raises TimeoutError, it is propagated and response_bytes is empty."""
     reader = AsyncMock()
     reader.readexactly = AsyncMock(side_effect=TimeoutError)
     t = AsyncRtuTransport("/dev/ttyUSB0", baudrate=9600)
@@ -262,8 +272,8 @@ async def test_receive_response_initial_timeout() -> None:
         await t._receive_response()
 
 
-@pytest.mark.asyncio
 async def test_receive_response_remaining_modbus_connection_error(monkeypatch: pytest.MonkeyPatch) -> None:
+    """Test that if the remaining read raises ModbusConnectionError, it is wrapped and response_bytes set."""
     # initial read succeeds, remaining raises ModbusConnectionError and should be wrapped
     unit_id = 1
     function = 0x03
@@ -289,6 +299,10 @@ async def test_send_and_receive_crc_and_address_and_exception(
     mock_asyncio_connection: tuple[MagicMock, MagicMock],
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
+    """Test that send_and_receive properly handles error conditions.
+
+    The error conditions checked are: CRC error, address mismatch, exception response, function code mismatch.
+    """
     reader, _writer = mock_asyncio_connection
     # Test CRC error, slave address mismatch, and exception response mapping
     t = AsyncRtuTransport("/dev/ttyUSB0", baudrate=9600)
@@ -341,6 +355,7 @@ async def test_send_and_receive_crc_and_address_and_exception(
 
 
 async def test_open_raises_modbus_connection_error_on_generic_exception(monkeypatch: pytest.MonkeyPatch) -> None:
+    """Test that open raises ModbusConnectionError when open_serial_connection raises RuntimeError."""
     # open_serial_connection raises RuntimeError -> open should raise ModbusConnectionError
     monkeypatch.setattr(
         "tmodbus.transport.async_rtu.serial_asyncio_fast.open_serial_connection",
@@ -351,10 +366,10 @@ async def test_open_raises_modbus_connection_error_on_generic_exception(monkeypa
         await t.open()
 
 
-@pytest.mark.asyncio
 async def test_open_and_close_log_info(
     mock_asyncio_connection: tuple[MagicMock, MagicMock],
 ) -> None:
+    """Test that open and close log info messages."""
     _reader, writer = mock_asyncio_connection
     # ensure wait_closed exists
     writer.wait_closed = AsyncMock()
@@ -370,15 +385,15 @@ async def test_open_and_close_log_info(
 # (the reload-style import test was removed; the exec-based test above is sufficient)
 
 
-@pytest.mark.asyncio
 async def test_close_logs_on_exception(
     mock_asyncio_connection: tuple[MagicMock, MagicMock],
 ) -> None:
+    """Test that close logs debug if writer.wait_closed raises an exception."""
     # simulate writer.wait_closed raising, hitting the except branch in close()
     _reader, writer = mock_asyncio_connection
 
     async def bad_wait_closed() -> None:
-        raise RuntimeError("boom")
+        raise RuntimeError
 
     writer.wait_closed = bad_wait_closed
 
@@ -390,8 +405,8 @@ async def test_close_logs_on_exception(
         log.debug.assert_called()
 
 
-@pytest.mark.asyncio
 async def test_send_and_receive_not_connected() -> None:
+    """Test that send_and_receive raises ModbusConnectionError when not connected."""
     t = AsyncRtuTransport("/dev/ttyUSB0", baudrate=9600)
     # ensure no reader/writer set (is_open() returns False)
     with pytest.raises(ModbusConnectionError, match=r"Not connected"):
@@ -402,6 +417,7 @@ async def test_send_and_receive_not_connected() -> None:
 async def test_send_and_receive_recv_exception_logs(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
+    """Test that send_and_receive logs raw traffic when _receive_response raises RTUFrameError."""
     # Ensure that when _receive_response raises RTUFrameError, send_and_receive logs raw traffic with is_error=True
 
     t = AsyncRtuTransport("/dev/ttyUSB0", baudrate=9600)
@@ -410,7 +426,8 @@ async def test_send_and_receive_recv_exception_logs(
     err_bytes = b"\x01\x83\x02"
 
     async def raise_err() -> None:
-        raise RTUFrameError("boom", response_bytes=err_bytes)
+        msg = "boom"
+        raise RTUFrameError(msg, response_bytes=err_bytes)
 
     monkeypatch.setattr(t, "_receive_response", raise_err)
 
@@ -422,20 +439,21 @@ async def test_send_and_receive_recv_exception_logs(
 
 @pytest.mark.usefixtures("mock_asyncio_connection")
 async def test_receive_response_wait_for_timeout() -> None:
+    """Test that _receive_response properly handles asyncio.TimeoutError from wait_for."""
     # Force asyncio.wait_for to raise TimeoutError to hit the except TimeoutError branch
     t = AsyncRtuTransport("/dev/ttyUSB0", baudrate=9600)
     await t.open()
 
     async def _fake_wait_for(coro: Coroutine, timeout: int, *_args: Any, **_kwargs: Any) -> Never:  # noqa: ARG001, ASYNC109
         await coro
-        raise TimeoutError("timed out")
+        raise TimeoutError
 
     with patch("asyncio.wait_for", _fake_wait_for), pytest.raises(TimeoutError):
         await t._receive_response()
 
     async def _fake_wait_for_with_runtime_error(coro: Coroutine, timeout: int, *_args: Any, **_kwargs: Any) -> Never:  # noqa: ARG001, ASYNC109
         await coro
-        raise RuntimeError("timed out")
+        raise RuntimeError
 
     with patch("asyncio.wait_for", _fake_wait_for_with_runtime_error), pytest.raises(ModbusConnectionError):
         await t._receive_response()

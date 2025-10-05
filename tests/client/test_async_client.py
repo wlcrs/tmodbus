@@ -1,3 +1,5 @@
+"""Tests for tmodbus/client/async_client.py ."""
+
 from typing import Literal, TypeVar
 
 import pytest
@@ -247,6 +249,7 @@ async def test_async_modbus_client_context_manager(dummy_client: AsyncModbusClie
 
 
 async def test_connected_property(dummy_client: AsyncModbusClient) -> None:
+    """Test the connected property of AsyncModbusClient."""
     # Should reflect transport.is_open()
     dummy_client.transport.opened = True
     assert dummy_client.connected is True
@@ -255,6 +258,7 @@ async def test_connected_property(dummy_client: AsyncModbusClient) -> None:
 
 
 async def test_connect_and_close_methods(dummy_client: AsyncModbusClient) -> None:
+    """Test the connect and close methods of AsyncModbusClient."""
     await dummy_client.connect()
     assert dummy_client.transport.opened is True
     await dummy_client.close()
@@ -265,6 +269,7 @@ async def test_read_device_identification_single_response(
     monkeypatch: pytest.MonkeyPatch,
     dummy_client: AsyncModbusClient,
 ) -> None:
+    """Test reading device identification with a single response."""
     # Patch execute to return a single response with more=False
     called = {}
 
@@ -289,6 +294,7 @@ async def test_read_device_identification_multiple_responses(
     monkeypatch: pytest.MonkeyPatch,
     dummy_client: AsyncModbusClient,
 ) -> None:
+    """Test reading device identification with multiple responses."""
     # Patch execute to simulate multiple responses with more=True then more=False
     responses = [
         ReadDeviceIdentificationResponse(
@@ -326,6 +332,7 @@ async def test_read_device_identification_warns_on_number_of_objects_change(
     dummy_client: AsyncModbusClient,
     caplog: pytest.LogCaptureFixture,
 ) -> None:
+    """Test that a warning is logged if number_of_objects changes between requests."""
     # Patch execute to simulate number_of_objects changing between responses
     responses = [
         ReadDeviceIdentificationResponse(
@@ -359,6 +366,7 @@ async def test_read_device_identification_warns_on_number_of_objects_change(
 
 
 def test_for_unit_id_creates_new_instance_with_different_unit_id() -> None:
+    """Test that for_unit_id creates a new client instance with the specified unit_id."""
     transport = DummyAsyncTransport()
     client1 = AsyncModbusClient(transport, unit_id=1)
     client2 = client1.for_unit_id(42)
@@ -371,6 +379,7 @@ def test_for_unit_id_creates_new_instance_with_different_unit_id() -> None:
 
 @pytest.mark.parametrize("word_order", ["big", "little"])
 def test_for_unit_id_preserves_word_order(word_order: Literal["big", "little"]) -> None:
+    """Test that for_unit_id preserves the word_order setting."""
     transport = DummyAsyncTransport()
     client1 = AsyncModbusClient(transport, unit_id=5, word_order=word_order)
     client2 = client1.for_unit_id(10)
@@ -378,6 +387,7 @@ def test_for_unit_id_preserves_word_order(word_order: Literal["big", "little"]) 
 
 
 def test_for_unit_id_raises_value_error_for_invalid_unit_id() -> None:
+    """Test that for_unit_id raises ValueError for out-of-bounds unit_id."""
     transport = DummyAsyncTransport()
     client = AsyncModbusClient(transport, unit_id=1)
     with pytest.raises(ValueError, match="Unit ID must be in range 0-255"):

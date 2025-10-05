@@ -1,3 +1,5 @@
+"""Tests for tmodbus/transport/async_smart.py ."""
+
 import time
 from unittest.mock import AsyncMock, MagicMock, patch
 
@@ -10,6 +12,8 @@ from tmodbus.transport.async_smart import AsyncSmartTransport
 
 
 class DummyPDU(BaseClientPDU[tuple[str, bytes]]):
+    """Dummy PDU for testing."""
+
     function_code = 0x03
 
     def encode_request(self) -> bytes:
@@ -23,6 +27,7 @@ class DummyPDU(BaseClientPDU[tuple[str, bytes]]):
 
 @pytest.fixture
 def base_transport_mock() -> AsyncBaseTransport:
+    """Fixture to create a mock AsyncBaseTransport."""
     bt = MagicMock(spec=AsyncBaseTransport)
     bt.open = AsyncMock()
     bt.close = AsyncMock()
@@ -32,6 +37,7 @@ def base_transport_mock() -> AsyncBaseTransport:
 
 
 def test_init_negative_waits(base_transport_mock: AsyncBaseTransport) -> None:
+    """Test that negative wait times raise ValueError."""
     with pytest.raises(ValueError, match=r"wait_between_requests must be .*"):
         AsyncSmartTransport(base_transport_mock, wait_between_requests=-1)
     with pytest.raises(ValueError, match=r"wait_after_connect must be .*"):
@@ -39,11 +45,13 @@ def test_init_negative_waits(base_transport_mock: AsyncBaseTransport) -> None:
 
 
 def test_on_reconnected_requires_auto_reconnect(base_transport_mock: AsyncBaseTransport) -> None:
+    """Test that providing on_reconnected without auto_reconnect raises ValueError."""
     with pytest.raises(ValueError, match="on_reconnected callback provided but auto_reconnect is disabled"):
         AsyncSmartTransport(base_transport_mock, auto_reconnect=False, on_reconnected=lambda: None)
 
 
 async def test_open_waits_after_connect(base_transport_mock: AsyncBaseTransport) -> None:
+    """Test that open waits after connecting if configured."""
     t = AsyncSmartTransport(base_transport_mock, wait_after_connect=0.05)
 
     with patch("asyncio.sleep", AsyncMock()) as fake_sleep:
@@ -54,6 +62,7 @@ async def test_open_waits_after_connect(base_transport_mock: AsyncBaseTransport)
 
 
 async def test_close_resets_should_be_connected(base_transport_mock: AsyncBaseTransport) -> None:
+    """Test that close resets _should_be_connected flag."""
     t = AsyncSmartTransport(base_transport_mock, wait_after_connect=0.0)
     await t.open()
     assert t._should_be_connected
@@ -62,6 +71,7 @@ async def test_close_resets_should_be_connected(base_transport_mock: AsyncBaseTr
 
 
 async def test_reconnect_and_wait_between_requests(base_transport_mock: AsyncBaseTransport) -> None:
+    """Test that _reconnect_send_and_receive waits and reconnects as needed."""
     # make base_transport initially closed
     base_transport_mock.is_open = lambda: False
 
@@ -85,6 +95,7 @@ async def test_reconnect_and_wait_between_requests(base_transport_mock: AsyncBas
 
 
 async def test_send_and_receive_updates_last_finished(base_transport_mock: AsyncBaseTransport) -> None:
+    """Test that last_request_finished_at is updated after send_and_receive."""
     t = AsyncSmartTransport(base_transport_mock)
 
     # stub the underlying send to return quickly
@@ -100,6 +111,7 @@ async def test_send_and_receive_updates_last_finished(base_transport_mock: Async
 
 
 async def test_do_auto_reconnect_retry_error(base_transport_mock: AsyncBaseTransport) -> None:
+    """Test that ModbusConnectionError is raised when auto_reconnect exhausts attempts."""
     t = AsyncSmartTransport(
         base_transport_mock, auto_reconnect=AsyncRetrying(stop=stop_after_attempt(1), reraise=False)
     )
@@ -112,6 +124,7 @@ async def test_do_auto_reconnect_retry_error(base_transport_mock: AsyncBaseTrans
 async def test_do_auto_reconnect_calls_on_reconnected(
     base_transport_mock: AsyncBaseTransport,
 ) -> None:
+    """Test that on_reconnected callback is called after successful reconnection."""
     on_reconnected = AsyncMock()
 
     t = AsyncSmartTransport(
@@ -125,6 +138,7 @@ async def test_do_auto_reconnect_calls_on_reconnected(
 
 
 async def test_send_and_receive_request_retry_failed(base_transport_mock: AsyncBaseTransport) -> None:
+    """Test that ModbusConnectionError is raised when response_retry_strategy exhausts attempts."""
     t = AsyncSmartTransport(base_transport_mock)
 
     # make _reconnect_send_and_receive raise each attempt; response_retry_strategy raises RetryError
@@ -139,6 +153,7 @@ async def test_send_and_receive_request_retry_failed(base_transport_mock: AsyncB
 async def test_send_and_receive_response_retry_success(
     base_transport_mock: AsyncBaseTransport,
 ) -> None:
+    """Test that send_and_receive succeeds when response_retry_strategy yields a successful attempt."""
     t = AsyncSmartTransport(
         base_transport_mock,
         response_retry_strategy=AsyncRetrying(stop=stop_after_attempt(1), reraise=True),
@@ -155,6 +170,7 @@ async def test_send_and_receive_response_retry_success(
 async def test_send_and_receive_retry_strategy_raises_request_retry_failed(
     base_transport_mock: AsyncBaseTransport,
 ) -> None:
+    """Test that RequestRetryFailedError is raised when response_retry_strategy exhausts attempts."""
     t = AsyncSmartTransport(
         base_transport_mock,
         # configure response_retry_strategy that yields at least one attempt then raises RetryError
@@ -168,6 +184,7 @@ async def test_send_and_receive_retry_strategy_raises_request_retry_failed(
 
 
 def test_is_open_cases() -> None:
+    """Test is_open method behavior under different conditions."""
     bt = MagicMock()
     bt.is_open = lambda: False
     t = AsyncSmartTransport(bt)
@@ -183,6 +200,7 @@ def test_is_open_cases() -> None:
 async def test_send_and_receive_request_retry_failed_raises_and_sets_timestamp(
     base_transport_mock: AsyncBaseTransport,
 ) -> None:
+    """Test that when _reconnect_send_and_receive raises, the timestamp is still set."""
     t = AsyncSmartTransport(
         base_transport_mock,
         # set strategy that will raise RetryError after attempts
@@ -197,6 +215,7 @@ async def test_send_and_receive_request_retry_failed_raises_and_sets_timestamp(
 
 
 async def test_send_and_receive_else_branch_sets_timestamp(base_transport_mock: AsyncBaseTransport) -> None:
+    """Test that the else branch sets the last_request_finished_at timestamp."""
     # ensure no response retry strategy
     t = AsyncSmartTransport(base_transport_mock, response_retry_strategy=None, auto_reconnect=False)
     t._reconnect_send_and_receive = AsyncMock(return_value=("ok", b""))
