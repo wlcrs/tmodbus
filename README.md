@@ -1,4 +1,9 @@
 # tModbus
+[![Release](https://img.shields.io/github/v/release/wlcrs/tmodbus.svg)](https://github.com/wlcrs/tmodbus/releases)
+[![Python Versions](https://img.shields.io/pypi/pyversions/tmodbus)](https://pypi.org/p/tmodbus/)
+[![Testing](https://github.com/wlcrs/tmodbus/actions/workflows/tests.yml/badge.svg)](https://github.com/wlcrs/tmodbus/actions/workflows/tests.yml)
+
+## About
 
 A modern Python Modbus library that is fully **t**yped and well-**t**ested.
 
@@ -82,8 +87,53 @@ based on the following:
 - `MINOR`: Backwards-compatible new features and enhancements.
 - `PATCH`: Backwards-compatible bugfixes and package updates.
 
+## Contributing
+
+This is an active open-source project. We are always open to people who want to
+use the code or contribute to it.
+
+We've set up a separate document for our
+[contribution guidelines](.github/CONTRIBUTING.md).
+
+Thank you for being involved! :heart_eyes:
+
+### Setting up a development environment
+
+This Python project is fully managed using the [uv] dependency manager.
+
+You need at least:
+
+- Python 3.12+
+- [uv][uv-install]
+
+To install all packages, including all development requirements:
+
+```bash
+uv sync --extra async-rtu --extra smart --dev
+```
+
+As this repository uses the [pre-commit][pre-commit] framework, all changes
+are linted and tested with each commit. You can run all checks and tests
+manually, using the following command:
+
+```bash
+uv run pre-commit run --all-files
+```
+
+To run just the Python tests:
+
+```bash
+uv run pytest
+```
+
+
 ## Protocol-Specification
 
 - [Modbus Application Protocol Specification v1.1b3 (PDF)](http://modbus.org/docs/Modbus_Application_Protocol_V1_1b3.pdf)
 - [Modbus over serial line specification and implementation guide v1.02 (PDF)](http://modbus.org/docs/Modbus_over_serial_line_V1_02.pdf)
 - [Modbus Messaging on TCP/IP Implementation Guide v1.0b (PDF)](http://modbus.org/docs/Modbus_Messaging_Implementation_Guide_V1_0b.pdf)
+
+
+[uv-install]: https://docs.astral.sh/uv/getting-started/installation/
+[uv]: https://docs.astral.sh/uv/
+[pre-commit]: https://pre-commit.com/
