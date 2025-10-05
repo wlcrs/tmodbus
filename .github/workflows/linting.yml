@@ -39,7 +39,7 @@ jobs:
           enable-cache: true
           python-version: ${{ env.DEFAULT_PYTHON }}
       - name: 🏗 Install dependencies
-        run: uv sync --extra cli --frozen --dev
+        run: uv sync --extra async-rtu --extra smart --frozen --dev
       - name: 🚀 Run ruff linter
         run: uv run ruff check --output-format=github .
       - name: 🚀 Run ruff formatter
@@ -91,7 +91,7 @@ jobs:
           enable-cache: true
           python-version: ${{ env.DEFAULT_PYTHON }}
       - name: 🏗 Install dependencies
-        run: uv sync --extra cli --frozen --dev
+        run: uv sync --extra async-rtu --extra smart --frozen --dev
       - name: 🚀 Run pylint
         run: uv run pre-commit run pylint --all-files
 
