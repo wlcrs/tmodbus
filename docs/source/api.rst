@@ -11,7 +11,18 @@ General
 Client layer
 ------------
 
+The AsyncModbusClient class provides methods to interact with a Modbus server. It supports reading and writing coils, discrete inputs, holding registers, and input registers.
+It inherits from two mixins: :class:`~tmodbus.pdu.holding_registers_struct.HoldingRegisterReadMixin` and :class:`~tmodbus.pdu.holding_registers_struct.HoldingRegisterWriteMixin`,
+which provide additional methods for reading and writing structured data from/to holding registers.
+
 .. automodule:: tmodbus.client
+    :members:
+    :show-inheritance:
+
+.. autoclass:: tmodbus.pdu.holding_registers_struct.HoldingRegisterReadMixin
+    :members:
+
+.. autoclass:: tmodbus.pdu.holding_registers_struct.HoldingRegisterWriteMixin
     :members:
 
 Transport layer

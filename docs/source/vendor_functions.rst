@@ -16,8 +16,8 @@ implemented. For example, you can look at the :class:`tmodbus.pdu.device.ReadDev
 implements the standard Modbus function code 0x2B with sub-function code 0x0E.
 
 
-Example implementation:
------------------------
+Example implementation
+----------------------
 
 This is an example of how to implement a vendor-specific Modbus function.
 

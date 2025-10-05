@@ -47,6 +47,26 @@ class TestHoldingRegisterReadMixin:
         assert len(result) == 1
 
     @pytest.mark.parametrize("word_order", ["big", "little"])
+    async def test_read_struct_format_string_format(self, word_order: Literal["big", "little"]) -> None:
+        """Test read_struct_format with string format (covers line 56)."""
+        client = MockClient(word_order=word_order)
+        # Mock response: 4 bytes representing uint32
+        client.execute.return_value = b"\x0a\x0b\x0c\x0d"
+
+        # Pass a string instead of WordOrderAwareStruct to test line 56
+        result = await client.read_struct_format(100, format_struct=">I")
+
+        # Verify execute was called with correct PDU
+        assert client.execute.called
+        pdu = client.execute.call_args[0][0]
+        assert pdu.start_address == 100
+        assert pdu.quantity == 2  # 4 bytes = 2 registers
+
+        # Verify result
+        assert isinstance(result, tuple)
+        assert len(result) == 1
+
+    @pytest.mark.parametrize("word_order", ["big", "little"])
     async def test_read_struct_format_input_register(self, word_order: Literal["big", "little"]) -> None:
         """Test read_struct_format with input registers."""
         client = MockClient(word_order=word_order)

@@ -33,4 +33,6 @@ A simple example
    api
    architecture
    examples
+
+   batch_reading
    vendor_functions
