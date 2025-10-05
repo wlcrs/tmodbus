@@ -262,7 +262,7 @@ async def test_connect_and_close_methods(dummy_client: MagicMock) -> None:
     """Test the connect and close methods of AsyncModbusClient."""
     await dummy_client.connect()
     assert dummy_client.transport.opened is True
-    await dummy_client.close()
+    await dummy_client.disconnect()
     assert dummy_client.transport.opened is False
 
 

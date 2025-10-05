@@ -1,7 +1,7 @@
 ---
 name: Testing
 
-on: [push, pull_request, workflow_call]
+on: [push, pull_request, workflow_call] # yamllint disable rule:truthy
 
 env:
   DEFAULT_PYTHON: "3.12"
@@ -22,7 +22,7 @@ jobs:
           enable-cache: true
           python-version: ${{ env.DEFAULT_PYTHON }}
       - name: 🏗 Install dependencies
-        run: uv sync --extra async-rtu --extra smart --frozen --dev
+        run: uv sync --all-extras --frozen --dev
       - name: 🚀 Run pytest
         run: uv run pytest --cov tmodbus tests
       - name: ⬆️ Upload coverage artifact
@@ -49,7 +49,7 @@ jobs:
           enable-cache: true
           python-version: ${{ env.DEFAULT_PYTHON }}
       - name: 🏗 Install dependencies
-        run: uv sync --extra async-rtu --extra smart --frozen --dev
+        run: uv sync --all-extras --frozen --dev
       - name: 🚀 Process coverage results
         run: |
           uv run coverage combine coverage*/.coverage*

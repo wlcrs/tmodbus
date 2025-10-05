@@ -109,7 +109,7 @@ You need at least:
 To install all packages, including all development requirements:
 
 ```bash
-uv sync --extra async-rtu --extra smart --dev
+uv sync  --all-extras --dev
 ```
 
 As this repository uses the [pre-commit][pre-commit] framework, all changes

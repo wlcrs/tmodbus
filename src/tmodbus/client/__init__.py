@@ -1,4 +1,4 @@
-"""Modbus Link Clients."""
+"""tModbus Clients."""
 
 from .async_client import AsyncModbusClient
 

@@ -123,4 +123,5 @@ __all__ = [
     "WriteMultipleRegistersPDU",
     "WriteSingleCoilPDU",
     "WriteSingleRegisterPDU",
+    "register_pdu_class",
 ]

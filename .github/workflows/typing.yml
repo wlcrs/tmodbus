@@ -23,6 +23,6 @@ jobs:
           enable-cache: true
           python-version: ${{ env.DEFAULT_PYTHON }}
       - name: 🏗 Install dependencies
-        run: uv sync --extra async-rtu --extra smart --frozen --dev
+        run: uv sync --all-extras --frozen --dev
       - name: 🚀 Run mypy
         run: uv run mypy examples src tests

@@ -18,3 +18,9 @@ wheels/
 
 # pytest
 .pytest_cache/
+
+# docs
+docs/_build/
+
+# version file
+src/tmodbus/_version.py

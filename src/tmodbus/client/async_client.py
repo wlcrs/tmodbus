@@ -30,12 +30,24 @@ RT = TypeVar("RT")
 class AsyncModbusClient(HoldingRegisterReadMixin, HoldingRegisterWriteMixin):
     """Asynchronous Modbus Client.
 
-    Provides a concise, user-friendly asynchronous Modbus operation interface. Receives
-    async transport layer instances through dependency injection, supporting async
-    transport methods such as async TCP.
+    Provides an user-friendly asynchronous Modbus interface to a single Modbus device.
+    All methods use Python native data types (int, float, str, list, etc.),
 
-    All methods use Python native data types (int, list, etc.),
-    completely encapsulating underlying byte operations, and support callback mechanisms.
+    If you want to query another device on the same connection, use the `for_unit_id` method.
+
+    This class is agnostic to the transport layer: just pass the desired transport instance.
+
+    Example:
+        >>> import asyncio
+        >>> from tmodbus import AsyncModbusClient, AsyncTcpTransport
+        >>> async def main():
+        ...     transport = AsyncTcpTransport('localhost', 502)
+        ...     client = AsyncModbusClient(transport, unit_id=1)
+        ...     async with client:
+        ...         print("Contents of register 0:", await client.read_holding_registers(0, 1))
+        ...
+        >>> asyncio.run(main())
+
     """
 
     def __init__(
@@ -72,7 +84,7 @@ class AsyncModbusClient(HoldingRegisterReadMixin, HoldingRegisterWriteMixin):
         """Report if the client is connected to the server."""
         return self.transport.is_open()
 
-    async def close(self) -> None:
+    async def disconnect(self) -> None:
         """Close the server connection."""
         await self.transport.close()
 
@@ -103,6 +115,9 @@ class AsyncModbusClient(HoldingRegisterReadMixin, HoldingRegisterWriteMixin):
 
         Returns:
             List of coil status, True for ON, False for OFF
+
+        Raises:
+            InvalidResponseError: If response is invalid or does not match request
 
         Example:
             >>> coils = await client.read_coils(1, 0, 8)

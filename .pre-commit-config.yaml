@@ -93,7 +93,7 @@ repos:
         name: 🧪 Running tests and test coverage with pytest
         language: system
         types: [python]
-        entry: uv run pytest tests/
+        entry: uv run pytest
         pass_filenames: false
       - id: trailing-whitespace
         name: ✄  Trim Trailing Whitespace

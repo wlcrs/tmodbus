@@ -83,7 +83,7 @@ async def test_client(transport: AsyncBaseTransport) -> None:
     ir0_1 = await client.read_input_registers(0, 2)
     assert ir0_1 == [1234, 5678]
 
-    await client.close()
+    await client.disconnect()
 
 
 if __name__ == "__main__":

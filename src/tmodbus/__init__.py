@@ -1,4 +1,4 @@
-"""Modbus Link Library."""
+"""tModbus library."""
 
 from collections.abc import Awaitable, Callable
 from typing import TYPE_CHECKING, Any, Unpack
@@ -9,6 +9,11 @@ from .transport.async_rtu import PySerialOptions
 
 if TYPE_CHECKING:
     from tenacity import AsyncRetrying
+
+try:
+    from ._version import __version__
+except ImportError:  # pragma: no cover
+    __version__ = "0.0.0"
 
 
 def create_async_tcp_client(  # noqa: PLR0913
@@ -42,9 +47,9 @@ def create_async_tcp_client(  # noqa: PLR0913
         on_reconnected: Callback to be called after a successful reconnection.
         response_retry_strategy: Retry strategy for handling failed requests (default: None).
         retry_on_device_busy: Whether to retry on device busy errors (default: True).
-                                Can be a custom AsyncRetrying instance when more control is needed.
+                              Can be a custom AsyncRetrying instance when more control is needed.
         retry_on_device_failure: Whether to retry on device failure errors (default: False).
-                                    Can be a custom AsyncRetrying instance when more control is needed.
+                                 Can be a custom AsyncRetrying instance when more control is needed.
         connection_kwargs: Additional connection parameters passed to `asyncio.open_connection` (e.g., SSL context)
 
     Returns:
@@ -97,9 +102,9 @@ def create_async_rtu_client(  # noqa: PLR0913
         on_reconnected: Callback to be called after a successful reconnection.
         response_retry_strategy: Retry strategy for handling failed requests (default: None).
         retry_on_device_busy: Whether to retry on device busy errors (default: True).
-                                Can be a custom AsyncRetrying instance when more control is needed.
+                              Can be a custom AsyncRetrying instance when more control is needed.
         retry_on_device_failure: Whether to retry on device failure errors (default: False).
-                                    Can be a custom AsyncRetrying instance when more control is needed.
+                                 Can be a custom AsyncRetrying instance when more control is needed.
         pyserial_options: Additional connection parameters passed to `pyserial` (e.g., SSL context)
 
     Returns:

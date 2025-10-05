@@ -41,7 +41,7 @@ async def example_tcp_client() -> None:
     except ModbusConnectionError as e:
         print(f"A connection error occurred: {e}")
     finally:
-        await client.close()
+        await client.disconnect()
 
     # Alternatively, you can use the client as an async context manager
     # which automatically handles connection and disconnection.
