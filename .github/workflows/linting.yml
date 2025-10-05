@@ -79,22 +79,6 @@ jobs:
       - name: 🚀 Trim Trailing Whitespace
         run: uv run pre-commit run trailing-whitespace --all-files
 
-  pylint:
-    name: pylint
-    runs-on: ubuntu-latest
-    steps:
-      - name: ⤵️ Check out code from GitHub
-        uses: actions/checkout@v5.0.0
-      - name: 🏗 Set up uv
-        uses: astral-sh/setup-uv@v6.8.0
-        with:
-          enable-cache: true
-          python-version: ${{ env.DEFAULT_PYTHON }}
-      - name: 🏗 Install dependencies
-        run: uv sync --extra async-rtu --extra smart --frozen --dev
-      - name: 🚀 Run pylint
-        run: uv run pre-commit run pylint --all-files
-
   yamllint:
     name: yamllint
     runs-on: ubuntu-latest
