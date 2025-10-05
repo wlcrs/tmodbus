@@ -45,7 +45,7 @@ class _DummyPDU(BaseClientPDU):
 
 
 @pytest.mark.asyncio
-async def test_open_already_open(monkeypatch: pytest.MonkeyPatch) -> None:
+async def test_open_already_open() -> None:
     reader = AsyncMock()
     writer = MagicMock()
     writer.is_closing.return_value = False
@@ -81,7 +81,8 @@ def mock_asyncio_connection(monkeypatch: pytest.MonkeyPatch) -> tuple[MagicMock,
     return reader, writer
 
 
-async def test_open_close_is_open(mock_asyncio_connection: tuple[MagicMock, MagicMock]) -> None:
+@pytest.mark.usefixtures("mock_asyncio_connection")
+async def test_open_close_is_open() -> None:
     # simulate serial_asyncio_fast open
     t = AsyncRtuTransport("/dev/ttyUSB0", baudrate=9600)
     await t.open()
@@ -147,7 +148,7 @@ async def test_receive_response_incomplete(
 
 
 @pytest.mark.asyncio
-async def test_close_early_return_and_logger(monkeypatch: pytest.MonkeyPatch) -> None:
+async def test_close_early_return_and_logger() -> None:
     # when _writer is None, close should log debug and return
     t = AsyncRtuTransport("/dev/ttyUSB0", baudrate=9600)
     t._writer = None
@@ -182,7 +183,7 @@ async def test_interframe_sleep(monkeypatch: pytest.MonkeyPatch) -> None:
     )
     sleep_called = False
 
-    async def fake_sleep(d: float) -> None:
+    async def fake_sleep(_d: float) -> None:
         nonlocal sleep_called
         sleep_called = True
 
@@ -252,7 +253,7 @@ async def test_receive_response_remaining_raises_rtuframe(
 
 
 @pytest.mark.asyncio
-async def test_receive_response_initial_timeout(monkeypatch: pytest.MonkeyPatch) -> None:
+async def test_receive_response_initial_timeout() -> None:
     reader = AsyncMock()
     reader.readexactly = AsyncMock(side_effect=TimeoutError)
     t = AsyncRtuTransport("/dev/ttyUSB0", baudrate=9600)
@@ -397,9 +398,8 @@ async def test_send_and_receive_not_connected() -> None:
         await t.send_and_receive(1, _DummyPDU())
 
 
-@pytest.mark.asyncio
+@pytest.mark.usefixtures("mock_asyncio_connection")
 async def test_send_and_receive_recv_exception_logs(
-    mock_asyncio_connection: tuple[MagicMock, MagicMock],
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     # Ensure that when _receive_response raises RTUFrameError, send_and_receive logs raw traffic with is_error=True
@@ -420,19 +420,20 @@ async def test_send_and_receive_recv_exception_logs(
         log_raw.assert_called_with("recv", err_bytes, is_error=True)
 
 
-async def test_receive_response_wait_for_timeout(mock_asyncio_connection: tuple[MagicMock, MagicMock]) -> None:
+@pytest.mark.usefixtures("mock_asyncio_connection")
+async def test_receive_response_wait_for_timeout() -> None:
     # Force asyncio.wait_for to raise TimeoutError to hit the except TimeoutError branch
     t = AsyncRtuTransport("/dev/ttyUSB0", baudrate=9600)
     await t.open()
 
-    async def _fake_wait_for(coro: Coroutine, timeout: int, *args: Any, **kwargs: Any) -> Never:  # noqa: ASYNC109
+    async def _fake_wait_for(coro: Coroutine, timeout: int, *_args: Any, **_kwargs: Any) -> Never:  # noqa: ARG001, ASYNC109
         await coro
         raise TimeoutError("timed out")
 
     with patch("asyncio.wait_for", _fake_wait_for), pytest.raises(TimeoutError):
         await t._receive_response()
 
-    async def _fake_wait_for_with_runtime_error(coro: Coroutine, timeout: int, *args: Any, **kwargs: Any) -> Never:  # noqa: ASYNC109
+    async def _fake_wait_for_with_runtime_error(coro: Coroutine, timeout: int, *_args: Any, **_kwargs: Any) -> Never:  # noqa: ARG001, ASYNC109
         await coro
         raise RuntimeError("timed out")
 

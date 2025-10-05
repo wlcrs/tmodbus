@@ -10,8 +10,6 @@ lint.extend-ignore = [
   "SLF001", # Tests will access private/protected members...
   "TC002", # pytest doesn't like this one...
 
-  "ANN201", # no return type annotations needed
-  "ARG001", # not using all arguments is ok in tests
   "D100", # no docstrings for modules required in tests
   "D101", # no docstrings for classes required in tests
   "D103", # no docstrings for public methods required in tests

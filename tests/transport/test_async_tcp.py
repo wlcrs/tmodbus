@@ -134,7 +134,8 @@ async def test_receive_exact_incomplete(mock_asyncio_connection: tuple[MagicMock
         await t._receive_exact(5)
 
 
-async def test_open_already_open(mock_asyncio_connection: tuple[MagicMock, MagicMock]) -> None:
+@pytest.mark.usefixtures("mock_asyncio_connection")
+async def test_open_already_open() -> None:
     t = AsyncTcpTransport("host", port=1234)
     await t.open()
     # Should early return and log if already open
@@ -250,7 +251,7 @@ async def test_receive_exact_other_exception(mock_asyncio_connection: tuple[Magi
         await t._receive_exact(5)
 
 
-async def test_close_during_send_and_receive(mock_asyncio_connection: tuple[MagicMock, MagicMock]) -> None:
+async def test_close_during_send_and_receive() -> None:
     t = AsyncTcpTransport("host", port=1234)
     t._writer = None
     with patch.object(t, "is_open", return_value=True):

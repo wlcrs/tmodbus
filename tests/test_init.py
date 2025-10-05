@@ -20,7 +20,7 @@ class _DummyClient:
 
 # Patch AsyncSmartTransport, AsyncTcpTransport, AsyncRtuTransport, AsyncModbusClient for isolation
 @pytest.fixture(autouse=True)
-def patch_module():
+def patch_module() -> None:
     tmodbus.AsyncSmartTransport = _DummyTransport
     tmodbus.AsyncTcpTransport = _DummyTransport
     tmodbus.AsyncRtuTransport = _DummyTransport

@@ -204,8 +204,11 @@ class TestWriteMultipleCoilsPDU:
         ],
     )
     def test_write_multiple_coils_encode_request(
-        self, start_address: int, values: list[bool], expected_bytes: bytearray
-    ):
+        self,
+        start_address: int,
+        values: list[bool],
+        expected_bytes: bytearray,
+    ) -> None:
         """Test encoding of Write Multiple Coils PDU."""
         pdu = WriteMultipleCoilsPDU(start_address=start_address, values=values)
         assert pdu.encode_request() == expected_bytes

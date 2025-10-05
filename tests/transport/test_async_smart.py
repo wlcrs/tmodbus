@@ -9,14 +9,14 @@ from tmodbus.transport.async_base import AsyncBaseTransport
 from tmodbus.transport.async_smart import AsyncSmartTransport
 
 
-class DummyPDU(BaseClientPDU):
+class DummyPDU(BaseClientPDU[tuple[str, bytes]]):
     function_code = 0x03
 
     def encode_request(self) -> bytes:
         """Encode request."""
         return b"\x03\x00"
 
-    def decode_response(self, data: bytes):
+    def decode_response(self, data: bytes) -> tuple[str, bytes]:
         """Decode response."""
         return ("ok", data)
 
@@ -137,7 +137,6 @@ async def test_send_and_receive_request_retry_failed(base_transport_mock: AsyncB
 
 
 async def test_send_and_receive_response_retry_success(
-    monkeypatch: pytest.MonkeyPatch,
     base_transport_mock: AsyncBaseTransport,
 ) -> None:
     t = AsyncSmartTransport(

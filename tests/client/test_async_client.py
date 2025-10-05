@@ -268,7 +268,7 @@ async def test_read_device_identification_single_response(
     # Patch execute to return a single response with more=False
     called = {}
 
-    async def fake_execute(self: None, pdu: ReadDeviceIdentificationPDU) -> ReadDeviceIdentificationResponse:
+    async def fake_execute(_self: None, pdu: ReadDeviceIdentificationPDU) -> ReadDeviceIdentificationResponse:
         called["pdu"] = pdu
         return ReadDeviceIdentificationResponse(
             device_id_code=1,
@@ -310,7 +310,7 @@ async def test_read_device_identification_multiple_responses(
     ]
     call_count = {"count": 0}
 
-    async def fake_execute(self: None, pdu: ReadDeviceIdentificationPDU) -> ReadDeviceIdentificationResponse:
+    async def fake_execute(_self: None, _pdu: ReadDeviceIdentificationPDU) -> ReadDeviceIdentificationResponse:
         idx = call_count["count"]
         call_count["count"] += 1
         return responses[idx]
@@ -347,7 +347,7 @@ async def test_read_device_identification_warns_on_number_of_objects_change(
     ]
     call_count = {"count": 0}
 
-    async def fake_execute(self: None, pdu: ReadDeviceIdentificationPDU) -> ReadDeviceIdentificationResponse:
+    async def fake_execute(_self: None, _pdu: ReadDeviceIdentificationPDU) -> ReadDeviceIdentificationResponse:
         idx = call_count["count"]
         call_count["count"] += 1
         return responses[idx]
