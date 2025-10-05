@@ -1,6 +1,6 @@
 import asyncio
 import time
-from typing import Never
+from typing import Any, Never
 from unittest.mock import AsyncMock, MagicMock, patch
 
 import pytest
@@ -111,10 +111,10 @@ async def test_send_and_receive_success(mock_asyncio_connection, monkeypatch):
     # monkeypatch get_pdu_class to return a dummy class with expected length 1
     class DummyPduClass:
         @staticmethod
-        def get_expected_response_data_length(begin_bytes: bytes) -> int:
+        def get_expected_response_data_length(_begin_bytes: bytes) -> int:
             return 1
 
-    monkeypatch.setattr("tmodbus.transport.async_rtu.get_pdu_class", lambda b: DummyPduClass)
+    monkeypatch.setattr("tmodbus.transport.async_rtu.get_pdu_class", lambda _: DummyPduClass)
 
     t._reader = reader
     t._writer = writer
@@ -147,7 +147,6 @@ async def test_close_early_return_and_logger(monkeypatch):
     t = AsyncRtuTransport("/dev/ttyUSB0", baudrate=9600)
     t._writer = None
     t._reader = None
-    from unittest.mock import patch
 
     with patch("tmodbus.transport.async_rtu.logger") as log:
         await t.close()
@@ -195,7 +194,7 @@ async def test_send_and_receive_writer_none_after_is_open(monkeypatch):
     t._writer = None
     pdu = _DummyPDU()
     # patch is_open to True so code proceeds past initial check
-    monkeypatch.setattr(AsyncRtuTransport, "is_open", lambda self: True)
+    monkeypatch.setattr(AsyncRtuTransport, "is_open", lambda _: True)
     with pytest.raises(ModbusConnectionError, match=r"Connection not established."):
         await t.send_and_receive(1, pdu)
 
@@ -212,7 +211,7 @@ async def test_expected_length_exceeds_max(mock_asyncio_connection, monkeypatch)
 
     class BigPduClass:
         @staticmethod
-        def get_expected_response_data_length(begin_bytes: bytes) -> int:
+        def get_expected_response_data_length(_begin_bytes: bytes) -> int:
             return MAX_RTU_FRAME_SIZE
 
     monkeypatch.setattr("tmodbus.transport.async_rtu.get_pdu_class", lambda _b: BigPduClass)
@@ -232,7 +231,7 @@ async def test_receive_response_remaining_raises_rtuframe(mock_asyncio_connectio
 
     class DummyPduClass:
         @staticmethod
-        def get_expected_response_data_length(begin_bytes: bytes) -> int:
+        def get_expected_response_data_length(_begin_bytes: bytes) -> int:
             return 3
 
     monkeypatch.setattr("tmodbus.transport.async_rtu.get_pdu_class", lambda _b: DummyPduClass)
@@ -265,7 +264,7 @@ async def test_receive_response_remaining_modbus_connection_error(monkeypatch):
 
     class DummyPduClass:
         @staticmethod
-        def get_expected_response_data_length(begin_bytes: bytes) -> int:
+        def get_expected_response_data_length(_begin_bytes: bytes) -> int:
             return 3
 
     monkeypatch.setattr("tmodbus.transport.async_rtu.get_pdu_class", lambda _b: DummyPduClass)
@@ -291,10 +290,10 @@ async def test_send_and_receive_crc_and_address_and_exception(mock_asyncio_conne
 
     class DummyPduClass:
         @staticmethod
-        def get_expected_response_data_length(begin_bytes: bytes) -> int:
+        def get_expected_response_data_length(_begin_bytes: bytes) -> int:
             return 1
 
-    monkeypatch.setattr("tmodbus.transport.async_rtu.get_pdu_class", lambda b: DummyPduClass)
+    monkeypatch.setattr("tmodbus.transport.async_rtu.get_pdu_class", lambda _: DummyPduClass)
 
     t._last_frame_ended_at = time.monotonic() - 10
     with pytest.raises(CRCError):
@@ -406,14 +405,14 @@ async def test_receive_response_wait_for_timeout(mock_asyncio_connection, monkey
     t = AsyncRtuTransport("/dev/ttyUSB0", baudrate=9600)
     await t.open()
 
-    async def _fake_wait_for(coro, timeout, *args, **kwargs) -> Never:
+    async def _fake_wait_for(coro, timeout: int, *args: Any, **kwargs: Any) -> Never:  # noqa: ASYNC109
         await coro
         raise TimeoutError("timed out")
 
     with patch("asyncio.wait_for", _fake_wait_for), pytest.raises(TimeoutError):
         await t._receive_response()
 
-    async def _fake_wait_for_with_runtime_error(coro, timeout, *args, **kwargs) -> Never:
+    async def _fake_wait_for_with_runtime_error(coro, timeout: int, *args: Any, **kwargs: Any) -> Never:  # noqa: ASYNC109
         await coro
         raise RuntimeError("timed out")
 

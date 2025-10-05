@@ -73,6 +73,7 @@ select = ["ALL"]
 ]
 
 "integration-tests/**" = [
+    "INP001", # not a package
     "S101", # allow asserts in tests
     "ANN201", # no return type annotations needed
     "D100", # no docstrings for modules required in tests

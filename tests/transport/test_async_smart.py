@@ -14,9 +14,11 @@ class DummyPDU(BaseClientPDU):
     function_code = 0x03
 
     def encode_request(self) -> bytes:
+        """Encode request."""
         return b"\x03\x00"
 
     def decode_response(self, data: bytes):
+        """Decode response."""
         return ("ok", data)
 
 

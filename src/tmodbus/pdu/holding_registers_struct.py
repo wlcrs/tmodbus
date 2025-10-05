@@ -538,6 +538,7 @@ class HoldingRegisterWriteMixin(SupportsExecuteAsync):
 
         Returns:
             None
+
         """
         return await self.write_simple_struct_format(
             address,

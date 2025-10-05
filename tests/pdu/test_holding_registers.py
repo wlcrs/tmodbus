@@ -457,14 +457,14 @@ class TestWriteMultipleRegistersPDU:
 
     def test_write_multiple_registers_validation(self):
         """Test validation of Write Multiple Registers PDU."""
-        with pytest.raises(ValueError, match="Address must be between 0 and 65535."):
+        with pytest.raises(ValueError, match=r"Address must be between 0 and 65535."):
             WriteMultipleRegistersPDU(start_address=-1, values=[123])
-        with pytest.raises(ValueError, match="Address must be between 0 and 65535."):
+        with pytest.raises(ValueError, match=r"Address must be between 0 and 65535."):
             WriteMultipleRegistersPDU(start_address=65536, values=[123])
-        with pytest.raises(ValueError, match="Number of registers must be between 1 and 123."):
+        with pytest.raises(ValueError, match=r"Number of registers must be between 1 and 123."):
             WriteMultipleRegistersPDU(start_address=1, values=[123] * 124)
 
-        with pytest.raises(ValueError, match="Value must be between 0 and 65535: 70000"):
+        with pytest.raises(ValueError, match=r"Value must be between 0 and 65535: 70000"):
             WriteMultipleRegistersPDU(start_address=1, values=[70000])
 
     def test_write_multiple_registers_encode_request(self):

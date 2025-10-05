@@ -30,14 +30,14 @@ class TestBaseClientPDU:
     def test_get_expected_response_data_length_from_first_byte(self):
         """Test get_expected_response_data_length when length is in first byte."""
 
-        class TestPDU(BaseClientPDU):
+        class TestPDU(BaseClientPDU[int]):
             function_code = 0x01
 
             def encode_request(self) -> bytes:
                 return b""
 
-            def decode_response(self, response: bytes) -> None:
-                pass
+            def decode_response(self, _response: bytes) -> int:
+                return 0
 
         # First byte is 0x0f (15), so expected length is 1 + 15 = 16
         assert TestPDU.get_expected_response_data_length(b"\x0f") == 16
@@ -51,21 +51,21 @@ class TestBasePDU:
     def test_get_expected_response_data_length_with_fixed_length(self):
         """Test expected response data length for BasePDU with fixed length."""
 
-        class TestPDU(BasePDU):
+        class TestPDU(BasePDU[int]):
             function_code = 0x01
             rtu_response_data_length = 10
 
             def encode_request(self) -> bytes:
                 return b""
 
-            def decode_response(self, response: bytes) -> None:
-                pass
+            def decode_response(self, _response: bytes) -> int:
+                return 0
 
             @classmethod
-            def decode_request(cls, request: bytes):
+            def decode_request(cls, _request: bytes) -> "TestPDU":
                 return cls()
 
-            def encode_response(self, value) -> bytes:
+            def encode_response(self, _value: int) -> bytes:
                 return b""
 
         assert TestPDU.get_expected_response_data_length(b"") == 10
@@ -73,20 +73,20 @@ class TestBasePDU:
     def test_get_expected_response_data_length_from_first_byte(self):
         """Test expected response data length when length is in first byte."""
 
-        class TestPDU(BasePDU):
+        class TestPDU(BasePDU[int]):
             function_code = 0x01
 
             def encode_request(self) -> bytes:
                 return b""
 
-            def decode_response(self, response: bytes) -> None:
-                pass
+            def decode_response(self, _response: bytes) -> int:
+                return 0
 
             @classmethod
-            def decode_request(cls, request: bytes):
+            def decode_request(cls, _request: bytes) -> "TestPDU":
                 return cls()
 
-            def encode_response(self, value) -> bytes:
+            def encode_response(self, _value: int) -> bytes:
                 return b""
 
         assert TestPDU.get_expected_response_data_length(b"\x0f") == 16
@@ -94,21 +94,21 @@ class TestBasePDU:
     def test_get_expected_request_data_length_with_fixed_length(self):
         """Test get_expected_request_data_length with rtu_request_data_length set."""
 
-        class TestPDU(BasePDU):
+        class TestPDU(BasePDU[int]):
             function_code = 0x01
             rtu_request_data_length = 8
 
             def encode_request(self) -> bytes:
                 return b""
 
-            def decode_response(self, response: bytes) -> None:
-                pass
+            def decode_response(self, _response: bytes) -> int:
+                return 0
 
             @classmethod
-            def decode_request(cls, request: bytes):
+            def decode_request(cls, _request: bytes) -> "TestPDU":
                 return cls()
 
-            def encode_response(self, value) -> bytes:
+            def encode_response(self, _value: int) -> bytes:
                 return b""
 
         # Should return the fixed length
@@ -117,20 +117,20 @@ class TestBasePDU:
     def test_get_expected_request_data_length_from_first_byte(self):
         """Test get_expected_request_data_length when length is in first byte."""
 
-        class TestPDU(BasePDU):
+        class TestPDU(BasePDU[int]):
             function_code = 0x01
 
             def encode_request(self) -> bytes:
                 return b""
 
-            def decode_response(self, response: bytes) -> None:
-                pass
+            def decode_response(self, _response: bytes) -> int:
+                return 0
 
             @classmethod
-            def decode_request(cls, request: bytes):
+            def decode_request(cls, _request: bytes) -> "TestPDU":
                 return cls()
 
-            def encode_response(self, value) -> bytes:
+            def encode_response(self, _value: int) -> bytes:
                 return b""
 
         # First byte is 0x0a (10), so expected length is 1 + 10 = 11
@@ -195,7 +195,7 @@ class TestBaseSubFunctionClientPDU:
         # Expected: 1 (sub-function) + 1 (length byte) + 12 = 14
         assert TestPDU.get_expected_response_data_length(b"\x0e\x0c") == 14
         # First byte is sub-function (0x0E), second byte is length (0x05 = 5)
-        # Expected: 1 + 1 + 5 = 7
+        # Expected: 1 + 1 + 5 = 7                               # noqa: ERA001
         assert TestPDU.get_expected_response_data_length(b"\x0e\x05") == 7
 
 
@@ -205,7 +205,7 @@ class TestBaseSubFunctionPDU:
     def test_get_expected_response_data_length_invalid_sub_function_code(self):
         """Test that invalid sub-function code raises InvalidResponseError."""
 
-        class TestPDU(BaseSubFunctionPDU):
+        class TestPDU(BaseSubFunctionPDU[int]):
             function_code = 0x2B
             sub_function_code = 0x0E
 
@@ -216,10 +216,10 @@ class TestBaseSubFunctionPDU:
                 pass
 
             @classmethod
-            def decode_request(cls, request: bytes):
+            def decode_request(cls, _request: bytes) -> "TestPDU":
                 return cls()
 
-            def encode_response(self, value) -> bytes:
+            def encode_response(self, _value: int) -> bytes:
                 return b""
 
         # Data with wrong sub-function code
@@ -231,7 +231,7 @@ class TestBaseSubFunctionPDU:
     def test_get_expected_response_data_length_with_fixed_length(self):
         """Test get_expected_response_data_length with rtu_response_data_length set."""
 
-        class TestPDU(BaseSubFunctionPDU):
+        class TestPDU(BaseSubFunctionPDU[int]):
             function_code = 0x2B
             sub_function_code = 0x0E
             rtu_response_data_length = 25
@@ -243,10 +243,10 @@ class TestBaseSubFunctionPDU:
                 pass
 
             @classmethod
-            def decode_request(cls, request: bytes):
+            def decode_request(cls, _request: bytes) -> "TestPDU":
                 return cls()
 
-            def encode_response(self, value) -> bytes:
+            def encode_response(self, _value: int) -> bytes:
                 return b""
 
         # Should return the fixed length
@@ -255,7 +255,7 @@ class TestBaseSubFunctionPDU:
     def test_get_expected_response_data_length_from_second_byte(self):
         """Test get_expected_response_data_length when length is in second byte."""
 
-        class TestPDU(BaseSubFunctionPDU):
+        class TestPDU(BaseSubFunctionPDU[int]):
             function_code = 0x2B
             sub_function_code = 0x0E
 
@@ -266,10 +266,10 @@ class TestBaseSubFunctionPDU:
                 pass
 
             @classmethod
-            def decode_request(cls, request: bytes):
+            def decode_request(cls, _request: bytes) -> "TestPDU":
                 return cls()
 
-            def encode_response(self, value) -> bytes:
+            def encode_response(self, _value: int) -> bytes:
                 return b""
 
         # Second byte contains length
@@ -279,7 +279,7 @@ class TestBaseSubFunctionPDU:
     def test_get_expected_request_data_length_invalid_sub_function_code(self):
         """Test that invalid sub-function code raises InvalidRequestError."""
 
-        class TestPDU(BaseSubFunctionPDU):
+        class TestPDU(BaseSubFunctionPDU[int]):
             function_code = 0x2B
             sub_function_code = 0x0E
 
@@ -290,10 +290,10 @@ class TestBaseSubFunctionPDU:
                 pass
 
             @classmethod
-            def decode_request(cls, request: bytes):
+            def decode_request(cls, _request: bytes) -> "TestPDU":
                 return cls()
 
-            def encode_response(self, value) -> bytes:
+            def encode_response(self, _value: int) -> bytes:
                 return b""
 
         # Data with wrong sub-function code (0x0D instead of 0x0E)
@@ -305,7 +305,7 @@ class TestBaseSubFunctionPDU:
     def test_get_expected_request_data_length_with_fixed_length(self):
         """Test get_expected_request_data_length with rtu_request_data_length set."""
 
-        class TestPDU(BaseSubFunctionPDU):
+        class TestPDU(BaseSubFunctionPDU[int]):
             function_code = 0x2B
             sub_function_code = 0x0E
             rtu_request_data_length = 15
@@ -317,10 +317,10 @@ class TestBaseSubFunctionPDU:
                 pass
 
             @classmethod
-            def decode_request(cls, request: bytes):
+            def decode_request(cls, _request: bytes) -> "TestPDU":
                 return cls()
 
-            def encode_response(self, value) -> bytes:
+            def encode_response(self, _value: int) -> bytes:
                 return b""
 
         # Should return the fixed length when sub-function code matches
@@ -329,7 +329,7 @@ class TestBaseSubFunctionPDU:
     def test_get_expected_request_data_length_from_first_byte(self):
         """Test get_expected_request_data_length when length is in first byte."""
 
-        class TestPDU(BaseSubFunctionPDU):
+        class TestPDU(BaseSubFunctionPDU[int]):
             function_code = 0x2B
             sub_function_code = 0x0E
 
@@ -340,10 +340,10 @@ class TestBaseSubFunctionPDU:
                 pass
 
             @classmethod
-            def decode_request(cls, request: bytes):
+            def decode_request(cls, _request: bytes) -> "TestPDU":
                 return cls()
 
-            def encode_response(self, value) -> bytes:
+            def encode_response(self, _value: int) -> bytes:
                 return b""
 
         # First byte is sub-function code (0x0E = 14)

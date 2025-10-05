@@ -9,10 +9,11 @@ import pytest
 
 from tmodbus.client import AsyncModbusClient
 from tmodbus.transport import AsyncRtuTransport, AsyncTcpTransport
+from tmodbus.transport.async_base import AsyncBaseTransport
 
 
 @pytest.fixture
-def log_traffic(caplog) -> None:
+def log_traffic(caplog: pytest.LogCaptureFixture) -> None:
     """Increase logging level for easy debugging."""
     caplog.set_level("DEBUG", logger="tmodbus")
 
@@ -60,7 +61,9 @@ def server() -> Generator[None]:
     ],
     ids=["tcp", "rtu"],
 )
-async def test_client(log_traffic, server, transport):
+@pytest.mark.usefixtures("log_traffic", "server")
+async def test_client(transport: AsyncBaseTransport) -> None:
+    """Test client against the server."""
     client = AsyncModbusClient(transport=transport, unit_id=1)
     await client.connect()
     # Perform read/write operations using the client

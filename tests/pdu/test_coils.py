@@ -172,13 +172,13 @@ class TestWriteSingleCoilPDU:
     def test_encode_response_on(self):
         """Test encoding response for writing coil ON."""
         pdu = WriteSingleCoilPDU(address=100, value=True)
-        response = pdu.encode_response(True)
+        response = pdu.encode_response(True)  # noqa: FBT003
         assert response == struct.pack(">BHH", 0x05, 100, 0xFF00)
 
     def test_encode_response_off(self):
         """Test encoding response for writing coil OFF."""
         pdu = WriteSingleCoilPDU(address=200, value=False)
-        response = pdu.encode_response(False)
+        response = pdu.encode_response(False)  # noqa: FBT003
         assert response == struct.pack(">BHH", 0x05, 200, 0x0000)
 
 

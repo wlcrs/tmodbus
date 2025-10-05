@@ -14,6 +14,7 @@ class MockClient(HoldingRegisterReadMixin, HoldingRegisterWriteMixin):
     """Mock client for testing mixins."""
 
     def __init__(self, word_order="big") -> None:
+        """Mock Client."""
         HoldingRegisterReadMixin.__init__(self, word_order=word_order)
         HoldingRegisterWriteMixin.__init__(self, word_order=word_order)
         self.execute = AsyncMock()
@@ -834,12 +835,12 @@ class TestRoundTripReadWrite:
 
         written_bytes = None
 
-        def capture_write(pdu):
+        def _capture_write(pdu) -> int:
             nonlocal written_bytes
             written_bytes = pdu.content
             return num_registers
 
-        client.execute.side_effect = capture_write
+        client.execute.side_effect = _capture_write
         await client.write_string(100, value, number_of_registers=num_registers)
 
         client.execute.side_effect = None
@@ -868,12 +869,12 @@ class TestRoundTripReadWrite:
 
         written_bytes = None
 
-        def capture_write(pdu):
+        def _capture_write(pdu) -> int:
             nonlocal written_bytes
             written_bytes = pdu.content
             return num_registers
 
-        client.execute.side_effect = capture_write
+        client.execute.side_effect = _capture_write
         await client.write_string(100, value, number_of_registers=num_registers, encoding="utf-8")
 
         client.execute.side_effect = None
