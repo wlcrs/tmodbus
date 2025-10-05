@@ -40,6 +40,7 @@ def create_async_tcp_client(  # noqa: PLR0913
         auto_reconnect: Whether to automatically reconnect on connection loss (default: True).
                         Can be a custom AsyncRetrying instance when more control is needed.
         on_reconnected: Callback to be called after a successful reconnection.
+        response_retry_strategy: Retry strategy for handling failed requests (default: None).
         retry_on_device_busy: Whether to retry on device busy errors (default: True).
                                 Can be a custom AsyncRetrying instance when more control is needed.
         retry_on_device_failure: Whether to retry on device failure errors (default: False).
@@ -94,11 +95,12 @@ def create_async_rtu_client(  # noqa: PLR0913
         auto_reconnect: Whether to automatically reconnect on connection loss (default: True).
                         Can be a custom AsyncRetrying instance when more control is needed.
         on_reconnected: Callback to be called after a successful reconnection.
+        response_retry_strategy: Retry strategy for handling failed requests (default: None).
         retry_on_device_busy: Whether to retry on device busy errors (default: True).
                                 Can be a custom AsyncRetrying instance when more control is needed.
         retry_on_device_failure: Whether to retry on device failure errors (default: False).
                                     Can be a custom AsyncRetrying instance when more control is needed.
-        connection_kwargs: Additional connection parameters passed to `asyncio.open_connection` (e.g., SSL context)
+        pyserial_options: Additional connection parameters passed to `pyserial` (e.g., SSL context)
 
     Returns:
         An instance of AsyncModbusClient configured for TCP transport.

@@ -59,7 +59,7 @@ class AsyncBaseTransport(ABC):
         and then returns the PDU part of the response.
 
         Args:
-            slave_id: Slave address/unit identifier
+            unit_id: Slave address/unit identifier
             pdu: Protocol Data Unit, contains function code and data, excludes address and checksum
 
         Returns:

@@ -44,6 +44,7 @@ class HoldingRegisterReadMixin(SupportsExecuteAsync):
         Args:
             struct_format: Struct format to decode the response
             start_address: Starting address of the registers to read
+            format_struct: Struct format to decode the response
             input_register: Whether to read holding registers (False) or input registers (True)
 
         Returns:
@@ -72,7 +73,8 @@ class HoldingRegisterReadMixin(SupportsExecuteAsync):
         Args:
             struct_format: Struct format to decode the response
             start_address: Starting address of the registers to read
-
+            format_struct: Struct format to decode the response
+            input_register: Whether to read holding registers (False) or input registers (True)
 
         Returns:
             Decoded response data as a single value
@@ -98,6 +100,7 @@ class HoldingRegisterReadMixin(SupportsExecuteAsync):
 
         Args:
             start_address: Starting address of the registers to read.
+            input_register: Whether to read holding registers (False) or input registers (True).
 
         Returns:
             Decoded unsigned 16-bit integer.
@@ -121,6 +124,7 @@ class HoldingRegisterReadMixin(SupportsExecuteAsync):
 
         Args:
             start_address: Starting address of the registers to read.
+            input_register: Whether to read holding registers (False) or input registers (True).
 
         Returns:
             Decoded unsigned 32-bit integer.
@@ -144,6 +148,7 @@ class HoldingRegisterReadMixin(SupportsExecuteAsync):
 
         Args:
             start_address: Starting address of the registers to read.
+            input_register: Whether to read holding registers (False) or input registers (True).
 
         Returns:
             Decoded unsigned 64-bit integer.
@@ -167,6 +172,7 @@ class HoldingRegisterReadMixin(SupportsExecuteAsync):
 
         Args:
             start_address: Starting address of the registers to read.
+            input_register: Whether to read holding registers (False) or input registers (True).
 
 
         Returns:
@@ -191,6 +197,7 @@ class HoldingRegisterReadMixin(SupportsExecuteAsync):
 
         Args:
             start_address: Starting address of the registers to read.
+            input_register: Whether to read holding registers (False) or input registers (True).
 
         Returns:
             Decoded signed 32-bit integer.
@@ -214,6 +221,7 @@ class HoldingRegisterReadMixin(SupportsExecuteAsync):
 
         Args:
             start_address: Starting address of the registers to read.
+            input_register: Whether to read holding registers (False) or input registers (True).
 
         Returns:
             Decoded signed 64-bit integer.
@@ -237,6 +245,7 @@ class HoldingRegisterReadMixin(SupportsExecuteAsync):
 
         Args:
             start_address: Starting address of the registers to read.
+            input_register: Whether to read holding registers (False) or input registers (True).
 
         Returns:
             Decoded float value.
@@ -261,6 +270,9 @@ class HoldingRegisterReadMixin(SupportsExecuteAsync):
         Args:
             start_address: Starting address of the registers to read.
             length: Length of the string to decode.
+            number_of_registers: Number of registers to read.
+            input_register: Whether to read holding registers (False) or input registers (True).
+            encoding: Encoding format for the string (default is "ascii").
 
         Returns:
             Decoded string value.

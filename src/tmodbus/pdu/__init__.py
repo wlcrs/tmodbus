@@ -83,7 +83,7 @@ def get_pdu_class(begin_bytes: bytes) -> type[BaseClientPDU[Any]]:
     """Get PDU class by function code.
 
     Args:
-        function_code: Modbus function code
+        begin_bytes: Beginning bytes of the PDU, starting with function code
 
     Returns:
         Corresponding PDU class

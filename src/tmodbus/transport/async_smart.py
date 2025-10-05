@@ -93,6 +93,7 @@ class AsyncSmartTransport(AsyncBaseTransport):
             auto_reconnect: Whether to automatically reconnect on connection loss (default: True).
                             Can be a custom AsyncRetrying instance when more control is needed.
             on_reconnected: Callback to be called after a successful reconnection.
+            response_retry_strategy: Retry strategy for handling failed requests (default: None).
             retry_on_device_busy: Whether to retry on device busy errors (default: True).
                                   Can be a custom AsyncRetrying instance when more control is needed.
             retry_on_device_failure: Whether to retry on device failure errors (default: False).

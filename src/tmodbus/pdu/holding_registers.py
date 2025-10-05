@@ -329,7 +329,7 @@ class RawWriteMultipleRegistersPDU(BasePDU[int]):
         """Initialize Write Multiple Registers PDU.
 
         Args:
-            address: Address of the first register to write
+            start_address: Address of the first register to write
             content: Bytes content to write to the registers
 
         Raises:
@@ -464,7 +464,7 @@ class WriteMultipleRegistersPDU(BasePDU[int]):
         """Initialize Write Multiple Registers PDU.
 
         Args:
-            address: Address of the first register to write
+            start_address: Address of the first register to write
             values: List of values to write to the registers
 
         Raises:

@@ -45,7 +45,6 @@ ignore = [
   "ANN401", # Opinioated warning on disallowing dynamically typed expressions
   "D203", # Conflicts with other rules
   "D213", # Conflicts with other rules
-  "D417", # False positives in some occasions
   "PLR2004", # Just annoying, not really useful
   "S101", # allow asserts
 
@@ -55,24 +54,6 @@ ignore = [
 
 ]
 select = ["ALL"]
-
-[tool.ruff.lint.per-file-ignores]
-
-"integration-tests/**" = [
-    "INP001", # not a package
-    "S101", # allow asserts in tests
-    "ANN201", # no return type annotations needed
-    "D100", # no docstrings for modules required in tests
-    "D101", # no docstrings for classes required in tests
-    "D103", # no docstrings for public methods required in tests
-    "D104", # no docstrings for packages required in tests
-]
-
-"examples/**" = [
-    "INP001", # not a package
-    "T201", # use print statements in examples
-]
-
 
 [tool.pytest.ini_options]
 addopts = "--cov=tmodbus --cov-report=term-missing "

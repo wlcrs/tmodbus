@@ -6,7 +6,6 @@ from collections.abc import Generator
 from pathlib import Path
 
 import pytest
-
 from tmodbus.client import AsyncModbusClient
 from tmodbus.transport import AsyncRtuTransport, AsyncTcpTransport
 from tmodbus.transport.async_base import AsyncBaseTransport

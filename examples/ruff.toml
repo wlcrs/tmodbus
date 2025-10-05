@@ -1,0 +1,9 @@
+# This extend our general Ruff rules 
+extend = "../pyproject.toml"
+
+lint.extend-ignore = [
+  "INP001", # not a package
+  "T201", # use print statements in examples
+]
+
+
