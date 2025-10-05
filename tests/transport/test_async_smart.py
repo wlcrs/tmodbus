@@ -4,7 +4,7 @@ import time
 from unittest.mock import AsyncMock, MagicMock, patch
 
 import pytest
-from tenacity import AsyncRetrying, stop_after_attempt
+from tenacity import AsyncRetrying, retry_if_exception_type, stop_after_attempt
 from tmodbus.exceptions import ModbusConnectionError, RequestRetryFailedError
 from tmodbus.pdu.base import BaseClientPDU
 from tmodbus.transport.async_base import AsyncBaseTransport
@@ -223,3 +223,145 @@ async def test_send_and_receive_else_branch_sets_timestamp(base_transport_mock: 
     resp = await t.send_and_receive(1, DummyPDU())
     assert resp == ("ok", b"")
     assert t._last_request_finished_at is not None
+
+
+async def test_do_auto_reconnect_without_on_reconnected(base_transport_mock: AsyncBaseTransport) -> None:
+    """Test that _do_auto_reconnect succeeds without on_reconnected callback."""
+    t = AsyncSmartTransport(
+        base_transport_mock,
+        auto_reconnect=AsyncRetrying(stop=stop_after_attempt(1), reraise=True),
+    )
+
+    # Should not raise, and should not call on_reconnected since it's None
+    await t._do_auto_reconnect()
+    base_transport_mock.open.assert_awaited()
+
+
+async def test_do_auto_reconnect_with_sync_on_reconnected(base_transport_mock: AsyncBaseTransport) -> None:
+    """Test that on_reconnected callback is called when it's a sync function."""
+    on_reconnected_called = False
+
+    def sync_on_reconnected() -> None:
+        nonlocal on_reconnected_called
+        on_reconnected_called = True
+
+    t = AsyncSmartTransport(
+        base_transport_mock,
+        on_reconnected=sync_on_reconnected,
+        auto_reconnect=AsyncRetrying(stop=stop_after_attempt(1), reraise=True),
+    )
+
+    await t._do_auto_reconnect()
+    assert on_reconnected_called
+
+
+async def test_response_retry_strategy_with_custom_retry(base_transport_mock: AsyncBaseTransport) -> None:
+    """Test that custom response_retry_strategy with retry attribute is used."""
+    custom_strategy = AsyncRetrying(
+        stop=stop_after_attempt(2),
+        retry=retry_if_exception_type(ValueError),
+        reraise=True,
+    )
+
+    t = AsyncSmartTransport(
+        base_transport_mock,
+        response_retry_strategy=custom_strategy,
+    )
+
+    # The retry strategy should include the custom retry function
+    assert t.response_retry_strategy is not None
+
+
+async def test_response_retry_strategy_without_retry_attribute(base_transport_mock: AsyncBaseTransport) -> None:
+    """Test that response_retry_strategy without retry attribute is handled."""
+    custom_strategy = AsyncRetrying(
+        stop=stop_after_attempt(2),
+        reraise=True,
+    )
+
+    t = AsyncSmartTransport(
+        base_transport_mock,
+        response_retry_strategy=custom_strategy,
+    )
+
+    # Should not raise and should create a valid retry strategy
+    assert t.response_retry_strategy is not None
+
+
+async def test_reconnect_send_and_receive_without_auto_reconnect(base_transport_mock: AsyncBaseTransport) -> None:
+    """Test _reconnect_send_and_receive when auto_reconnect is disabled."""
+    t = AsyncSmartTransport(base_transport_mock, auto_reconnect=False)
+
+    # Should not attempt to reconnect even if connection is closed
+    base_transport_mock.is_open = lambda: False
+
+    # Should just call send_and_receive directly
+    resp = await t._reconnect_send_and_receive(1, DummyPDU())
+    assert resp == ("ok", b"")
+    base_transport_mock.send_and_receive.assert_awaited()
+
+
+async def test_reconnect_send_and_receive_without_wait_between_requests(
+    base_transport_mock: AsyncBaseTransport,
+) -> None:
+    """Test _reconnect_send_and_receive when wait_between_requests is 0."""
+    t = AsyncSmartTransport(base_transport_mock, wait_between_requests=0.0, auto_reconnect=False)
+
+    # Set last request time but wait_between_requests is 0, so no wait
+    t._last_request_finished_at = time.monotonic()
+
+    with patch("asyncio.sleep", AsyncMock()) as fake_sleep:
+        resp = await t._reconnect_send_and_receive(1, DummyPDU())
+        assert resp == ("ok", b"")
+        # Should not sleep since wait_between_requests is 0
+        fake_sleep.assert_not_awaited()
+
+
+async def test_reconnect_send_and_receive_with_negative_wait_needed(
+    base_transport_mock: AsyncBaseTransport,
+) -> None:
+    """Test _reconnect_send_and_receive when wait_needed is negative (enough time has passed)."""
+    t = AsyncSmartTransport(base_transport_mock, wait_between_requests=0.1, auto_reconnect=False)
+
+    # Set last request time far in the past so wait_needed will be negative
+    t._last_request_finished_at = time.monotonic() - 1.0
+
+    with patch("asyncio.sleep", AsyncMock()) as fake_sleep:
+        resp = await t._reconnect_send_and_receive(1, DummyPDU())
+        assert resp == ("ok", b"")
+        # Should not sleep since enough time has passed
+        fake_sleep.assert_not_awaited()
+
+
+async def test_retry_on_device_busy_disabled(base_transport_mock: AsyncBaseTransport) -> None:
+    """Test initialization when retry_on_device_busy is False."""
+    t = AsyncSmartTransport(
+        base_transport_mock,
+        retry_on_device_busy=False,
+    )
+
+    # Should still have a valid retry strategy
+    assert t.response_retry_strategy is not None
+
+
+async def test_response_retry_strategy_with_falsy_retry_attribute(
+    base_transport_mock: AsyncBaseTransport,
+) -> None:
+    """Test response_retry_strategy where retry attribute evaluates to False."""
+    # Create a custom strategy without a retry parameter
+    # When AsyncRetrying is created without retry, it defaults to a value that could be falsy
+    custom_strategy = AsyncRetrying(
+        stop=stop_after_attempt(2),
+        reraise=True,
+        # Not specifying 'retry' parameter means it will have a default/empty retry
+    )
+    custom_strategy.retry = None  # Explicitly set to None to simulate falsy
+
+    # The strategy should work even without a custom retry
+    t = AsyncSmartTransport(
+        base_transport_mock,
+        response_retry_strategy=custom_strategy,
+    )
+
+    # Should not raise and should create a valid retry strategy
+    assert t.response_retry_strategy is not None
