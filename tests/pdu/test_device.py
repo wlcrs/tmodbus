@@ -4,7 +4,6 @@ import logging
 import struct
 
 import pytest
-
 from tmodbus.pdu.device import (
     ConformityLevel,
     ReadDeviceIdentificationPDU,
@@ -14,36 +13,36 @@ from tmodbus.pdu.device import (
 class TestReadDeviceIdentificationPDU:
     """Test ReadDeviceIdentificationPDU class."""
 
-    def test_init_valid(self):
+    def test_init_valid(self) -> None:
         """Test creating a valid ReadDeviceIdentificationPDU."""
         pdu = ReadDeviceIdentificationPDU(read_device_id_code=0x01, object_id=0x00)
         assert pdu.read_device_id_code == 0x01
         assert pdu.object_id == 0x00
 
-    def test_init_invalid_object_id_negative(self):
+    def test_init_invalid_object_id_negative(self) -> None:
         """Test creating ReadDeviceIdentificationPDU with negative object_id."""
         with pytest.raises(ValueError, match=r"Object ID must be between 0x00 and 0xFF\."):
             ReadDeviceIdentificationPDU(read_device_id_code=0x01, object_id=-1)
 
-    def test_init_invalid_object_id_too_high(self):
+    def test_init_invalid_object_id_too_high(self) -> None:
         """Test creating ReadDeviceIdentificationPDU with object_id >= 0xFF."""
         with pytest.raises(ValueError, match=r"Object ID must be between 0x00 and 0xFF\."):
             ReadDeviceIdentificationPDU(read_device_id_code=0x01, object_id=0xFF)
 
-    def test_encode_request(self):
+    def test_encode_request(self) -> None:
         """Test encoding request."""
         pdu = ReadDeviceIdentificationPDU(read_device_id_code=0x01, object_id=0x00)
         encoded = pdu.encode_request()
         # Function code (0x2B) + Sub-function (0x0E) + Read Device ID Code (0x01) + Object ID (0x00)
         assert encoded == b"\x2b\x0e\x01\x00"
 
-    def test_encode_request_different_values(self):
+    def test_encode_request_different_values(self) -> None:
         """Test encoding request with different values."""
         pdu = ReadDeviceIdentificationPDU(read_device_id_code=0x04, object_id=0x05)
         encoded = pdu.encode_request()
         assert encoded == b"\x2b\x0e\x04\x05"
 
-    def test_decode_response_basic(self):
+    def test_decode_response_basic(self) -> None:
         """Test decoding a basic response."""
         pdu = ReadDeviceIdentificationPDU(read_device_id_code=0x01, object_id=0x00)
 
@@ -74,7 +73,7 @@ class TestReadDeviceIdentificationPDU:
         assert result.number_of_objects == 0x03
         assert result.objects == {0x00: b"Vendor", 0x01: b"Product", 0x02: b"1.0"}
 
-    def test_decode_response_more_follows(self):
+    def test_decode_response_more_follows(self) -> None:
         """Test decoding a response with more follows flag set."""
         pdu = ReadDeviceIdentificationPDU(read_device_id_code=0x01, object_id=0x00)
 
@@ -96,7 +95,7 @@ class TestReadDeviceIdentificationPDU:
         assert result.more is True
         assert result.next_object_id == 0x03
 
-    def test_decode_response_invalid_function_code(self):
+    def test_decode_response_invalid_function_code(self) -> None:
         """Test decoding response with invalid function code."""
         pdu = ReadDeviceIdentificationPDU(read_device_id_code=0x01, object_id=0x00)
 
@@ -114,7 +113,7 @@ class TestReadDeviceIdentificationPDU:
         with pytest.raises(ValueError, match=r"Invalid function code: expected 0x2b, received 0x03"):
             pdu.decode_response(response)
 
-    def test_decode_response_invalid_sub_function_code(self):
+    def test_decode_response_invalid_sub_function_code(self) -> None:
         """Test decoding response with invalid sub-function code."""
         pdu = ReadDeviceIdentificationPDU(read_device_id_code=0x01, object_id=0x00)
 
@@ -132,7 +131,7 @@ class TestReadDeviceIdentificationPDU:
         with pytest.raises(ValueError, match=r"Invalid sub function code: expected 0x0e, received 0x0f"):
             pdu.decode_response(response)
 
-    def test_decode_response_invalid_more_value(self):
+    def test_decode_response_invalid_more_value(self) -> None:
         """Test decoding response with invalid 'more' value."""
         pdu = ReadDeviceIdentificationPDU(read_device_id_code=0x01, object_id=0x00)
 
@@ -150,7 +149,7 @@ class TestReadDeviceIdentificationPDU:
         with pytest.raises(ValueError, match=r"Invalid 'more' value: 0x01"):
             pdu.decode_response(response)
 
-    def test_decode_response_empty_objects(self):
+    def test_decode_response_empty_objects(self) -> None:
         """Test decoding response with no objects."""
         pdu = ReadDeviceIdentificationPDU(read_device_id_code=0x01, object_id=0x00)
 
@@ -170,7 +169,7 @@ class TestReadDeviceIdentificationPDU:
         assert result.number_of_objects == 0
         assert result.objects == {}
 
-    def test_decode_response_multiple_objects(self):
+    def test_decode_response_multiple_objects(self) -> None:
         """Test decoding response with multiple objects."""
         pdu = ReadDeviceIdentificationPDU(read_device_id_code=0x02, object_id=0x00)
 
@@ -202,7 +201,7 @@ class TestReadDeviceIdentificationPDU:
         assert result.objects[0x03] == b"http://vendor.com"
         assert result.objects[0x04] == b"ProductName!"
 
-    def test_decode_response_extra_bytes_warning(self, caplog):
+    def test_decode_response_extra_bytes_warning(self, caplog: pytest.LogCaptureFixture) -> None:
         """Test decoding response triggers warning when object length extends past response end."""
         pdu = ReadDeviceIdentificationPDU(read_device_id_code=0x01, object_id=0x00)
 
@@ -230,7 +229,7 @@ class TestReadDeviceIdentificationPDU:
         # The object will contain only the 5 bytes that were actually present
         assert result.objects == {0x00: b"Short"}
 
-    def test_decode_response_all_conformity_levels(self):
+    def test_decode_response_all_conformity_levels(self) -> None:
         """Test decoding response with different conformity levels."""
         conformity_levels = [
             (0x01, ConformityLevel.BASIC),
@@ -258,7 +257,7 @@ class TestReadDeviceIdentificationPDU:
             result = pdu.decode_response(response)
             assert result.conformity_level == expected_level
 
-    def test_decode_response_object_with_empty_value(self):
+    def test_decode_response_object_with_empty_value(self) -> None:
         """Test decoding response with object that has empty value."""
         pdu = ReadDeviceIdentificationPDU(read_device_id_code=0x01, object_id=0x00)
 
@@ -279,7 +278,7 @@ class TestReadDeviceIdentificationPDU:
 
         assert result.objects == {0x00: b""}
 
-    def test_function_code_and_sub_function_code(self):
+    def test_function_code_and_sub_function_code(self) -> None:
         """Test that function code and sub-function code are correct."""
         pdu = ReadDeviceIdentificationPDU(read_device_id_code=0x01, object_id=0x00)
         assert pdu.function_code == 0x2B

@@ -1,5 +1,4 @@
 import pytest
-
 from tmodbus.exceptions import (
     ModbusResponseError,
     error_code_to_exception_map,
@@ -7,7 +6,7 @@ from tmodbus.exceptions import (
 )
 
 
-def test_modbus_response_error():
+def test_modbus_response_error() -> None:
     """Test Modbus response error handling."""
 
     class TestError(ModbusResponseError):
@@ -21,7 +20,7 @@ def test_modbus_response_error():
         TestError(0x01, 0x02)
 
 
-def test_register_custom_exception():
+def test_register_custom_exception() -> None:
     class CustomError(ModbusResponseError):
         error_code = 0xFE
 

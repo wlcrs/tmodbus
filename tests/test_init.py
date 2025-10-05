@@ -1,7 +1,6 @@
 from typing import Any
 
 import pytest
-
 import tmodbus
 from tmodbus import create_async_rtu_client, create_async_tcp_client
 from tmodbus.transport.async_base import AsyncBaseTransport
@@ -28,7 +27,7 @@ def patch_module():
     tmodbus.AsyncModbusClient = _DummyClient
 
 
-async def test_create_async_tcp_client():
+async def test_create_async_tcp_client() -> None:
     client = create_async_tcp_client(
         "127.0.0.1",
         port=1502,
@@ -55,7 +54,7 @@ async def test_create_async_tcp_client():
     assert client.transport.args[0].kwargs["extra"] == 123
 
 
-async def test_create_async_rtu_client():
+async def test_create_async_rtu_client() -> None:
     client = create_async_rtu_client(
         "/dev/ttyUSB0",
         unit_id=1,

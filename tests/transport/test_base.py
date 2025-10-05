@@ -20,14 +20,14 @@ class _DummyTransport(BaseTransport):
         return b"response"
 
 
-def test_context_manager():
+def test_context_manager() -> None:
     t = _DummyTransport()
     with t as tr:
         assert tr.is_open()
     assert not t.is_open()
 
 
-def test_open_close():
+def test_open_close() -> None:
     t = _DummyTransport()
     assert not t.is_open()
     t.open()
@@ -36,7 +36,7 @@ def test_open_close():
     assert not t.is_open()
 
 
-def test_send_and_receive():
+def test_send_and_receive() -> None:
     t = _DummyTransport()
     t.open()
     resp = t.send_and_receive(1, b"abc")

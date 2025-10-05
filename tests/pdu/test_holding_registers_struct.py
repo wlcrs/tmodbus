@@ -2,10 +2,11 @@
 
 import math
 import struct
+from typing import Literal
 from unittest.mock import AsyncMock
 
 import pytest
-
+from tmodbus.pdu.base import BaseClientPDU
 from tmodbus.pdu.holding_registers_struct import HoldingRegisterReadMixin, HoldingRegisterWriteMixin
 from tmodbus.utils.word_aware_struct import WordOrderAwareStruct
 
@@ -13,7 +14,7 @@ from tmodbus.utils.word_aware_struct import WordOrderAwareStruct
 class MockClient(HoldingRegisterReadMixin, HoldingRegisterWriteMixin):
     """Mock client for testing mixins."""
 
-    def __init__(self, word_order="big") -> None:
+    def __init__(self, word_order: Literal["big", "little"] = "big") -> None:
         """Mock Client."""
         HoldingRegisterReadMixin.__init__(self, word_order=word_order)
         HoldingRegisterWriteMixin.__init__(self, word_order=word_order)
@@ -25,7 +26,7 @@ class TestHoldingRegisterReadMixin:
 
     @pytest.mark.asyncio
     @pytest.mark.parametrize("word_order", ["big", "little"])
-    async def test_read_struct_format(self, word_order):
+    async def test_read_struct_format(self, word_order: Literal["big", "little"]) -> None:
         """Test read_struct_format with both word orders."""
         client = MockClient(word_order=word_order)
         # Mock response: 4 bytes representing uint32
@@ -46,7 +47,7 @@ class TestHoldingRegisterReadMixin:
 
     @pytest.mark.asyncio
     @pytest.mark.parametrize("word_order", ["big", "little"])
-    async def test_read_struct_format_input_register(self, word_order):
+    async def test_read_struct_format_input_register(self, word_order: Literal["big", "little"]) -> None:
         """Test read_struct_format with input registers."""
         client = MockClient(word_order=word_order)
         client.execute.return_value = b"\x01\x02"
@@ -59,7 +60,7 @@ class TestHoldingRegisterReadMixin:
 
     @pytest.mark.asyncio
     @pytest.mark.parametrize("word_order", ["big", "little"])
-    async def test_read_simple_struct_format(self, word_order):
+    async def test_read_simple_struct_format(self, word_order: Literal["big", "little"]) -> None:
         """Test read_simple_struct_format returns single value."""
         client = MockClient(word_order=word_order)
         client.execute.return_value = b"\x12\x34"
@@ -78,7 +79,7 @@ class TestHoldingRegisterReadMixin:
             ("little", 0x1234),  # Single register, no swapping
         ],
     )
-    async def test_read_uint16(self, word_order, expected):
+    async def test_read_uint16(self, word_order: Literal["big", "little"], expected: int) -> None:
         """Test read_uint16 with both word orders."""
         client = MockClient(word_order=word_order)
         client.execute.return_value = b"\x12\x34"
@@ -96,7 +97,7 @@ class TestHoldingRegisterReadMixin:
             ("little", b"\x0c\x0d\x0a\x0b", 0x0A0B0C0D),
         ],
     )
-    async def test_read_uint32(self, word_order, response, expected):
+    async def test_read_uint32(self, word_order: Literal["big", "little"], response: bytes, expected: int) -> None:
         """Test read_uint32 with both word orders."""
         client = MockClient(word_order=word_order)
         client.execute.return_value = response
@@ -113,7 +114,7 @@ class TestHoldingRegisterReadMixin:
             ("little", b"\x01\x02\x0e\x0f\x0c\x0d\x0a\x0b", 0x0A0B0C0D0E0F0102),
         ],
     )
-    async def test_read_uint64(self, word_order, response, expected):
+    async def test_read_uint64(self, word_order: Literal["big", "little"], response: bytes, expected: int) -> None:
         """Test read_uint64 with both word orders."""
         client = MockClient(word_order=word_order)
         client.execute.return_value = response
@@ -124,7 +125,7 @@ class TestHoldingRegisterReadMixin:
 
     @pytest.mark.asyncio
     @pytest.mark.parametrize("word_order", ["big", "little"])
-    async def test_read_int16(self, word_order):
+    async def test_read_int16(self, word_order: Literal["big", "little"]) -> None:
         """Test read_int16 with negative value."""
         client = MockClient(word_order=word_order)
         client.execute.return_value = b"\xff\xff"  # -1
@@ -149,7 +150,7 @@ class TestHoldingRegisterReadMixin:
             ("little", b"\xff\xff\x7f\xff", 2147483647),
         ],
     )
-    async def test_read_int32(self, word_order, response, expected):
+    async def test_read_int32(self, word_order: Literal["big", "little"], response: bytes, expected: int) -> None:
         """Test read_int32 with both word orders and negative values."""
         client = MockClient(word_order=word_order)
         client.execute.return_value = response
@@ -160,7 +161,7 @@ class TestHoldingRegisterReadMixin:
 
     @pytest.mark.asyncio
     @pytest.mark.parametrize("word_order", ["big", "little"])
-    async def test_read_int64(self, word_order):
+    async def test_read_int64(self, word_order: Literal["big", "little"]) -> None:
         """Test read_int64 with negative value."""
         client = MockClient(word_order=word_order)
         client.execute.return_value = b"\xff\xff\xff\xff\xff\xff\xff\xff"  # -1
@@ -171,7 +172,7 @@ class TestHoldingRegisterReadMixin:
 
     @pytest.mark.asyncio
     @pytest.mark.parametrize("word_order", ["big", "little"])
-    async def test_read_float(self, word_order):
+    async def test_read_float(self, word_order: Literal["big", "little"]) -> None:
         """Test read_float with both word orders."""
         client = MockClient(word_order=word_order)
         # Encode 1.0 as float and apply word order
@@ -195,7 +196,7 @@ class TestHoldingRegisterReadMixin:
             ("little", b"\x00\x00O\x00LLHE"),  # Word-swapped format from device
         ],
     )
-    async def test_read_string(self, word_order, response):
+    async def test_read_string(self, word_order: Literal["big", "little"], response: bytes) -> None:
         """Test read_string with both word orders."""
         client = MockClient(word_order=word_order)
         # 4 registers = 8 bytes
@@ -213,7 +214,7 @@ class TestHoldingRegisterReadMixin:
             ("little", b"\x00\x00\x00\x00STTE"),  # Word-swapped format from device
         ],
     )
-    async def test_read_string_with_encoding(self, word_order, response):
+    async def test_read_string_with_encoding(self, word_order: Literal["big", "little"], response: bytes) -> None:
         """Test read_string with custom encoding."""
         client = MockClient(word_order=word_order)
         client.execute.return_value = response
@@ -224,7 +225,7 @@ class TestHoldingRegisterReadMixin:
 
     @pytest.mark.asyncio
     @pytest.mark.parametrize("word_order", ["big", "little"])
-    async def test_read_input_register_flag(self, word_order):
+    async def test_read_input_register_flag(self, word_order: Literal["big", "little"]) -> None:
         """Test that input_register flag is passed through correctly."""
         client = MockClient(word_order=word_order)
         client.execute.return_value = b"\x12\x34"
@@ -242,7 +243,7 @@ class TestHoldingRegisterWriteMixin:
 
     @pytest.mark.asyncio
     @pytest.mark.parametrize("word_order", ["big", "little"])
-    async def test_write_struct_format(self, word_order):
+    async def test_write_struct_format(self, word_order: Literal["big", "little"]) -> None:
         """Test write_struct_format with both word orders."""
         client = MockClient(word_order=word_order)
         client.execute.return_value = 2  # Number of registers written
@@ -260,7 +261,7 @@ class TestHoldingRegisterWriteMixin:
 
     @pytest.mark.asyncio
     @pytest.mark.parametrize("word_order", ["big", "little"])
-    async def test_write_simple_struct_format(self, word_order):
+    async def test_write_simple_struct_format(self, word_order: Literal["big", "little"]) -> None:
         """Test write_simple_struct_format."""
         client = MockClient(word_order=word_order)
         client.execute.return_value = 1
@@ -279,7 +280,7 @@ class TestHoldingRegisterWriteMixin:
             ("little", b"\x12\x34"),  # Single register, no swapping
         ],
     )
-    async def test_write_uint16(self, word_order, expected_bytes):
+    async def test_write_uint16(self, word_order: Literal["big", "little"], expected_bytes: bytes) -> None:
         """Test write_uint16 with both word orders."""
         client = MockClient(word_order=word_order)
         client.execute.return_value = 1
@@ -291,7 +292,7 @@ class TestHoldingRegisterWriteMixin:
         assert pdu.content == expected_bytes
 
     @pytest.mark.asyncio
-    async def test_write_uint16_out_of_range_low(self):
+    async def test_write_uint16_out_of_range_low(self) -> None:
         """Test write_uint16 with value below range."""
         client = MockClient()
 
@@ -299,7 +300,7 @@ class TestHoldingRegisterWriteMixin:
             await client.write_uint16(100, -1)
 
     @pytest.mark.asyncio
-    async def test_write_uint16_out_of_range_high(self):
+    async def test_write_uint16_out_of_range_high(self) -> None:
         """Test write_uint16 with value above range."""
         client = MockClient()
 
@@ -314,7 +315,7 @@ class TestHoldingRegisterWriteMixin:
             ("little", b"\x56\x78\x12\x34"),  # Swapped register order
         ],
     )
-    async def test_write_uint32(self, word_order, expected_bytes):
+    async def test_write_uint32(self, word_order: Literal["big", "little"], expected_bytes: bytes) -> None:
         """Test write_uint32 with both word orders."""
         client = MockClient(word_order=word_order)
         client.execute.return_value = 2
@@ -326,7 +327,7 @@ class TestHoldingRegisterWriteMixin:
         assert pdu.content == expected_bytes
 
     @pytest.mark.asyncio
-    async def test_write_uint32_out_of_range(self):
+    async def test_write_uint32_out_of_range(self) -> None:
         """Test write_uint32 with value out of range."""
         client = MockClient()
 
@@ -341,7 +342,7 @@ class TestHoldingRegisterWriteMixin:
             ("little", b"\xde\xf0\x9a\xbc\x56\x78\x12\x34"),  # Swapped register order
         ],
     )
-    async def test_write_uint64(self, word_order, expected_bytes):
+    async def test_write_uint64(self, word_order: Literal["big", "little"], expected_bytes: bytes) -> None:
         """Test write_uint64 with both word orders."""
         client = MockClient(word_order=word_order)
         client.execute.return_value = 4
@@ -353,7 +354,7 @@ class TestHoldingRegisterWriteMixin:
         assert pdu.content == expected_bytes
 
     @pytest.mark.asyncio
-    async def test_write_uint64_out_of_range(self):
+    async def test_write_uint64_out_of_range(self) -> None:
         """Test write_uint64 with value out of range."""
         client = MockClient()
 
@@ -368,7 +369,7 @@ class TestHoldingRegisterWriteMixin:
             ("little", b"\xfb\x2e"),  # Single register, no swapping
         ],
     )
-    async def test_write_int16(self, word_order, expected_bytes):
+    async def test_write_int16(self, word_order: Literal["big", "little"], expected_bytes: bytes) -> None:
         """Test write_int16 with both word orders."""
         client = MockClient(word_order=word_order)
         client.execute.return_value = 1
@@ -380,7 +381,7 @@ class TestHoldingRegisterWriteMixin:
         assert pdu.content == expected_bytes
 
     @pytest.mark.asyncio
-    async def test_write_int16_out_of_range_low(self):
+    async def test_write_int16_out_of_range_low(self) -> None:
         """Test write_int16 with value below range."""
         client = MockClient()
 
@@ -388,7 +389,7 @@ class TestHoldingRegisterWriteMixin:
             await client.write_int16(100, -0x8001)
 
     @pytest.mark.asyncio
-    async def test_write_int16_out_of_range_high(self):
+    async def test_write_int16_out_of_range_high(self) -> None:
         """Test write_int16 with value above range."""
         client = MockClient()
 
@@ -403,7 +404,7 @@ class TestHoldingRegisterWriteMixin:
             ("little", b"\x1d\xc0\xff\xfe"),  # Swapped register order
         ],
     )
-    async def test_write_int32(self, word_order, expected_bytes):
+    async def test_write_int32(self, word_order: Literal["big", "little"], expected_bytes: bytes) -> None:
         """Test write_int32 with both word orders."""
         client = MockClient(word_order=word_order)
         client.execute.return_value = 2
@@ -415,7 +416,7 @@ class TestHoldingRegisterWriteMixin:
         assert pdu.content == expected_bytes
 
     @pytest.mark.asyncio
-    async def test_write_int32_out_of_range(self):
+    async def test_write_int32_out_of_range(self) -> None:
         """Test write_int32 with value out of range."""
         client = MockClient()
 
@@ -430,7 +431,7 @@ class TestHoldingRegisterWriteMixin:
             ("little", b"\x32\xeb\xf8\xa4\xff\xff\xff\xff"),  # Swapped register order
         ],
     )
-    async def test_write_int64(self, word_order, expected_bytes):
+    async def test_write_int64(self, word_order: Literal["big", "little"], expected_bytes: bytes) -> None:
         """Test write_int64 with both word orders."""
         client = MockClient(word_order=word_order)
         client.execute.return_value = 4
@@ -442,7 +443,7 @@ class TestHoldingRegisterWriteMixin:
         assert pdu.content == expected_bytes
 
     @pytest.mark.asyncio
-    async def test_write_int64_out_of_range(self):
+    async def test_write_int64_out_of_range(self) -> None:
         """Test write_int64 with value out of range."""
         client = MockClient()
 
@@ -457,7 +458,7 @@ class TestHoldingRegisterWriteMixin:
             ("little", b"\x0f\xd0\x40\x49"),  # Swapped register order
         ],
     )
-    async def test_write_float(self, word_order, expected_bytes):
+    async def test_write_float(self, word_order: Literal["big", "little"], expected_bytes: bytes) -> None:
         """Test write_float with both word orders."""
         client = MockClient(word_order=word_order)
         client.execute.return_value = 2
@@ -476,7 +477,7 @@ class TestHoldingRegisterWriteMixin:
             ("little", b"\x2d\x18\x54\x44\x21\xfb\x40\x09"),  # Swapped register order
         ],
     )
-    async def test_write_double(self, word_order, expected_bytes):
+    async def test_write_double(self, word_order: Literal["big", "little"], expected_bytes: bytes) -> None:
         """Test write_double with both word orders."""
         client = MockClient(word_order=word_order)
         client.execute.return_value = 4
@@ -495,7 +496,7 @@ class TestHoldingRegisterWriteMixin:
             ("little", b"\x00\x00O\x00LLHE"),  # Swapped register order
         ],
     )
-    async def test_write_string(self, word_order, expected_bytes):
+    async def test_write_string(self, word_order: Literal["big", "little"], expected_bytes: bytes) -> None:
         """Test write_string with both word orders."""
         client = MockClient(word_order=word_order)
         client.execute.return_value = 4
@@ -507,7 +508,7 @@ class TestHoldingRegisterWriteMixin:
         assert pdu.content == expected_bytes
 
     @pytest.mark.asyncio
-    async def test_write_string_too_long(self):
+    async def test_write_string_too_long(self) -> None:
         """Test write_string with string too long for register count."""
         client = MockClient()
 
@@ -516,7 +517,7 @@ class TestHoldingRegisterWriteMixin:
 
     @pytest.mark.asyncio
     @pytest.mark.parametrize("word_order", ["big", "little"])
-    async def test_write_string_with_encoding(self, word_order):
+    async def test_write_string_with_encoding(self, word_order: Literal["big", "little"]) -> None:
         """Test write_string with custom encoding."""
         client = MockClient(word_order=word_order)
         client.execute.return_value = 3
@@ -533,7 +534,7 @@ class TestHoldingRegisterWriteMixin:
             ("little", b"\x00\x00\x00\x00STTE"),
         ],
     )
-    async def test_write_string_padding(self, word_order, bytes_result):
+    async def test_write_string_padding(self, word_order: Literal["big", "little"], bytes_result: bytes) -> None:
         """Test that short strings are padded correctly."""
         client = MockClient(word_order=word_order)
         client.execute.return_value = 4
@@ -566,14 +567,14 @@ class TestRoundTripReadWrite:
             0x1234,  # Specific hex pattern
         ],
     )
-    async def test_roundtrip_uint16(self, word_order, value):
+    async def test_roundtrip_uint16(self, word_order: Literal["big", "little"], value: int) -> None:
         """Test writing and reading back uint16 values."""
         client = MockClient(word_order=word_order)
 
         # Capture the written bytes
         written_bytes = None
 
-        def capture_write(pdu) -> int:
+        def capture_write(pdu: BaseClientPDU) -> int:
             nonlocal written_bytes
             written_bytes = pdu.content
             return 1
@@ -603,13 +604,13 @@ class TestRoundTripReadWrite:
             12345,  # Random positive
         ],
     )
-    async def test_roundtrip_int16(self, word_order, value):
+    async def test_roundtrip_int16(self, word_order: Literal["big", "little"], value: int) -> None:
         """Test writing and reading back int16 values."""
         client = MockClient(word_order=word_order)
 
         written_bytes = None
 
-        def capture_write(pdu) -> int:
+        def capture_write(pdu: BaseClientPDU) -> int:
             nonlocal written_bytes
             written_bytes = pdu.content
             return 1
@@ -637,13 +638,13 @@ class TestRoundTripReadWrite:
             0xDEADBEEF,  # Common test pattern
         ],
     )
-    async def test_roundtrip_uint32(self, word_order, value):
+    async def test_roundtrip_uint32(self, word_order: Literal["big", "little"], value: int) -> None:
         """Test writing and reading back uint32 values."""
         client = MockClient(word_order=word_order)
 
         written_bytes = None
 
-        def capture_write(pdu) -> int:
+        def capture_write(pdu: BaseClientPDU) -> int:
             nonlocal written_bytes
             written_bytes = pdu.content
             return 2
@@ -672,13 +673,13 @@ class TestRoundTripReadWrite:
             -2147483647,  # Min + 1
         ],
     )
-    async def test_roundtrip_int32(self, word_order, value):
+    async def test_roundtrip_int32(self, word_order: Literal["big", "little"], value: int) -> None:
         """Test writing and reading back int32 values."""
         client = MockClient(word_order=word_order)
 
         written_bytes = None
 
-        def capture_write(pdu) -> int:
+        def capture_write(pdu: BaseClientPDU) -> int:
             nonlocal written_bytes
             written_bytes = pdu.content
             return 2
@@ -706,13 +707,13 @@ class TestRoundTripReadWrite:
             1234567890123456789,  # Random large value
         ],
     )
-    async def test_roundtrip_uint64(self, word_order, value):
+    async def test_roundtrip_uint64(self, word_order: Literal["big", "little"], value: int) -> None:
         """Test writing and reading back uint64 values."""
         client = MockClient(word_order=word_order)
 
         written_bytes = None
 
-        def capture_write(pdu) -> int:
+        def capture_write(pdu: BaseClientPDU) -> int:
             nonlocal written_bytes
             written_bytes = pdu.content
             return 4
@@ -740,13 +741,13 @@ class TestRoundTripReadWrite:
             1234567890123456789,  # Random positive
         ],
     )
-    async def test_roundtrip_int64(self, word_order, value):
+    async def test_roundtrip_int64(self, word_order: Literal["big", "little"], value: int) -> None:
         """Test writing and reading back int64 values."""
         client = MockClient(word_order=word_order)
 
         written_bytes = None
 
-        def capture_write(pdu) -> int:
+        def capture_write(pdu: BaseClientPDU) -> int:
             nonlocal written_bytes
             written_bytes = pdu.content
             return 4
@@ -780,13 +781,13 @@ class TestRoundTripReadWrite:
             float("-inf"),  # Negative infinity
         ],
     )
-    async def test_roundtrip_float(self, word_order, value):
+    async def test_roundtrip_float(self, word_order: Literal["big", "little"], value: float) -> None:
         """Test writing and reading back float values."""
         client = MockClient(word_order=word_order)
 
         written_bytes = None
 
-        def capture_write(pdu) -> int:
+        def capture_write(pdu: BaseClientPDU) -> int:
             nonlocal written_bytes
             written_bytes = pdu.content
             return 2
@@ -825,7 +826,7 @@ class TestRoundTripReadWrite:
             ("Hello World!", 7),  # With space and punctuation
         ],
     )
-    async def test_roundtrip_string(self, word_order, value, num_registers):
+    async def test_roundtrip_string(self, word_order: Literal["big", "little"], value: str, num_registers: int) -> None:
         """Test writing and reading back string values."""
         # Skip if string is too long for the number of registers
         if len(value.encode("utf-8")) > num_registers * 2:
@@ -835,7 +836,7 @@ class TestRoundTripReadWrite:
 
         written_bytes = None
 
-        def _capture_write(pdu) -> int:
+        def _capture_write(pdu: BaseClientPDU) -> int:
             nonlocal written_bytes
             written_bytes = pdu.content
             return num_registers
@@ -859,7 +860,9 @@ class TestRoundTripReadWrite:
             ("Hello 世界", 10),  # UTF-8 Chinese characters
         ],
     )
-    async def test_roundtrip_string_utf8(self, word_order, value, num_registers):
+    async def test_roundtrip_string_utf8(
+        self, word_order: Literal["big", "little"], value: str, num_registers: int
+    ) -> None:
         """Test writing and reading back UTF-8 string values."""
         # Skip if string is too long for the number of registers
         if len(value.encode("utf-8")) > num_registers * 2:
@@ -869,7 +872,7 @@ class TestRoundTripReadWrite:
 
         written_bytes = None
 
-        def _capture_write(pdu) -> int:
+        def _capture_write(pdu: BaseClientPDU) -> int:
             nonlocal written_bytes
             written_bytes = pdu.content
             return num_registers

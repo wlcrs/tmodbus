@@ -41,7 +41,7 @@ class DummyAsyncTransport(AsyncBaseTransport):
         return DUMMY_RESPONSE  # type: ignore[report-return-type]
 
 
-async def test_async_base_transport_context_manager():
+async def test_async_base_transport_context_manager() -> None:
     """Test that AsyncBaseTransport can be used as a context manager."""
     transport = DummyAsyncTransport()
 

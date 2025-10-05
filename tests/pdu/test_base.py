@@ -1,5 +1,4 @@
 import pytest
-
 from tmodbus.exceptions import InvalidRequestError, InvalidResponseError
 from tmodbus.pdu.base import (
     BaseClientPDU,
@@ -12,7 +11,7 @@ from tmodbus.pdu.base import (
 class TestBaseClientPDU:
     """Tests for BaseClientPDU."""
 
-    def test_get_expected_response_data_length_with_fixed_length(self):
+    def test_get_expected_response_data_length_with_fixed_length(self) -> None:
         """Test get_expected_response_data_length with rtu_response_data_length set."""
 
         class TestPDU(BaseClientPDU):
@@ -27,7 +26,7 @@ class TestBaseClientPDU:
 
         assert TestPDU.get_expected_response_data_length(b"") == 10
 
-    def test_get_expected_response_data_length_from_first_byte(self):
+    def test_get_expected_response_data_length_from_first_byte(self) -> None:
         """Test get_expected_response_data_length when length is in first byte."""
 
         class TestPDU(BaseClientPDU[int]):
@@ -48,7 +47,7 @@ class TestBaseClientPDU:
 class TestBasePDU:
     """Tests for BasePDU."""
 
-    def test_get_expected_response_data_length_with_fixed_length(self):
+    def test_get_expected_response_data_length_with_fixed_length(self) -> None:
         """Test expected response data length for BasePDU with fixed length."""
 
         class TestPDU(BasePDU[int]):
@@ -70,7 +69,7 @@ class TestBasePDU:
 
         assert TestPDU.get_expected_response_data_length(b"") == 10
 
-    def test_get_expected_response_data_length_from_first_byte(self):
+    def test_get_expected_response_data_length_from_first_byte(self) -> None:
         """Test expected response data length when length is in first byte."""
 
         class TestPDU(BasePDU[int]):
@@ -91,7 +90,7 @@ class TestBasePDU:
 
         assert TestPDU.get_expected_response_data_length(b"\x0f") == 16
 
-    def test_get_expected_request_data_length_with_fixed_length(self):
+    def test_get_expected_request_data_length_with_fixed_length(self) -> None:
         """Test get_expected_request_data_length with rtu_request_data_length set."""
 
         class TestPDU(BasePDU[int]):
@@ -114,7 +113,7 @@ class TestBasePDU:
         # Should return the fixed length
         assert TestPDU.get_expected_request_data_length(b"") == 8
 
-    def test_get_expected_request_data_length_from_first_byte(self):
+    def test_get_expected_request_data_length_from_first_byte(self) -> None:
         """Test get_expected_request_data_length when length is in first byte."""
 
         class TestPDU(BasePDU[int]):
@@ -142,7 +141,7 @@ class TestBasePDU:
 class TestBaseSubFunctionClientPDU:
     """Tests for BaseSubFunctionClientPDU."""
 
-    def test_get_expected_response_data_length_invalid_sub_function_code(self):
+    def test_get_expected_response_data_length_invalid_sub_function_code(self) -> None:
         """Test that invalid sub-function code raises InvalidResponseError."""
 
         class TestPDU(BaseSubFunctionClientPDU):
@@ -161,7 +160,7 @@ class TestBaseSubFunctionClientPDU:
 
         assert "Expected sub-function code 14, got 15" in str(exc_info.value)
 
-    def test_get_expected_response_data_length_with_fixed_length(self):
+    def test_get_expected_response_data_length_with_fixed_length(self) -> None:
         """Test get_expected_response_data_length with rtu_response_data_length set."""
 
         class TestPDU(BaseSubFunctionClientPDU):
@@ -178,7 +177,7 @@ class TestBaseSubFunctionClientPDU:
         # Should return the fixed length when sub-function code matches
         assert TestPDU.get_expected_response_data_length(b"\x0e\x00") == 20
 
-    def test_get_expected_response_data_length_from_second_byte(self):
+    def test_get_expected_response_data_length_from_second_byte(self) -> None:
         """Test get_expected_response_data_length when length is in second byte."""
 
         class TestPDU(BaseSubFunctionClientPDU):
@@ -202,7 +201,7 @@ class TestBaseSubFunctionClientPDU:
 class TestBaseSubFunctionPDU:
     """Tests for BaseSubFunctionPDU."""
 
-    def test_get_expected_response_data_length_invalid_sub_function_code(self):
+    def test_get_expected_response_data_length_invalid_sub_function_code(self) -> None:
         """Test that invalid sub-function code raises InvalidResponseError."""
 
         class TestPDU(BaseSubFunctionPDU[int]):
@@ -228,7 +227,7 @@ class TestBaseSubFunctionPDU:
 
         assert "Expected sub-function code 14, got 10" in str(exc_info.value)
 
-    def test_get_expected_response_data_length_with_fixed_length(self):
+    def test_get_expected_response_data_length_with_fixed_length(self) -> None:
         """Test get_expected_response_data_length with rtu_response_data_length set."""
 
         class TestPDU(BaseSubFunctionPDU[int]):
@@ -252,7 +251,7 @@ class TestBaseSubFunctionPDU:
         # Should return the fixed length
         assert TestPDU.get_expected_response_data_length(b"\x0e\x00") == 25
 
-    def test_get_expected_response_data_length_from_second_byte(self):
+    def test_get_expected_response_data_length_from_second_byte(self) -> None:
         """Test get_expected_response_data_length when length is in second byte."""
 
         class TestPDU(BaseSubFunctionPDU[int]):
@@ -276,7 +275,7 @@ class TestBaseSubFunctionPDU:
         assert TestPDU.get_expected_response_data_length(b"\x0e\x08") == 10
         assert TestPDU.get_expected_response_data_length(b"\x0e\x14") == 22
 
-    def test_get_expected_request_data_length_invalid_sub_function_code(self):
+    def test_get_expected_request_data_length_invalid_sub_function_code(self) -> None:
         """Test that invalid sub-function code raises InvalidRequestError."""
 
         class TestPDU(BaseSubFunctionPDU[int]):
@@ -302,7 +301,7 @@ class TestBaseSubFunctionPDU:
 
         assert "Expected sub-function code 14, got 13" in str(exc_info.value)
 
-    def test_get_expected_request_data_length_with_fixed_length(self):
+    def test_get_expected_request_data_length_with_fixed_length(self) -> None:
         """Test get_expected_request_data_length with rtu_request_data_length set."""
 
         class TestPDU(BaseSubFunctionPDU[int]):
@@ -326,7 +325,7 @@ class TestBaseSubFunctionPDU:
         # Should return the fixed length when sub-function code matches
         assert TestPDU.get_expected_request_data_length(b"\x0e\x00") == 15
 
-    def test_get_expected_request_data_length_from_first_byte(self):
+    def test_get_expected_request_data_length_from_first_byte(self) -> None:
         """Test get_expected_request_data_length when length is in first byte."""
 
         class TestPDU(BaseSubFunctionPDU[int]):
