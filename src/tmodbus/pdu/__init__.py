@@ -8,6 +8,7 @@ from .base import BaseClientPDU, BasePDU, BaseSubFunctionClientPDU, BaseSubFunct
 from .coils import ReadCoilsPDU, WriteMultipleCoilsPDU, WriteSingleCoilPDU
 from .device import ReadDeviceIdentificationPDU, ReadDeviceIdentificationResponse
 from .discrete_inputs import ReadDiscreteInputsPDU
+from .exception_status import ReadExceptionStatusPDU
 from .fifo import ReadFifoQueuePDU
 from .file import FileRecord, FileRecordRequest, ReadFileRecordPDU, WriteFileRecordPDU
 from .holding_registers import (
@@ -27,6 +28,7 @@ function_code_to_pdu_map: dict[int, type[BaseClientPDU[Any]]] = {
     FunctionCode.READ_INPUT_REGISTERS: ReadInputRegistersPDU,
     FunctionCode.WRITE_SINGLE_COIL: WriteSingleCoilPDU,
     FunctionCode.WRITE_SINGLE_REGISTER: WriteSingleRegisterPDU,
+    FunctionCode.READ_EXCEPTION_STATUS: ReadExceptionStatusPDU,
     FunctionCode.WRITE_MULTIPLE_COILS: WriteMultipleCoilsPDU,
     FunctionCode.WRITE_MULTIPLE_REGISTERS: WriteMultipleRegistersPDU,
     FunctionCode.REPORT_SERVER_ID: ReportServerIdPDU,
@@ -131,6 +133,7 @@ __all__ = [
     "ReadDeviceIdentificationPDU",
     "ReadDeviceIdentificationResponse",
     "ReadDiscreteInputsPDU",
+    "ReadExceptionStatusPDU",
     "ReadFifoQueuePDU",
     "ReadFileRecordPDU",
     "ReadHoldingRegistersPDU",

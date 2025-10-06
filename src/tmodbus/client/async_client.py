@@ -13,6 +13,7 @@ from tmodbus.pdu import (
     ReadCoilsPDU,
     ReadDeviceIdentificationPDU,
     ReadDiscreteInputsPDU,
+    ReadExceptionStatusPDU,
     ReadHoldingRegistersPDU,
     ReadInputRegistersPDU,
     ReadWriteMultipleRegistersPDU,
@@ -235,6 +236,19 @@ class AsyncModbusClient(HoldingRegisterReadMixin, HoldingRegisterWriteMixin):
 
         """
         return await self.execute(WriteSingleRegisterPDU(address, value))
+
+    async def read_exception_status(self) -> int:
+        """Read Exception Status (Function Code 0x07).
+
+        Returns:
+            The exception status as an integer (0-255).
+
+        Example:
+            >>> status = await client.read_exception_status()
+            >>> print("Exception Status:", status)
+
+        """
+        return await self.execute(ReadExceptionStatusPDU())
 
     async def write_multiple_coils(
         self,

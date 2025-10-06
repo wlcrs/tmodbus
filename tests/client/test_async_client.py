@@ -448,3 +448,15 @@ async def test_read_fifo_queue(dummy_client: AsyncModbusClient) -> None:
 
     # Verify that send_and_receive was called with the correct PDU type
     assert ["send_and_receive", 1, "ReadFifoQueuePDU"] in dummy_client.transport.performed_actions
+
+
+async def test_read_exception_status(dummy_client: AsyncModbusClient) -> None:
+    """Test read_exception_status method."""
+    assert isinstance(dummy_client.transport, DummyAsyncTransport)
+
+    # Test successful read exception status
+    result = await dummy_client.read_exception_status()
+    assert result == DUMMY_RESPONSE
+
+    # Verify that send_and_receive was called with the correct PDU type
+    assert ["send_and_receive", 1, "ReadExceptionStatusPDU"] in dummy_client.transport.performed_actions
