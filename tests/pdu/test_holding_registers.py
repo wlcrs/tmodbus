@@ -9,6 +9,7 @@ from tmodbus.pdu.holding_registers import (
     RawReadInputRegistersPDU,
     RawWriteMultipleRegistersPDU,
     ReadInputRegistersPDU,
+    ReadWriteMultipleRegistersPDU,
 )
 
 
@@ -657,3 +658,434 @@ class TestMaskWriteRegisterPDU:
         response = pdu.encode_response((0xF2F2, 0x2525))
         expected = b"\x16\x00\x04\xf2\xf2\x25\x25"
         assert response == expected
+
+
+class TestReadWriteMultipleRegistersPDU:
+    """Tests for ReadWriteMultipleRegistersPDU."""
+
+    def test_initialization_valid(self) -> None:
+        """Test valid initialization."""
+        pdu = ReadWriteMultipleRegistersPDU(
+            read_start_address=100,
+            read_quantity=10,
+            write_start_address=200,
+            write_values=[1, 2, 3, 4, 5],
+        )
+        assert pdu.read_start_address == 100
+        assert pdu.read_quantity == 10
+        assert pdu.write_start_address == 200
+        assert pdu.write_values == [1, 2, 3, 4, 5]
+
+    @pytest.mark.parametrize(
+        ("read_addr", "read_qty", "write_addr", "write_vals", "expected_error"),
+        [
+            (-1, 10, 100, [1, 2], "Read starting address must be between 0 and 65535"),
+            (65536, 10, 100, [1, 2], "Read starting address must be between 0 and 65535"),
+            (100, 0, 100, [1, 2], "Read quantity must be between 1 and 125"),
+            (100, 126, 100, [1, 2], "Read quantity must be between 1 and 125"),
+            (100, 10, -1, [1, 2], "Write starting address must be between 0 and 65535"),
+            (100, 10, 65536, [1, 2], "Write starting address must be between 0 and 65535"),
+            (100, 10, 100, [], "Number of registers to write must be between 1 and 121"),
+            (100, 10, 100, [1] * 122, "Number of registers to write must be between 1 and 121"),
+            (100, 10, 100, [65536], "Invalid write value 65536 on index 0"),
+            (100, 10, 100, [-1], "Invalid write value -1 on index 0"),
+        ],
+    )
+    def test_initialization_invalid(
+        self,
+        read_addr: int,
+        read_qty: int,
+        write_addr: int,
+        write_vals: list[int],
+        expected_error: str,
+    ) -> None:
+        """Test invalid initialization parameters."""
+        with pytest.raises(ValueError, match=expected_error):
+            ReadWriteMultipleRegistersPDU(
+                read_start_address=read_addr,
+                read_quantity=read_qty,
+                write_start_address=write_addr,
+                write_values=write_vals,
+            )
+
+    def test_encode_request(self) -> None:
+        """Test encoding request PDU."""
+        pdu = ReadWriteMultipleRegistersPDU(
+            read_start_address=0x0003,
+            read_quantity=6,
+            write_start_address=0x000E,
+            write_values=[0x00FF, 0x00FF, 0x00FF],
+        )
+        encoded = pdu.encode_request()
+
+        # Expected format:
+        # Function code: 0x17
+        # Read starting address: 0x0003
+        # Quantity to read: 0x0006
+        # Write starting address: 0x000E
+        # Quantity to write: 0x0003
+        # Write byte count: 0x06 (3 registers * 2 bytes)
+        # Write data: 0x00FF 0x00FF 0x00FF
+        expected = b"\x17\x00\x03\x00\x06\x00\x0e\x00\x03\x06\x00\xff\x00\xff\x00\xff"
+        assert encoded == expected
+
+    def test_encode_request_single_write_value(self) -> None:
+        """Test encoding request with a single write value."""
+        pdu = ReadWriteMultipleRegistersPDU(
+            read_start_address=0,
+            read_quantity=1,
+            write_start_address=0,
+            write_values=[0x1234],
+        )
+        encoded = pdu.encode_request()
+
+        assert encoded[0] == 0x17  # function code
+        assert encoded[-2:] == b"\x12\x34"  # write data
+
+    def test_decode_response_valid(self) -> None:
+        """Test decoding a valid response PDU."""
+        pdu = ReadWriteMultipleRegistersPDU(
+            read_start_address=0x0003,
+            read_quantity=6,
+            write_start_address=0x000E,
+            write_values=[0x00FF, 0x00FF, 0x00FF],
+        )
+
+        # Response format: function code + byte count + data
+        # 6 registers = 12 bytes
+        response = b"\x17\x0c\x00\x0a\x00\x0b\x00\x0c\x00\x0d\x00\x0e\x00\x0f"
+        result = pdu.decode_response(response)
+
+        assert result == [0x000A, 0x000B, 0x000C, 0x000D, 0x000E, 0x000F]
+
+    def test_decode_response_single_register(self) -> None:
+        """Test decoding response with a single register."""
+        pdu = ReadWriteMultipleRegistersPDU(
+            read_start_address=100,
+            read_quantity=1,
+            write_start_address=200,
+            write_values=[0xABCD],
+        )
+
+        response = b"\x17\x02\x12\x34"
+        result = pdu.decode_response(response)
+
+        assert result == [0x1234]
+
+    def test_decode_response_invalid_function_code(self) -> None:
+        """Test decode_response raises on invalid function code."""
+        pdu = ReadWriteMultipleRegistersPDU(
+            read_start_address=0,
+            read_quantity=2,
+            write_start_address=10,
+            write_values=[1, 2],
+        )
+
+        response = b"\x03\x04\x00\x01\x00\x02"  # Function code 0x03 instead of 0x17
+        with pytest.raises(InvalidResponseError, match=r"Invalid function code: expected 0x17, received 0x03"):
+            pdu.decode_response(response)
+
+    def test_decode_response_too_short(self) -> None:
+        """Test decode_response raises on response too short."""
+        pdu = ReadWriteMultipleRegistersPDU(
+            read_start_address=0,
+            read_quantity=2,
+            write_start_address=10,
+            write_values=[1, 2],
+        )
+
+        response = b"\x17"  # Too short
+        with pytest.raises(InvalidResponseError, match=r"Expected response to start with function code and byte count"):
+            pdu.decode_response(response)
+
+    def test_decode_response_invalid_length(self) -> None:
+        """Test decode_response raises on mismatched length."""
+        pdu = ReadWriteMultipleRegistersPDU(
+            read_start_address=0,
+            read_quantity=2,
+            write_start_address=10,
+            write_values=[1, 2],
+        )
+
+        # Byte count says 4 bytes but only 2 bytes follow
+        response = b"\x17\x04\x00\x01"
+        with pytest.raises(InvalidResponseError, match=r"Invalid response PDU length"):
+            pdu.decode_response(response)
+
+    def test_decode_response_invalid_register_count(self) -> None:
+        """Test decode_response raises on wrong register count."""
+        pdu = ReadWriteMultipleRegistersPDU(
+            read_start_address=0,
+            read_quantity=2,
+            write_start_address=10,
+            write_values=[1, 2],
+        )
+
+        # Says 3 registers (6 bytes) but we expected 2
+        response = b"\x17\x06\x00\x01\x00\x02\x00\x03"
+        with pytest.raises(InvalidResponseError, match=r"Invalid register count: expected 2, got 3"):
+            pdu.decode_response(response)
+
+    def test_decode_response_odd_byte_count(self) -> None:
+        """Test decode_response raises on odd byte count."""
+        pdu = ReadWriteMultipleRegistersPDU(
+            read_start_address=0,
+            read_quantity=2,
+            write_start_address=10,
+            write_values=[1, 2],
+        )
+
+        # Odd byte count (should be even for 16-bit registers)
+        response = b"\x17\x05\x00\x01\x00\x02\x00"
+        with pytest.raises(InvalidResponseError, match=r"Invalid register count"):
+            pdu.decode_response(response)
+
+    def test_decode_request_valid(self) -> None:
+        """Test decoding a valid request PDU."""
+        # Request format:
+        # Function code: 0x17
+        # Read starting address: 0x0003
+        # Quantity to read: 0x0006
+        # Write starting address: 0x000E
+        # Quantity to write: 0x0003
+        # Write byte count: 0x06
+        # Write data: 0x00FF 0x00FF 0x00FF
+        request = b"\x17\x00\x03\x00\x06\x00\x0e\x00\x03\x06\x00\xff\x00\xff\x00\xff"
+
+        pdu = ReadWriteMultipleRegistersPDU.decode_request(request)
+
+        assert pdu.read_start_address == 0x0003
+        assert pdu.read_quantity == 6
+        assert pdu.write_start_address == 0x000E
+        assert pdu.write_values == [0x00FF, 0x00FF, 0x00FF]
+
+    def test_decode_request_single_write_value(self) -> None:
+        """Test decoding request with single write value."""
+        request = b"\x17\x00\x00\x00\x01\x00\x00\x00\x01\x02\x12\x34"
+
+        pdu = ReadWriteMultipleRegistersPDU.decode_request(request)
+
+        assert pdu.read_start_address == 0
+        assert pdu.read_quantity == 1
+        assert pdu.write_start_address == 0
+        assert pdu.write_values == [0x1234]
+
+    def test_decode_request_too_short(self) -> None:
+        """Test decode_request raises on request too short."""
+        request = b"\x17\x00\x03"  # Too short
+        with pytest.raises(InvalidRequestError, match=r"Request too short for Read/Write Multiple Registers"):
+            ReadWriteMultipleRegistersPDU.decode_request(request)
+
+    def test_decode_request_invalid_function_code(self) -> None:
+        """Test decode_request raises on invalid function code."""
+        request = b"\x03\x00\x03\x00\x06\x00\x0e\x00\x03\x06\x00\xff\x00\xff\x00\xff"
+        with pytest.raises(InvalidRequestError, match=r"Invalid function code: expected 0x17, received 0x03"):
+            ReadWriteMultipleRegistersPDU.decode_request(request)
+
+    def test_decode_request_odd_byte_count(self) -> None:
+        """Test decode_request raises on odd write byte count."""
+        # Write byte count is 5 (odd) instead of 6
+        request = b"\x17\x00\x03\x00\x06\x00\x0e\x00\x03\x05\x00\xff\x00\xff\x00"
+        with pytest.raises(InvalidRequestError, match=r"Write byte count must be even for register values"):
+            ReadWriteMultipleRegistersPDU.decode_request(request)
+
+    def test_decode_request_mismatched_quantity(self) -> None:
+        """Test decode_request raises on mismatched write quantity."""
+        # Write quantity is 3 but byte count is 8 (4 registers)
+        request = b"\x17\x00\x03\x00\x06\x00\x0e\x00\x03\x08\x00\xff\x00\xff\x00\xff\x00\xff"
+        with pytest.raises(InvalidRequestError, match=r"Invalid write register count: expected 4, got 3"):
+            ReadWriteMultipleRegistersPDU.decode_request(request)
+
+    def test_decode_request_invalid_data_length(self) -> None:
+        """Test decode_request raises on invalid data length."""
+        # Says byte count is 6 but only 2 bytes of data follow (with correct quantity)
+        request = b"\x17\x00\x03\x00\x06\x00\x0e\x00\x03\x06\x00\xff"
+        with pytest.raises(InvalidRequestError, match=r"Invalid data length: expected 6, got 2"):
+            ReadWriteMultipleRegistersPDU.decode_request(request)
+
+    def test_encode_response_valid(self) -> None:
+        """Test encoding a valid response PDU."""
+        pdu = ReadWriteMultipleRegistersPDU(
+            read_start_address=0x0003,
+            read_quantity=6,
+            write_start_address=0x000E,
+            write_values=[0x00FF, 0x00FF, 0x00FF],
+        )
+
+        response = pdu.encode_response([0x000A, 0x000B, 0x000C, 0x000D, 0x000E, 0x000F])
+
+        # Expected: function code + byte count (12 for 6 registers) + 6 registers
+        expected = b"\x17\x0c\x00\x0a\x00\x0b\x00\x0c\x00\x0d\x00\x0e\x00\x0f"
+        assert response == expected
+
+    def test_encode_response_single_value(self) -> None:
+        """Test encoding response with single value."""
+        pdu = ReadWriteMultipleRegistersPDU(
+            read_start_address=100,
+            read_quantity=1,
+            write_start_address=200,
+            write_values=[0xABCD],
+        )
+
+        response = pdu.encode_response([0x1234])
+
+        # Expected: function code + byte count (2 for 1 register) + 1 register
+        assert response == b"\x17\x02\x12\x34"
+
+    def test_encode_response_wrong_count(self) -> None:
+        """Test encode_response raises on wrong number of values."""
+        pdu = ReadWriteMultipleRegistersPDU(
+            read_start_address=0,
+            read_quantity=2,
+            write_start_address=10,
+            write_values=[1, 2],
+        )
+
+        # Trying to encode 3 values when read_quantity is 2
+        with pytest.raises(ValueError, match=r"Invalid number of read values: expected 2, got 3"):
+            pdu.encode_response([1, 2, 3])
+
+    def test_encode_response_invalid_value_too_high(self) -> None:
+        """Test encode_response raises on value too high."""
+        pdu = ReadWriteMultipleRegistersPDU(
+            read_start_address=0,
+            read_quantity=2,
+            write_start_address=10,
+            write_values=[1, 2],
+        )
+
+        with pytest.raises(ValueError, match=r"Invalid read value 65536 on index 1: must be between 0 and 65535"):
+            pdu.encode_response([100, 65536])
+
+    def test_encode_response_invalid_value_negative(self) -> None:
+        """Test encode_response raises on negative value."""
+        pdu = ReadWriteMultipleRegistersPDU(
+            read_start_address=0,
+            read_quantity=2,
+            write_start_address=10,
+            write_values=[1, 2],
+        )
+
+        with pytest.raises(ValueError, match=r"Invalid read value -1 on index 0: must be between 0 and 65535"):
+            pdu.encode_response([-1, 100])
+
+    def test_round_trip_encode_decode(self) -> None:
+        """Test that encoding and decoding produces the same values."""
+        original_pdu = ReadWriteMultipleRegistersPDU(
+            read_start_address=50,
+            read_quantity=5,
+            write_start_address=100,
+            write_values=[1, 2, 3, 4, 5],
+        )
+
+        # Encode request and decode it back
+        encoded_request = original_pdu.encode_request()
+        decoded_pdu = ReadWriteMultipleRegistersPDU.decode_request(encoded_request)
+
+        assert decoded_pdu.read_start_address == original_pdu.read_start_address
+        assert decoded_pdu.read_quantity == original_pdu.read_quantity
+        assert decoded_pdu.write_start_address == original_pdu.write_start_address
+        assert decoded_pdu.write_values == original_pdu.write_values
+
+        # Test response round-trip
+        read_values = [10, 20, 30, 40, 50]
+        encoded_response = original_pdu.encode_response(read_values)
+        decoded_values = original_pdu.decode_response(encoded_response)
+        assert decoded_values == read_values
+
+    def test_modbus_spec_example_encode_request(self) -> None:
+        """Test encoding request using the exact example from Modbus specification.
+
+        Example: Read 6 registers starting at register 4 (address 3),
+        and write 3 registers starting at register 15 (address 14).
+        """
+        pdu = ReadWriteMultipleRegistersPDU(
+            read_start_address=0x0003,  # Register 4 (0-indexed)
+            read_quantity=0x0006,  # 6 registers
+            write_start_address=0x000E,  # Register 15 (0-indexed)
+            write_values=[0x00FF, 0x00FF, 0x00FF],  # 3 registers
+        )
+
+        encoded = pdu.encode_request()
+
+        # Expected from spec:
+        # 17 00 03 00 06 00 0E 00 03 06 00 FF 00 FF 00 FF
+        expected = b"\x17\x00\x03\x00\x06\x00\x0e\x00\x03\x06\x00\xff\x00\xff\x00\xff"
+        assert encoded == expected
+
+    def test_modbus_spec_example_decode_request(self) -> None:
+        """Test decoding request using the exact example from Modbus specification."""
+        # Request from spec:
+        # 17 00 03 00 06 00 0E 00 03 06 00 FF 00 FF 00 FF
+        request = b"\x17\x00\x03\x00\x06\x00\x0e\x00\x03\x06\x00\xff\x00\xff\x00\xff"
+
+        pdu = ReadWriteMultipleRegistersPDU.decode_request(request)
+
+        assert pdu.read_start_address == 0x0003
+        assert pdu.read_quantity == 0x0006
+        assert pdu.write_start_address == 0x000E
+        assert pdu.write_values == [0x00FF, 0x00FF, 0x00FF]
+
+    def test_modbus_spec_example_decode_response(self) -> None:
+        """Test decoding response using the exact example from Modbus specification.
+
+        Response contains 6 registers read: 0x00FE, 0x0ACD, 0x0001, 0x0003, 0x000D, 0x00FF
+        """
+        pdu = ReadWriteMultipleRegistersPDU(
+            read_start_address=0x0003,
+            read_quantity=0x0006,
+            write_start_address=0x000E,
+            write_values=[0x00FF, 0x00FF, 0x00FF],
+        )
+
+        # Response from spec:
+        # 17 0C 00 FE 0A CD 00 01 00 03 00 0D 00 FF
+        response = b"\x17\x0c\x00\xfe\x0a\xcd\x00\x01\x00\x03\x00\x0d\x00\xff"
+
+        result = pdu.decode_response(response)
+
+        assert result == [0x00FE, 0x0ACD, 0x0001, 0x0003, 0x000D, 0x00FF]
+
+    def test_modbus_spec_example_encode_response(self) -> None:
+        """Test encoding response using the exact example from Modbus specification."""
+        pdu = ReadWriteMultipleRegistersPDU(
+            read_start_address=0x0003,
+            read_quantity=0x0006,
+            write_start_address=0x000E,
+            write_values=[0x00FF, 0x00FF, 0x00FF],
+        )
+
+        # Encode response with the values from the spec
+        read_values = [0x00FE, 0x0ACD, 0x0001, 0x0003, 0x000D, 0x00FF]
+        encoded = pdu.encode_response(read_values)
+
+        # Expected from spec:
+        # 17 0C 00 FE 0A CD 00 01 00 03 00 0D 00 FF
+        expected = b"\x17\x0c\x00\xfe\x0a\xcd\x00\x01\x00\x03\x00\x0d\x00\xff"
+        assert encoded == expected
+
+    def test_modbus_spec_example_full_round_trip(self) -> None:
+        """Test full round-trip using the Modbus specification example."""
+        # Create PDU with spec example parameters
+        original_pdu = ReadWriteMultipleRegistersPDU(
+            read_start_address=0x0003,
+            read_quantity=0x0006,
+            write_start_address=0x000E,
+            write_values=[0x00FF, 0x00FF, 0x00FF],
+        )
+
+        # Encode and decode request
+        request = original_pdu.encode_request()
+        decoded_pdu = ReadWriteMultipleRegistersPDU.decode_request(request)
+
+        assert decoded_pdu.read_start_address == original_pdu.read_start_address
+        assert decoded_pdu.read_quantity == original_pdu.read_quantity
+        assert decoded_pdu.write_start_address == original_pdu.write_start_address
+        assert decoded_pdu.write_values == original_pdu.write_values
+
+        # Encode and decode response
+        read_values = [0x00FE, 0x0ACD, 0x0001, 0x0003, 0x000D, 0x00FF]
+        response = original_pdu.encode_response(read_values)
+        decoded_values = original_pdu.decode_response(response)
+
+        assert decoded_values == read_values

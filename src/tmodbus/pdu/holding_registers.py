@@ -1,6 +1,7 @@
 """Holding/Input Registers PDU Module."""
 
 import struct
+from dataclasses import dataclass
 from typing import Self
 
 from tmodbus.const import FunctionCode
@@ -647,3 +648,171 @@ class MaskWriteRegisterPDU(BasePDU[tuple[int, int]]):
 
         """
         return struct.pack(">BHHH", self.function_code, self.address, value[0], value[1])
+
+
+@dataclass(frozen=True)
+class ReadWriteMultipleRegistersPDU(BasePDU[list[int]]):
+    """Read/Write Multiple Registers PDU (0x17).
+
+    This function code performs a combination of one read operation and one write operation in a single
+    MODBUS transaction. The write operation is performed before the read.
+    """
+
+    function_code = FunctionCode.READ_WRITE_MULTIPLE_REGISTERS
+
+    read_start_address: int
+    read_quantity: int
+    write_start_address: int
+    write_values: list[int]
+
+    REQUEST_HEADER_STRUCT = struct.Struct(">BHHHHB")
+
+    def __post_init__(self) -> None:
+        """Validate parameters after initialization."""
+        if not (0 <= self.read_start_address < 65536):
+            msg = "Read starting address must be between 0 and 65535."
+            raise ValueError(msg)
+
+        if not (1 <= self.read_quantity <= 125):
+            msg = "Read quantity must be between 1 and 125."
+            raise ValueError(msg)
+
+        if not (0 <= self.write_start_address < 65536):
+            msg = "Write starting address must be between 0 and 65535."
+            raise ValueError(msg)
+
+        if not (1 <= len(self.write_values) <= 121):
+            msg = "Number of registers to write must be between 1 and 121."
+            raise ValueError(msg)
+
+        for idx, value in enumerate(self.write_values):
+            if not (0 <= value < 65536):
+                msg = f"Invalid write value {value} on index {idx}: must be between 0 and 65535"
+                raise ValueError(msg)
+
+    def encode_request(self) -> bytes:
+        """Convert PDU to bytes.
+
+        Returns:
+            Bytes representation of the Read/Write Multiple Registers PDU
+
+        """
+        write_byte_count = len(self.write_values) * 2
+        write_data = struct.pack(f">{'H' * len(self.write_values)}", *self.write_values)
+
+        return (
+            self.REQUEST_HEADER_STRUCT.pack(
+                self.function_code,
+                self.read_start_address,
+                self.read_quantity,
+                self.write_start_address,
+                len(self.write_values),
+                write_byte_count,
+            )
+            + write_data
+        )
+
+    def decode_response(self, response: bytes) -> list[int]:
+        """Decode the response PDU.
+
+        Args:
+            response: Response PDU bytes
+
+        Returns:
+            List of integers representing the register values read
+
+        Raises:
+            InvalidResponseError: If response format is invalid
+
+        """
+        # response format: function code + byte count + data
+        try:
+            function_code, byte_count = struct.unpack_from(">BB", response)
+        except struct.error as e:
+            msg = "Expected response to start with function code and byte count"
+            raise InvalidResponseError(msg, response_bytes=response) from e
+
+        if function_code != self.function_code:
+            msg = f"Invalid function code: expected {self.function_code:#04x}, received {function_code:#04x}"
+            raise InvalidResponseError(msg, response_bytes=response)
+
+        if len(response) != 2 + byte_count:
+            msg = f"Invalid response PDU length: expected {2 + byte_count}, got {len(response)}"
+            raise InvalidResponseError(msg, response_bytes=response)
+
+        if byte_count % 2 != 0 or byte_count // 2 != self.read_quantity:
+            msg = f"Invalid register count: expected {self.read_quantity}, got {byte_count // 2}"
+            raise InvalidResponseError(msg, response_bytes=response)
+
+        response_bytes = response[2:]  # Extract the data part of the response
+        return [*struct.unpack(f">{'H' * (len(response_bytes) // 2)}", response_bytes)]
+
+    @classmethod
+    def decode_request(cls, request: bytes) -> Self:
+        """Decode Read/Write Multiple Registers Request PDU.
+
+        Args:
+            request: The request bytes.
+
+        Returns:
+            ReadWriteMultipleRegistersPDU instance created from the request.
+
+        """
+        if len(request) < cls.REQUEST_HEADER_STRUCT.size:
+            msg = "Request too short for Read/Write Multiple Registers"
+            raise InvalidRequestError(msg, request_bytes=request)
+
+        (
+            function_code,
+            read_start_address,
+            read_quantity,
+            write_start_address,
+            write_quantity,
+            write_byte_count,
+        ) = cls.REQUEST_HEADER_STRUCT.unpack_from(request, 0)
+
+        if function_code != cls.function_code:
+            msg = f"Invalid function code: expected {cls.function_code:#04x}, received {function_code:#04x}"
+            raise InvalidRequestError(msg, request_bytes=request)
+
+        if write_byte_count % 2 != 0:
+            msg = "Write byte count must be even for register values"
+            raise InvalidRequestError(msg, request_bytes=request)
+
+        if write_quantity != write_byte_count // 2:
+            msg = f"Invalid write register count: expected {write_byte_count // 2}, got {write_quantity}"
+            raise InvalidRequestError(msg, request_bytes=request)
+
+        content = request[cls.REQUEST_HEADER_STRUCT.size :]
+        if len(content) != write_byte_count:
+            msg = f"Invalid data length: expected {write_byte_count}, got {len(content)}"
+            raise InvalidRequestError(msg, request_bytes=request)
+
+        write_values = list(struct.unpack(f">{'H' * (write_quantity)}", content))
+        return cls(
+            read_start_address=read_start_address,
+            read_quantity=read_quantity,
+            write_start_address=write_start_address,
+            write_values=write_values,
+        )
+
+    def encode_response(self, value: list[int]) -> bytes:
+        """Encode the response PDU with register values.
+
+        Args:
+            value: List of register values.
+
+        Returns:
+            Bytes representation of the Read/Write Multiple Registers response PDU.
+
+        """
+        if len(value) != self.read_quantity:
+            msg = f"Invalid number of read values: expected {self.read_quantity}, got {len(value)}"
+            raise ValueError(msg)
+
+        for idx, val in enumerate(value):
+            if not (0 <= val < 65536):
+                msg = f"Invalid read value {val} on index {idx}: must be between 0 and 65535"
+                raise ValueError(msg)
+
+        return struct.pack(f">BB{'H' * len(value)}", self.function_code, len(value) * 2, *value)

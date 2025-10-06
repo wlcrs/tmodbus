@@ -15,6 +15,7 @@ from tmodbus.pdu import (
     ReadDiscreteInputsPDU,
     ReadHoldingRegistersPDU,
     ReadInputRegistersPDU,
+    ReadWriteMultipleRegistersPDU,
     WriteMultipleCoilsPDU,
     WriteMultipleRegistersPDU,
     WriteSingleCoilPDU,
@@ -312,6 +313,37 @@ class AsyncModbusClient(HoldingRegisterReadMixin, HoldingRegisterWriteMixin):
 
         """
         return await self.execute(MaskWriteRegisterPDU(address, and_mask, or_mask))
+
+    async def read_write_multiple_registers(
+        self,
+        read_start_address: int,
+        read_quantity: int,
+        write_start_address: int,
+        write_values: list[int],
+    ) -> list[int]:
+        """Read/Write Multiple Registers (Function Code 0x17).
+
+        Args:
+            read_start_address: Starting address to read from
+            read_quantity: Quantity of registers to read (1-125)
+            write_start_address: Starting address to write to
+            write_values: List of register values to write, each value 0-65535
+
+        Returns:
+            A list of register values read from the device.
+
+        Example:
+            >>> await client.read_write_multiple_registers(0, 1, 0, [1234])
+
+        """
+        return await self.execute(
+            ReadWriteMultipleRegistersPDU(
+                read_start_address=read_start_address,
+                read_quantity=read_quantity,
+                write_start_address=write_start_address,
+                write_values=write_values,
+            )
+        )
 
     async def read_device_identification(
         self,

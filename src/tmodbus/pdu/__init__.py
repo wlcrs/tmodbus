@@ -13,6 +13,7 @@ from .holding_registers import (
     MaskWriteRegisterPDU,
     ReadHoldingRegistersPDU,
     ReadInputRegistersPDU,
+    ReadWriteMultipleRegistersPDU,
     WriteMultipleRegistersPDU,
     WriteSingleRegisterPDU,
 )
@@ -31,6 +32,7 @@ function_code_to_pdu_map: dict[int, type[BaseClientPDU[Any]]] = {
     FunctionCode.READ_FILE_RECORD: ReadFileRecordPDU,
     FunctionCode.WRITE_FILE_RECORD: WriteFileRecordPDU,
     FunctionCode.MASK_WRITE_REGISTER: MaskWriteRegisterPDU,
+    FunctionCode.READ_WRITE_MULTIPLE_REGISTERS: ReadWriteMultipleRegistersPDU,
 }
 
 sub_function_code_to_pdu_map: dict[int, dict[int, type[BaseSubFunctionClientPDU[Any]]]] = {
@@ -130,6 +132,7 @@ __all__ = [
     "ReadFileRecordPDU",
     "ReadHoldingRegistersPDU",
     "ReadInputRegistersPDU",
+    "ReadWriteMultipleRegistersPDU",
     "ReportServerIdPDU",
     "ServerIdResponse",
     "WriteFileRecordPDU",

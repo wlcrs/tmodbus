@@ -419,3 +419,19 @@ async def test_mask_request_server_id(dummy_client: AsyncModbusClient) -> None:
 
     # Verify that send_and_receive was called with the correct PDU type
     assert ["send_and_receive", 1, "ReportServerIdPDU"] in dummy_client.transport.performed_actions
+
+
+async def test_read_write_multiple_registers(dummy_client: AsyncModbusClient) -> None:
+    """Test read_write_multiple_registers method."""
+    assert isinstance(dummy_client.transport, DummyAsyncTransport)
+
+    # Test successful read/write multiple registers
+    read_address = 0x000A
+    read_quantity = 4
+    write_address = 0x0010
+    write_values = [0x1234, 0x5678, 0x9ABC, 0xDEF0]
+    result = await dummy_client.read_write_multiple_registers(read_address, read_quantity, write_address, write_values)
+    assert result == DUMMY_RESPONSE
+
+    # Verify that send_and_receive was called with the correct PDU type
+    assert ["send_and_receive", 1, "ReadWriteMultipleRegistersPDU"] in dummy_client.transport.performed_actions
