@@ -435,3 +435,16 @@ async def test_read_write_multiple_registers(dummy_client: AsyncModbusClient) ->
 
     # Verify that send_and_receive was called with the correct PDU type
     assert ["send_and_receive", 1, "ReadWriteMultipleRegistersPDU"] in dummy_client.transport.performed_actions
+
+
+async def test_read_fifo_queue(dummy_client: AsyncModbusClient) -> None:
+    """Test read_fifo_queue method."""
+    assert isinstance(dummy_client.transport, DummyAsyncTransport)
+
+    # Test successful read FIFO queue
+    fifo_pointer_address = 0x000A
+    result = await dummy_client.read_fifo_queue(fifo_pointer_address)
+    assert result == DUMMY_RESPONSE
+
+    # Verify that send_and_receive was called with the correct PDU type
+    assert ["send_and_receive", 1, "ReadFifoQueuePDU"] in dummy_client.transport.performed_actions

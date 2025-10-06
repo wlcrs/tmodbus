@@ -28,11 +28,6 @@ class TestGetPDUClass:
         with pytest.raises(ValueError, match="Unsupported function code: 0x99"):
             get_pdu_class(bytes([0x99]))
 
-    def test_get_pdu_class_unsupported_function_code(self) -> None:
-        """Test unsupported function code raises ValueError."""
-        with pytest.raises(ValueError, match="Unsupported function code: 0x18"):
-            get_pdu_class(bytes([FunctionCode.READ_FIFO_QUEUE]))
-
     def test_get_pdu_class_with_sub_function(self) -> None:
         """Test getting PDU class with sub-function code."""
         # ReadDeviceIdentificationPDU uses function code 0x2B and sub-function code 0x0E

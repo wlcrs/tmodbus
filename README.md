@@ -35,6 +35,8 @@ We choose to use the terminology _client_ and _server_ instead, as it is more cl
 * Read file record (`0x14`)
 * Write file record (`0x15`)
 * Mask write register (`0x16`)
+* Read/write multiple registers (`0x17`)
+* Read FIFO queue (`0x18`)
 * Read device identification (`0x2B / 0x0E`)
 
 ## Examples

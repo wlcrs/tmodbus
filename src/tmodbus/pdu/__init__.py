@@ -8,6 +8,7 @@ from .base import BaseClientPDU, BasePDU, BaseSubFunctionClientPDU, BaseSubFunct
 from .coils import ReadCoilsPDU, WriteMultipleCoilsPDU, WriteSingleCoilPDU
 from .device import ReadDeviceIdentificationPDU, ReadDeviceIdentificationResponse
 from .discrete_inputs import ReadDiscreteInputsPDU
+from .fifo import ReadFifoQueuePDU
 from .file import FileRecord, FileRecordRequest, ReadFileRecordPDU, WriteFileRecordPDU
 from .holding_registers import (
     MaskWriteRegisterPDU,
@@ -33,6 +34,7 @@ function_code_to_pdu_map: dict[int, type[BaseClientPDU[Any]]] = {
     FunctionCode.WRITE_FILE_RECORD: WriteFileRecordPDU,
     FunctionCode.MASK_WRITE_REGISTER: MaskWriteRegisterPDU,
     FunctionCode.READ_WRITE_MULTIPLE_REGISTERS: ReadWriteMultipleRegistersPDU,
+    FunctionCode.READ_FIFO_QUEUE: ReadFifoQueuePDU,
 }
 
 sub_function_code_to_pdu_map: dict[int, dict[int, type[BaseSubFunctionClientPDU[Any]]]] = {
@@ -129,6 +131,7 @@ __all__ = [
     "ReadDeviceIdentificationPDU",
     "ReadDeviceIdentificationResponse",
     "ReadDiscreteInputsPDU",
+    "ReadFifoQueuePDU",
     "ReadFileRecordPDU",
     "ReadHoldingRegistersPDU",
     "ReadInputRegistersPDU",

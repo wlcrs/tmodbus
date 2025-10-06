@@ -21,6 +21,7 @@ from tmodbus.pdu import (
     WriteSingleCoilPDU,
     WriteSingleRegisterPDU,
 )
+from tmodbus.pdu.fifo import ReadFifoQueuePDU
 from tmodbus.pdu.holding_registers_struct import HoldingRegisterReadMixin, HoldingRegisterWriteMixin
 from tmodbus.pdu.serial_line import ReportServerIdPDU, ServerIdResponse
 from tmodbus.transport.async_base import AsyncBaseTransport
@@ -344,6 +345,25 @@ class AsyncModbusClient(HoldingRegisterReadMixin, HoldingRegisterWriteMixin):
                 write_values=write_values,
             )
         )
+
+    async def read_fifo_queue(
+        self,
+        address: int,
+    ) -> list[int]:
+        """Read FIFO Queue (Function Code 0x18).
+
+        Args:
+            address: Address of the FIFO queue to read
+
+        Returns:
+            List of register values in the FIFO queue, each value is a 16-bit unsigned integer (0-65535)
+
+        Example:
+            >>> fifo_values = await client.read_fifo_queue(0)  # Read FIFO queue at address 0
+            [100, 200, 300, 400]
+
+        """
+        return await self.execute(ReadFifoQueuePDU(address=address))
 
     async def read_device_identification(
         self,
