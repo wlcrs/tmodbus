@@ -32,6 +32,8 @@ We choose to use the terminology _client_ and _server_ instead, as it is more cl
 * Write multiple coils (`0x0f`)
 * Write multiple registers (`0x10`)
 * Report server ID (`0x11`)
+* Read file record (`0x14`)
+* Write file record (`0x15`)
 * Mask write register (`0x16`)
 * Read device identification (`0x2B / 0x0E`)
 
