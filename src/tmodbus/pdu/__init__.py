@@ -9,6 +9,7 @@ from .coils import ReadCoilsPDU, WriteMultipleCoilsPDU, WriteSingleCoilPDU
 from .device import ReadDeviceIdentificationPDU, ReadDeviceIdentificationResponse
 from .discrete_inputs import ReadDiscreteInputsPDU
 from .holding_registers import (
+    MaskWriteRegisterPDU,
     ReadHoldingRegistersPDU,
     ReadInputRegistersPDU,
     WriteMultipleRegistersPDU,
@@ -24,6 +25,7 @@ function_code_to_pdu_map: dict[int, type[BaseClientPDU[Any]]] = {
     FunctionCode.WRITE_SINGLE_REGISTER: WriteSingleRegisterPDU,
     FunctionCode.WRITE_MULTIPLE_COILS: WriteMultipleCoilsPDU,
     FunctionCode.WRITE_MULTIPLE_REGISTERS: WriteMultipleRegistersPDU,
+    FunctionCode.MASK_WRITE_REGISTER: MaskWriteRegisterPDU,
 }
 
 sub_function_code_to_pdu_map: dict[int, dict[int, type[BaseSubFunctionClientPDU[Any]]]] = {
@@ -113,6 +115,7 @@ __all__ = [
     "BasePDU",
     "BaseSubFunctionClientPDU",
     "BaseSubFunctionPDU",
+    "MaskWriteRegisterPDU",
     "ReadCoilsPDU",
     "ReadDeviceIdentificationPDU",
     "ReadDeviceIdentificationResponse",

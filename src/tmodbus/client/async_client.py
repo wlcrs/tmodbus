@@ -9,6 +9,7 @@ from typing import Literal, Self, TypeVar
 
 from tmodbus.pdu import (
     BaseClientPDU,
+    MaskWriteRegisterPDU,
     ReadCoilsPDU,
     ReadDeviceIdentificationPDU,
     ReadDiscreteInputsPDU,
@@ -273,6 +274,29 @@ class AsyncModbusClient(HoldingRegisterReadMixin, HoldingRegisterWriteMixin):
 
         """
         return await self.execute(WriteMultipleRegistersPDU(start_address, values))
+
+    async def mask_write_register(
+        self,
+        address: int,
+        and_mask: int,
+        or_mask: int,
+    ) -> tuple[int, int]:
+        """Mask Write Register (Function Code 0x16).
+
+        Args:
+            address: Register address
+            and_mask: AND mask (16-bit)
+            or_mask: OR mask (16-bit)
+
+
+        Returns:
+            A tuple with the AND and OR masks that were written.
+
+        Example:
+            >>> await client.mask_write_register(0, 0xFF00, 0x00FF)
+
+        """
+        return await self.execute(MaskWriteRegisterPDU(address, and_mask, or_mask))
 
     async def read_device_identification(
         self,

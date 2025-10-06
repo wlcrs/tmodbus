@@ -395,3 +395,15 @@ def test_for_unit_id_raises_value_error_for_invalid_unit_id() -> None:
         client.for_unit_id(-1)
     with pytest.raises(ValueError, match="Unit ID must be in range 0-255"):
         client.for_unit_id(256)
+
+
+async def test_mask_write_register(dummy_client: AsyncModbusClient) -> None:
+    """Test mask_write_register method."""
+    assert isinstance(dummy_client.transport, DummyAsyncTransport)
+
+    # Test successful mask write
+    result = await dummy_client.mask_write_register(0x0004, 0xF2F2, 0x2525)
+    assert result == DUMMY_RESPONSE
+
+    # Verify that send_and_receive was called with the correct PDU type
+    assert ["send_and_receive", 1, "MaskWriteRegisterPDU"] in dummy_client.transport.performed_actions

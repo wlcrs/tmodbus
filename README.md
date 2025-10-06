@@ -31,6 +31,7 @@ We choose to use the terminology _client_ and _server_ instead, as it is more cl
 * Write single register (`0x06`)
 * Write multiple coils (`0x0f`)
 * Write multiple registers (`0x10`)
+* Mask write register (`0x16`)
 * Read device identification (`0x2B / 0x0E`)
 
 ## Examples

@@ -537,3 +537,113 @@ class WriteMultipleRegistersPDU(BasePDU[int]):
 
         """
         return self.raw_pdu.encode_response(value)
+
+
+class MaskWriteRegisterPDU(BasePDU[tuple[int, int]]):
+    """Mask Write Register PDU."""
+
+    function_code = FunctionCode.MASK_WRITE_REGISTER
+    rtu_response_data_length = 6  # address (2) + AND mask (2) + OR mask (2)
+
+    def __init__(self, address: int, and_mask: int, or_mask: int) -> None:
+        """Initialize Mask Write Register PDU.
+
+        Args:
+            address: Address of the register to write
+            and_mask: AND mask to apply
+            or_mask: OR mask to apply
+
+        Raises:
+            ValueError: If address or masks are invalid
+
+        """
+        if not (0 <= address < 65536):
+            msg = "Address must be between 0 and 65535."
+            raise ValueError(msg)
+        self.address = address
+
+        if not (0 <= and_mask < 65536):
+            msg = "AND mask must be between 0 and 65535."
+            raise ValueError(msg)
+        self.and_mask = and_mask
+
+        if not (0 <= or_mask < 65536):
+            msg = "OR mask must be between 0 and 65535."
+            raise ValueError(msg)
+        self.or_mask = or_mask
+
+    def encode_request(self) -> bytes:
+        """Convert PDU to bytes.
+
+        Returns:
+            Bytes representation of the Mask Write Register PDU
+
+        """
+        return struct.pack(">BHHH", self.function_code, self.address, self.and_mask, self.or_mask)
+
+    def decode_response(self, response: bytes) -> tuple[int, int]:
+        """Decode the response PDU.
+
+        Args:
+            response: Response PDU bytes
+
+        Returns:
+            Tuple of AND and OR masks applied
+
+        Raises:
+            InvalidResponseError: If response format is invalid
+
+        """
+        try:
+            function_code, address, and_mask, or_mask = struct.unpack(">BHHH", response)
+        except struct.error as e:
+            msg = "Expected response to start with function code, address, AND mask, and OR mask"
+            raise InvalidResponseError(msg, response_bytes=response) from e
+
+        if function_code != self.function_code:
+            msg = f"Invalid function code: expected {self.function_code:#04x}, received {function_code:#04x}"
+            raise InvalidResponseError(msg, response_bytes=response)
+
+        if address != self.address:
+            msg = f"Invalid address: expected {self.address}, received {address}"
+            raise InvalidResponseError(msg, response_bytes=response)
+
+        return and_mask, or_mask
+
+    @classmethod
+    def decode_request(cls, request: bytes) -> Self:
+        """Decode Mask Write Register Request PDU.
+
+        Args:
+            request: The request bytes.
+
+        Returns:
+            MaskWriteRegisterPDU instance created from the request.
+
+        Raises:
+            InvalidRequestError: If request format is invalid
+
+        """
+        try:
+            function_code, address, and_mask, or_mask = struct.unpack(">BHHH", request)
+        except struct.error as e:
+            msg = "Expected request to start with function code, address, AND mask, and OR mask"
+            raise InvalidRequestError(msg, request_bytes=request) from e
+
+        if function_code != cls.function_code:
+            msg = f"Invalid function code: expected {cls.function_code:#04x}, received {function_code:#04x}"
+            raise InvalidRequestError(msg, request_bytes=request)
+
+        return cls(address, and_mask, or_mask)
+
+    def encode_response(self, value: tuple[int, int]) -> bytes:
+        """Encode the response PDU.
+
+        Args:
+            value: Tuple of (and_mask, or_mask) that were applied.
+
+        Returns:
+            Bytes representation of the Mask Write Register response PDU.
+
+        """
+        return struct.pack(">BHHH", self.function_code, self.address, value[0], value[1])

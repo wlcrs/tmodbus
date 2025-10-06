@@ -4,6 +4,7 @@ import pytest
 from tmodbus.exceptions import InvalidRequestError, InvalidResponseError
 from tmodbus.pdu import ReadHoldingRegistersPDU, WriteMultipleRegistersPDU, WriteSingleRegisterPDU
 from tmodbus.pdu.holding_registers import (
+    MaskWriteRegisterPDU,
     RawReadHoldingRegistersPDU,
     RawReadInputRegistersPDU,
     RawWriteMultipleRegistersPDU,
@@ -531,3 +532,128 @@ class TestWriteMultipleRegistersPDU:
         request = pdu.encode_request()
         decoded_pdu = WriteMultipleRegistersPDU.decode_request(request)
         assert decoded_pdu.values == values
+
+
+# ============================================================================
+# MaskWriteRegisterPDU Tests
+# ============================================================================
+
+
+class TestMaskWriteRegisterPDU:
+    """Tests for MaskWriteRegisterPDU."""
+
+    def test_initialization_valid(self) -> None:
+        """Test valid initialization."""
+        pdu = MaskWriteRegisterPDU(address=0x0004, and_mask=0xF2F2, or_mask=0x2525)
+        assert pdu.address == 0x0004
+        assert pdu.and_mask == 0xF2F2
+        assert pdu.or_mask == 0x2525
+
+    @pytest.mark.parametrize(
+        ("address", "and_mask", "or_mask", "expected_error"),
+        [
+            (-1, 0xF2F2, 0x2525, "Address must be between 0 and 65535"),
+            (65536, 0xF2F2, 0x2525, "Address must be between 0 and 65535"),
+            (0x0004, -1, 0x2525, "AND mask must be between 0 and 65535"),
+            (0x0004, 65536, 0x2525, "AND mask must be between 0 and 65535"),
+            (0x0004, 0xF2F2, -1, "OR mask must be between 0 and 65535"),
+            (0x0004, 0xF2F2, 65536, "OR mask must be between 0 and 65535"),
+        ],
+    )
+    def test_initialization_invalid(self, address: int, and_mask: int, or_mask: int, expected_error: str) -> None:
+        """Test invalid initialization."""
+        with pytest.raises(ValueError, match=expected_error):
+            MaskWriteRegisterPDU(address=address, and_mask=and_mask, or_mask=or_mask)
+
+    def test_encode_request(self) -> None:
+        """Test encoding request."""
+        pdu = MaskWriteRegisterPDU(address=0x0004, and_mask=0xF2F2, or_mask=0x2525)
+        # Function code: 0x16, Address: 0x0004, AND mask: 0xF2F2, OR mask: 0x2525
+        expected = b"\x16\x00\x04\xf2\xf2\x25\x25"
+        assert pdu.encode_request() == expected
+
+    def test_decode_response_valid(self) -> None:
+        """Test decoding valid response."""
+        pdu = MaskWriteRegisterPDU(address=0x0004, and_mask=0xF2F2, or_mask=0x2525)
+        # Response echoes the request: function code, address, AND mask, OR mask
+        response = b"\x16\x00\x04\xf2\xf2\x25\x25"
+        result = pdu.decode_response(response)
+        assert result == (0xF2F2, 0x2525)
+
+    def test_decode_response_invalid_function_code(self) -> None:
+        """Test decoding response with invalid function code."""
+        pdu = MaskWriteRegisterPDU(address=0x0004, and_mask=0xF2F2, or_mask=0x2525)
+        # Invalid function code (0x03 instead of 0x16)
+        response = b"\x03\x00\x04\xf2\xf2\x25\x25"
+        with pytest.raises(InvalidResponseError, match=r"Invalid function code: expected 0x16, received 0x03"):
+            pdu.decode_response(response)
+
+    def test_decode_response_invalid_address(self) -> None:
+        """Test decoding response with invalid address."""
+        pdu = MaskWriteRegisterPDU(address=0x0004, and_mask=0xF2F2, or_mask=0x2525)
+        # Invalid address (0x0005 instead of 0x0004)
+        response = b"\x16\x00\x05\xf2\xf2\x25\x25"
+        with pytest.raises(InvalidResponseError, match=r"Invalid address: expected 4, received 5"):
+            pdu.decode_response(response)
+
+    def test_decode_response_too_short(self) -> None:
+        """Test decoding response that is too short."""
+        pdu = MaskWriteRegisterPDU(address=0x0004, and_mask=0xF2F2, or_mask=0x2525)
+        # Response too short
+        response = b"\x16\x00\x04"
+        with pytest.raises(
+            InvalidResponseError, match=r"Expected response to start with function code, address, AND mask, and OR mask"
+        ):
+            pdu.decode_response(response)
+
+    def test_rtu_response_data_length(self) -> None:
+        """Test RTU response data length constant."""
+        assert MaskWriteRegisterPDU.rtu_response_data_length == 6
+
+    @pytest.mark.parametrize(
+        ("address", "and_mask", "or_mask"),
+        [
+            (0, 0, 0),  # Minimum values
+            (65535, 65535, 65535),  # Maximum values
+            (0x0004, 0xF2F2, 0x2525),  # Example from Modbus spec
+            (100, 0xFFFF, 0x0000),  # All bits in AND mask
+            (200, 0x0000, 0xFFFF),  # All bits in OR mask
+        ],
+    )
+    def test_encode_decode_round_trip(self, address: int, and_mask: int, or_mask: int) -> None:
+        """Test encoding and decoding round trip."""
+        pdu = MaskWriteRegisterPDU(address=address, and_mask=and_mask, or_mask=or_mask)
+        request = pdu.encode_request()
+        # Simulate response (echoes request for mask write)
+        response = request
+        result = pdu.decode_response(response)
+        assert result == (and_mask, or_mask)
+
+    def test_decode_request_valid(self) -> None:
+        """Test decoding valid request."""
+        request = b"\x16\x00\x04\xf2\xf2\x25\x25"
+        pdu = MaskWriteRegisterPDU.decode_request(request)
+        assert pdu.address == 0x0004
+        assert pdu.and_mask == 0xF2F2
+        assert pdu.or_mask == 0x2525
+
+    def test_decode_request_invalid_function_code(self) -> None:
+        """Test decoding request with invalid function code."""
+        request = b"\x03\x00\x04\xf2\xf2\x25\x25"
+        with pytest.raises(InvalidRequestError, match=r"Invalid function code: expected 0x16, received 0x03"):
+            MaskWriteRegisterPDU.decode_request(request)
+
+    def test_decode_request_too_short(self) -> None:
+        """Test decoding request that is too short."""
+        request = b"\x16\x00\x04"
+        with pytest.raises(
+            InvalidRequestError, match=r"Expected request to start with function code, address, AND mask, and OR mask"
+        ):
+            MaskWriteRegisterPDU.decode_request(request)
+
+    def test_encode_response(self) -> None:
+        """Test encoding response."""
+        pdu = MaskWriteRegisterPDU(address=0x0004, and_mask=0xF2F2, or_mask=0x2525)
+        response = pdu.encode_response((0xF2F2, 0x2525))
+        expected = b"\x16\x00\x04\xf2\xf2\x25\x25"
+        assert response == expected
