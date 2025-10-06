@@ -15,6 +15,7 @@ from .holding_registers import (
     WriteMultipleRegistersPDU,
     WriteSingleRegisterPDU,
 )
+from .serial_line import ReportServerIdPDU, ServerIdResponse
 
 function_code_to_pdu_map: dict[int, type[BaseClientPDU[Any]]] = {
     FunctionCode.READ_COILS: ReadCoilsPDU,
@@ -25,6 +26,7 @@ function_code_to_pdu_map: dict[int, type[BaseClientPDU[Any]]] = {
     FunctionCode.WRITE_SINGLE_REGISTER: WriteSingleRegisterPDU,
     FunctionCode.WRITE_MULTIPLE_COILS: WriteMultipleCoilsPDU,
     FunctionCode.WRITE_MULTIPLE_REGISTERS: WriteMultipleRegistersPDU,
+    FunctionCode.REPORT_SERVER_ID: ReportServerIdPDU,
     FunctionCode.MASK_WRITE_REGISTER: MaskWriteRegisterPDU,
 }
 
@@ -122,6 +124,8 @@ __all__ = [
     "ReadDiscreteInputsPDU",
     "ReadHoldingRegistersPDU",
     "ReadInputRegistersPDU",
+    "ReportServerIdPDU",
+    "ServerIdResponse",
     "WriteMultipleCoilsPDU",
     "WriteMultipleRegistersPDU",
     "WriteSingleCoilPDU",

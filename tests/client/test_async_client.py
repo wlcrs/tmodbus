@@ -407,3 +407,15 @@ async def test_mask_write_register(dummy_client: AsyncModbusClient) -> None:
 
     # Verify that send_and_receive was called with the correct PDU type
     assert ["send_and_receive", 1, "MaskWriteRegisterPDU"] in dummy_client.transport.performed_actions
+
+
+async def test_mask_request_server_id(dummy_client: AsyncModbusClient) -> None:
+    """Test mask_write_register method."""
+    assert isinstance(dummy_client.transport, DummyAsyncTransport)
+
+    # Test successful mask write
+    result = await dummy_client.read_server_id()
+    assert result == DUMMY_RESPONSE
+
+    # Verify that send_and_receive was called with the correct PDU type
+    assert ["send_and_receive", 1, "ReportServerIdPDU"] in dummy_client.transport.performed_actions

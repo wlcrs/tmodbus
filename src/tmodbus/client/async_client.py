@@ -21,6 +21,7 @@ from tmodbus.pdu import (
     WriteSingleRegisterPDU,
 )
 from tmodbus.pdu.holding_registers_struct import HoldingRegisterReadMixin, HoldingRegisterWriteMixin
+from tmodbus.pdu.serial_line import ReportServerIdPDU, ServerIdResponse
 from tmodbus.transport.async_base import AsyncBaseTransport
 
 logger = logging.getLogger(__name__)
@@ -274,6 +275,20 @@ class AsyncModbusClient(HoldingRegisterReadMixin, HoldingRegisterWriteMixin):
 
         """
         return await self.execute(WriteMultipleRegistersPDU(start_address, values))
+
+    async def read_server_id(self) -> "ServerIdResponse":
+        """Read Server ID (Function Code 0x11).
+
+        Returns:
+            An instance of ServerIdResponse containing the server ID and run indicator status.
+
+        Example:
+            >>> response = await client.read_server_id()
+            >>> print("Server ID:", response.server_id)
+            >>> print("Run Indicator Status:", response.run_indicator_status)
+
+        """
+        return await self.execute(ReportServerIdPDU())
 
     async def mask_write_register(
         self,
