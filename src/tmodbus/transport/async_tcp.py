@@ -12,7 +12,7 @@ from typing import Any, TypeVar
 from tmodbus.exceptions import (
     InvalidResponseError,
     ModbusConnectionError,
-    ModbusResponseError,
+    UnknownModbusResponseError,
     error_code_to_exception_map,
 )
 from tmodbus.pdu import BaseClientPDU
@@ -229,8 +229,7 @@ class AsyncTcpTransport(AsyncBaseTransport):
             function_code = response_pdu_bytes[0] & 0x7F  # Remove exception flag bit
             exception_code = response_pdu_bytes[1] if len(response_pdu_bytes) > 1 else 0
 
-            error_class = error_code_to_exception_map.get(exception_code, ModbusResponseError)
-
+            error_class = error_code_to_exception_map.get(exception_code, UnknownModbusResponseError)
             raise error_class(exception_code, function_code)
 
         return pdu.decode_response(response_pdu_bytes)

@@ -57,10 +57,24 @@ class RTUFrameError(InvalidResponseError):
     """
 
 
+class ASCIIFrameError(InvalidResponseError):
+    """ASCII frame error exception.
+
+    Raised when there is a framing error in the received ASCII frame.
+    """
+
+
 class CRCError(InvalidResponseError):
     """CRC validation error exception.
 
     Raised when CRC validation of received data frame fails.
+    """
+
+
+class LRCError(InvalidResponseError):
+    """LRC validation error exception.
+
+    Raised when LRC validation of received data frame fails.
     """
 
 
@@ -165,6 +179,22 @@ class AbnormalDeviceDescriptionError(ModbusResponseError):
     """The device description definition call returned a response."""
 
     error_code = ExceptionCode.ABNORNMAL_DEVICE_DESCRIPTION
+
+
+class UnknownModbusResponseError(ModbusResponseError):
+    """Unknown Modbus exception response."""
+
+    def __init__(self, error_code: int, function_code: int) -> None:
+        """Initialize UnknownModbusResponseError.
+
+        Args:
+            error_code: Error code from the Modbus exception response
+            function_code: Function code of the request that caused the exception
+
+        """
+        # do not call super() as we want to override the error_code
+        self.function_code = function_code
+        self.error_code = error_code  # Override with actual unknown error code
 
 
 error_code_to_exception_map: dict[int, type[ModbusResponseError]] = {

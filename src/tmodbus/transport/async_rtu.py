@@ -61,8 +61,8 @@ from tmodbus.exceptions import (
     CRCError,
     InvalidResponseError,
     ModbusConnectionError,
-    ModbusResponseError,
     RTUFrameError,
+    UnknownModbusResponseError,
     error_code_to_exception_map,
 )
 from tmodbus.pdu import BaseClientPDU, get_pdu_class
@@ -278,7 +278,7 @@ class AsyncRtuTransport(AsyncBaseTransport):
                 function_code = response_function_code & 0x7F  # Remove exception flag bit
                 exception_code = response_pdu[1] if len(response_pdu) > 1 else 0
 
-                error_class = error_code_to_exception_map.get(exception_code, ModbusResponseError)
+                error_class = error_code_to_exception_map.get(exception_code, UnknownModbusResponseError)
                 raise error_class(exception_code, function_code)
 
             if response_function_code != pdu.function_code:
