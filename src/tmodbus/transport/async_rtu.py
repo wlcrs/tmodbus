@@ -48,15 +48,6 @@ import time
 from functools import partial
 from typing import NotRequired, TypedDict, TypeVar, Unpack
 
-try:
-    import serial_asyncio_fast
-except ImportError as e:  # pragma: no cover
-    msg = (
-        "The 'serial_asyncio_fast' package is required for AsyncRtuTransport."
-        " Install with 'pip install tmodbus[async-rtu]'"
-    )
-    raise ImportError(msg) from e
-
 from tmodbus.exceptions import (
     CRCError,
     InvalidResponseError,
@@ -170,6 +161,15 @@ class AsyncRtuTransport(AsyncBaseTransport):
 
     async def open(self) -> None:
         """Establish Serial connection."""
+        try:
+            import serial_asyncio_fast  # noqa: PLC0415
+        except ImportError as e:  # pragma: no cover
+            msg = (
+                "The 'serial_asyncio_fast' package is required for AsyncRtuTransport."
+                " Install with 'pip install tmodbus[async-rtu]'"
+            )
+            raise ImportError(msg) from e
+
         async with self._communication_lock:
             if self.is_open():
                 logger.debug("Serial connection already open: %s", self.port)

@@ -310,7 +310,7 @@ async def test_open_already_open(mock_asyncio_connection: tuple[MagicMock, Magic
 async def test_open_timeout(monkeypatch: pytest.MonkeyPatch) -> None:
     """Test that open raises TimeoutError when connection times out."""
     monkeypatch.setattr(
-        "tmodbus.transport.async_ascii.serial_asyncio_fast.open_serial_connection",
+        "serial_asyncio_fast.open_serial_connection",
         AsyncMock(side_effect=asyncio.TimeoutError),
     )
 
@@ -364,7 +364,7 @@ async def test_open_raises_modbus_connection_error_on_generic_exception(
 ) -> None:
     """Test that open raises ModbusConnectionError for generic exceptions."""
     monkeypatch.setattr(
-        "tmodbus.transport.async_ascii.serial_asyncio_fast.open_serial_connection",
+        "serial_asyncio_fast.open_serial_connection",
         AsyncMock(side_effect=Exception("Connection failed")),
     )
 

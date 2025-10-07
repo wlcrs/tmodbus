@@ -66,7 +66,7 @@ async def test_open_timeout(monkeypatch: pytest.MonkeyPatch) -> None:
     """Test that open raises TimeoutError when open_serial_connection times out."""
     # simulate open_serial_connection timing out
     monkeypatch.setattr(
-        "tmodbus.transport.async_rtu.serial_asyncio_fast.open_serial_connection",
+        "serial_asyncio_fast.open_serial_connection",
         AsyncMock(side_effect=asyncio.TimeoutError),
     )
     t = AsyncRtuTransport("/dev/ttyUSB0", baudrate=9600)
@@ -358,7 +358,7 @@ async def test_open_raises_modbus_connection_error_on_generic_exception(monkeypa
     """Test that open raises ModbusConnectionError when open_serial_connection raises RuntimeError."""
     # open_serial_connection raises RuntimeError -> open should raise ModbusConnectionError
     monkeypatch.setattr(
-        "tmodbus.transport.async_rtu.serial_asyncio_fast.open_serial_connection",
+        "serial_asyncio_fast.open_serial_connection",
         AsyncMock(side_effect=RuntimeError("boom")),
     )
     t = AsyncRtuTransport("/dev/ttyUSB0", baudrate=9600)
