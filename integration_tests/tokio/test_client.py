@@ -7,7 +7,7 @@ from pathlib import Path
 
 import pytest
 from tmodbus.client import AsyncModbusClient
-from tmodbus.transport import AsyncRtuTransport, AsyncTcpTransport
+from tmodbus.transport import AsyncRtuOverTcpTransport, AsyncRtuTransport, AsyncTcpTransport
 from tmodbus.transport.async_base import AsyncBaseTransport
 
 
@@ -57,8 +57,13 @@ def server() -> Generator[None]:
     [
         AsyncTcpTransport("127.0.0.1", 5502),
         AsyncRtuTransport(str(Path(__file__).with_name("client-socket")), baudrate=19200),
+        AsyncRtuOverTcpTransport("127.0.0.1", 5503),
     ],
-    ids=["tcp", "rtu"],
+    ids=[
+        "tcp",
+        "rtu",
+        "rtu_over_tcp",
+    ],
 )
 @pytest.mark.usefixtures("log_traffic", "server")
 async def test_client(transport: AsyncBaseTransport) -> None:
