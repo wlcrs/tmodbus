@@ -8,6 +8,10 @@ General
 
 .. autofunction:: tmodbus.create_async_rtu_client
 
+.. autofunction:: tmodbus.create_async_ascii_client
+
+.. autofunction:: tmodbus.create_async_rtu_over_tcp_client
+
 Client layer
 ------------
 
