@@ -147,7 +147,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
 
 
 
-    let rtu_socket_addr : SocketAddr = "127.0.0.1:5503".parse().unwrap();
+    let rtu_socket_addr : SocketAddr = "127.0.0.1:5603".parse().unwrap();
     let rtu_listener = TcpListener::bind(rtu_socket_addr).await?;
     let _rtu_over_tcp_server = thread::spawn(move || {
         let rt = tokio::runtime::Runtime::new().unwrap();
@@ -169,7 +169,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     });
 
 
-    let socket_addr : SocketAddr = "127.0.0.1:5502".parse().unwrap();
+    let socket_addr : SocketAddr = "127.0.0.1:5602".parse().unwrap();
 
     println!("Starting up server on {socket_addr}");
     let listener = TcpListener::bind(socket_addr).await?;

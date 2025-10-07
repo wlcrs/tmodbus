@@ -1,11 +1,11 @@
 [package]
-name = "tcp-server"
+name = "tokio-modbus-server"
 version = "0.1.0"
 edition="2021"
 rust-version="1.76"
 
 [[bin]]
-name = "server"
+name = "tokio-server"
 path = "server.rs"
 
 [dependencies]

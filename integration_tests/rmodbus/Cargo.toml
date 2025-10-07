@@ -1,0 +1,19 @@
+[package]
+name = "rmodbus-server"
+version = "0.1.0"
+edition="2021"
+rust-version="1.76"
+
+[[bin]]
+name = "server"
+path = "server.rs"
+
+[[bin]]
+name = "ascii-server"
+path = "ascii-server.rs"
+
+
+[dependencies]
+rmodbus = { version = "0.12.2" }
+once_cell = { version = "1.19.0" }
+serial = { version = "0.4.0" }

@@ -17,18 +17,22 @@ def log_traffic(caplog: pytest.LogCaptureFixture) -> None:
     caplog.set_level("DEBUG", logger="tmodbus")
 
 
+server_socket_path = Path(__file__).with_name("tokio-server-socket")
+client_socket_path = Path(__file__).with_name("tokio-client-socket")
+
+
 @pytest.fixture(scope="session")
 def server() -> Generator[None]:
     """Start socat and server process."""
     # Use socat to create a virtual serial port
-    socat_process = subprocess.Popen(
+    socat_process = subprocess.Popen(  # noqa: S603
         [
             "/usr/bin/socat",
             "-d",
             "-d",
             "-v",
-            "pty,rawer,echo=0,link=./server-socket",
-            "pty,rawer,echo=0,link=./client-socket",
+            f"pty,rawer,echo=0,link={server_socket_path}",
+            f"pty,rawer,echo=0,link={client_socket_path}",
         ],
         cwd=str(Path(__file__).parent),
     )
@@ -38,8 +42,8 @@ def server() -> Generator[None]:
     # Start the server process and connect it to the socat server-socket
     server_process = subprocess.Popen(  # noqa: S603
         [
-            str(Path(__file__).parent / "target/release/server"),
-            str(Path(__file__).with_name("server-socket")),
+            str(Path(__file__).parent / "target/release/tokio-server"),
+            str(server_socket_path),
         ],
     )
 
@@ -55,9 +59,9 @@ def server() -> Generator[None]:
 @pytest.mark.parametrize(
     "transport",
     [
-        AsyncTcpTransport("127.0.0.1", 5502),
-        AsyncRtuTransport(str(Path(__file__).with_name("client-socket")), baudrate=19200),
-        AsyncRtuOverTcpTransport("127.0.0.1", 5503),
+        AsyncTcpTransport("127.0.0.1", 5602),
+        AsyncRtuTransport(str(client_socket_path), baudrate=19200),
+        AsyncRtuOverTcpTransport("127.0.0.1", 5603),
     ],
     ids=[
         "tcp",
