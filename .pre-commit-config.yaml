@@ -66,6 +66,11 @@ repos:
         language: system
         types: [yaml]
         entry: uv run check-yaml
+      - id: check-rst
+        name: 📜 Check reStructuredText files
+        language: system
+        types: [rst]
+        entry: uv run docstrfmt
       - id: codespell
         name: ✅ Check code for common misspellings
         language: system
