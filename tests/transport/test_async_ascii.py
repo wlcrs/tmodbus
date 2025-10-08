@@ -9,6 +9,7 @@ Tests verify compliance with Modbus ASCII specification including:
 
 import asyncio
 import time
+from functools import partial
 from unittest.mock import ANY, AsyncMock, MagicMock, patch
 
 import pytest
@@ -49,9 +50,14 @@ class _DummyPDU(BaseClientPDU[tuple[str, bytes]]):
         return ("decoded", data)
 
 
-def _dummy_readuntil(separator: bytes) -> bytes:
+def _dummy_readuntil(separator: bytes, *, response_frame: bytes) -> bytes:
+    assert response_frame.startswith(b":")
+    assert response_frame.endswith(b"\r\n")
+
     if separator == b":":
         return b":"
+    if separator == b"\r\n":
+        return response_frame[1:]
     msg = f"Unexpected separator: {separator!r}"
     raise ValueError(msg)
 
@@ -393,8 +399,7 @@ async def test_send_and_receive_success(
     response_pdu = b"\x03\x02\x00\x64"
     response_frame = build_ascii_frame(unit_id, response_pdu)
 
-    reader.readuntil = AsyncMock(side_effect=_dummy_readuntil)  # Return ':' when asked
-    reader.readline = AsyncMock(return_value=response_frame[1:])  # Return everything after ':'
+    reader.readuntil = AsyncMock(side_effect=partial(_dummy_readuntil, response_frame=response_frame))
 
     async with transport:
         result = await transport.send_and_receive(unit_id, pdu)
@@ -456,8 +461,7 @@ async def test_receive_response_frame_too_large(
     # Create a frame that's too large
     large_frame = b":" + (b"00" * (MAX_ASCII_FRAME_SIZE + 10)) + b"\r\n"
 
-    reader.readuntil = AsyncMock(side_effect=_dummy_readuntil)  # Return ':' when asked
-    reader.readline = AsyncMock(return_value=large_frame[1:])  # Return everything after ':'
+    reader.readuntil = AsyncMock(side_effect=partial(_dummy_readuntil, response_frame=large_frame))
 
     transport = AsyncAsciiTransport("/dev/ttyUSB0", baudrate=9600)
     transport._reader = reader
@@ -482,8 +486,7 @@ async def test_send_and_receive_wrong_address(
     response_pdu = b"\x03\x02\x00\x64"
     response_frame = build_ascii_frame(wrong_address, response_pdu)
 
-    reader.readuntil = AsyncMock(side_effect=_dummy_readuntil)  # Return ':' when asked
-    reader.readline = AsyncMock(return_value=response_frame[1:])  # Return everything after ':'
+    reader.readuntil = AsyncMock(side_effect=partial(_dummy_readuntil, response_frame=response_frame))
 
     transport._reader = reader
     transport._writer = writer
@@ -507,9 +510,7 @@ async def test_send_and_receive_exception_response(
     exception_pdu = b"\x83\x01"  # 0x03 + 0x80 = 0x83, exception code 1
     response_frame = build_ascii_frame(unit_id, exception_pdu)
 
-    reader.readuntil = AsyncMock(side_effect=_dummy_readuntil)  # Return ':' when asked
-    reader.readline = AsyncMock(return_value=response_frame[1:])  # Return everything after ':'
-
+    reader.readuntil = AsyncMock(side_effect=partial(_dummy_readuntil, response_frame=response_frame))
     async with transport:
         with pytest.raises(IllegalFunctionError):
             await transport.send_and_receive(unit_id, pdu)
@@ -532,8 +533,7 @@ async def test_send_and_receive_invalid_lrc(
     hex_content = ascii_encode(message + bytes([wrong_lrc]))
     bad_frame = b":" + hex_content + b"\r\n"
 
-    reader.readuntil = AsyncMock(side_effect=_dummy_readuntil)  # Return ':' when asked
-    reader.readline = AsyncMock(return_value=bad_frame[1:])  # Return everything after ':'
+    reader.readuntil = AsyncMock(side_effect=partial(_dummy_readuntil, response_frame=bad_frame))
 
     async with transport:
         with pytest.raises(LRCError):
@@ -554,8 +554,7 @@ async def test_interframe_delay(
     response_pdu = b"\x03\x02\x00\x64"
     response_frame = build_ascii_frame(unit_id, response_pdu)
 
-    reader.readuntil = AsyncMock(side_effect=_dummy_readuntil)  # Return ':' when asked
-    reader.readline = AsyncMock(return_value=response_frame[1:])  # Return everything after ':'
+    reader.readuntil = AsyncMock(side_effect=partial(_dummy_readuntil, response_frame=response_frame))
 
     transport._reader = reader
     transport._writer = writer
@@ -730,8 +729,7 @@ async def test_send_and_receive_exception_response_no_exception_code(
     exception_pdu = b"\x83"  # 0x03 + 0x80 = 0x83, but no exception code byte
     response_frame = build_ascii_frame(unit_id, exception_pdu)
 
-    reader.readuntil = AsyncMock(side_effect=_dummy_readuntil)  # Return ':' when asked
-    reader.readline = AsyncMock(return_value=response_frame[1:])
+    reader.readuntil = AsyncMock(side_effect=partial(_dummy_readuntil, response_frame=response_frame))
 
     transport._reader = reader
     transport._writer = writer
@@ -762,11 +760,12 @@ async def test_receive_response_with_garbage_before_frame(
         if separator == b":":
             # Return garbage + ':'
             return garbage + b":"
+        if separator == b"\r\n":
+            return response_frame[1:]
         msg = f"Unexpected separator: {separator!r}"
         raise ValueError(msg)
 
     reader.readuntil = AsyncMock(side_effect=mock_readuntil)
-    reader.readline = AsyncMock(return_value=response_frame[1:])  # Return everything after ':'
 
     transport._reader = reader
     transport._writer = writer
@@ -829,8 +828,7 @@ async def test_send_and_receive_function_code_mismatch(
     wrong_response_pdu = b"\x04\x02\x00\x64"  # Function code 0x04
     response_frame = build_ascii_frame(unit_id, wrong_response_pdu)
 
-    reader.readuntil = AsyncMock(side_effect=_dummy_readuntil)  # Return ':' when asked
-    reader.readline = AsyncMock(return_value=response_frame[1:])
+    reader.readuntil = AsyncMock(side_effect=partial(_dummy_readuntil, response_frame=response_frame))
 
     transport._reader = reader
     transport._writer = writer

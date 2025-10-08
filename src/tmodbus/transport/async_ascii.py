@@ -260,11 +260,10 @@ class AsyncAsciiTransport(AsyncBaseTransport):
                 log_raw_traffic("recv", c[:-1], is_error=True)
                 logger.info("Discarded %d bytes of garbage before start of frame: %s", len(c) - 1, c[:-1])
 
-            frame = bytearray([c[-1]])
+            frame = bytes([c[-1]])
 
             # Read until '\r\n'
-            while not frame.endswith(ASCII_FRAME_END) and not len(frame) > MAX_ASCII_FRAME_SIZE:
-                frame += await asyncio.wait_for(self._reader.readline(), timeout=self.timeout)
+            frame += await asyncio.wait_for(self._reader.readuntil(b"\r\n"), timeout=self.timeout)
 
         except asyncio.IncompleteReadError as e:
             msg = "Incomplete read while waiting for start of frame."
