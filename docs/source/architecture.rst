@@ -68,6 +68,8 @@ The specific transport protocols are implemented in the following classes:
 
 - :class:`tmodbus.transport.AsyncTcpTransport`: Implements Modbus over TCP.
 - :class:`tmodbus.transport.AsyncRtuTransport`: Implements Modbus over RTU.
+- :class:`tmodbus.transport.AsyncAsciiTransport`: Implements Modbus over ASCII.
+- :class:`tmodbus.transport.AsyncRtuOverTcpTransport`: Implements Modbus RTU over TCP.
 
 Additionally, the transport layer also features the :class:`tmodbus.transport.AsyncSmartTransport` class, which implements
 intelligent reconnect and retry logic to create a very robust transport which is capable of handling unstable underlying connections.
@@ -77,8 +79,8 @@ under the hood to provide this functionality and to make it easy for the end-use
 PDU layer
 +++++++++
 
-The PDU layer is responsible for constructing and parsing Modbus Protocol Data Units (PDUs). It handles the encoding and decoding of Modbus messages,
-ensuring that they conform to the Modbus specification.
+The PDU layer is responsible for constructing and parsing Modbus Protocol Data Units (PDUs).
+It handles the encoding and decoding of Modbus messages, ensuring that they conform to the Modbus specification.
 
 It has been designed to be easily extensible, allowing for the support of vendor-specific function codes and custom PDUs.
 If you want to add support for a custom PDU, you can create a new class that inherits from :class:`tmodbus.pdu.BaseClientPDU` and implements the required methods.

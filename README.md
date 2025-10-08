@@ -1,7 +1,7 @@
 # tModbus
 
 [![Homepage](https://img.shields.io/badge/Homepage-2088ff?logo=github&logoColor=white)](https://github.com/wlcrs/tmodbus)
-[![Documentation](https://img.shields.io/badge/Documentation-2D963D?logo=read-the-docs&logoColor=white)](https://github.com/wlcrs/tmodbus)
+[![Documentation](https://img.shields.io/badge/Documentation-2D963D?logo=read-the-docs&logoColor=white)](https://tmodbus.readthedocs.io)
 [![GitHub License](https://img.shields.io/github/license/wlcrs/tmodbus)](https://github.com/wlcrs/tmodbus/blob/main/LICENSE)
 [![Release](https://img.shields.io/github/v/release/wlcrs/tmodbus.svg)](https://github.com/wlcrs/tmodbus/releases)
 [![Python Versions](https://img.shields.io/pypi/pyversions/tmodbus)](https://pypi.org/p/tmodbus/)

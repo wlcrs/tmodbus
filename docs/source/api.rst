@@ -1,6 +1,16 @@
 API
 ===
 
+For general use, you can create an asynchronous Modbus client using
+ one of the factory functions provided in the :mod:`tmodbus` module
+and use the functions of the returned :class:`~tmodbus.client.AsyncModbusClient`
+instance to interact with a Modbus server.
+
+If your Modbus device uses non-standard function codes or requires special handling,
+you can create a custom PDU class by inheriting from :class:`~tmodbus.pdu.pdu_modbus.ModbusClientPDU`
+and implementing the necessary methods. cfr. :doc:`Vendor functions <vendor_functions>` for more details.
+
+
 General
 -------
 

@@ -116,3 +116,25 @@ but it shows how you can return a complex object from the `decode_response` meth
 
 
     register_pdu_class(LoginRequestChallengePDU)
+
+
+Using your custom PDU
+----------------------
+
+To use your custom PDU, you can create an instance of it and pass it to the
+:func:`tmodbus.client.AsyncModbusClient.execute` method.
+
+
+.. code-block:: python
+
+    import asyncio
+    from tmodbus import create_async_tcp_client
+
+    async def main():
+        async with create_async_tcp_client(host="localhost", port=502) as client:
+            pdu = LoginRequestChallengePDU()
+            response : LoginChallenge = await client.execute(pdu)
+            print(f"Received challenge: {response.challenge.hex()}")
+
+    if __name__ == "__main__":
+        asyncio.run(main())
