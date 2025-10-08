@@ -3,7 +3,7 @@ revision = 3
 requires-python = ">=3.12"
 
 [options]
-prerelease-mode = "allow"
+prerelease-mode = "if-necessary"
 
 [[package]]
 name = "alabaster"
@@ -868,13 +868,13 @@ wheels = [
 [[package]]
 name = "tmodbus"
 source = { editable = "." }
+dependencies = [
+    { name = "tenacity" },
+]
 
 [package.optional-dependencies]
-async-rtu = [
+async-serial = [
     { name = "pyserial-asyncio-fast" },
-]
-smart = [
-    { name = "tenacity" },
 ]
 
 [package.dev-dependencies]
@@ -900,10 +900,10 @@ docs = [
 
 [package.metadata]
 requires-dist = [
-    { name = "pyserial-asyncio-fast", marker = "extra == 'async-rtu'", specifier = ">=0.16" },
-    { name = "tenacity", marker = "extra == 'smart'", specifier = ">=9.1.2" },
+    { name = "pyserial-asyncio-fast", marker = "extra == 'async-serial'", specifier = ">=0.16" },
+    { name = "tenacity", specifier = ">=9.1.2" },
 ]
-provides-extras = ["async-rtu", "smart"]
+provides-extras = ["async-serial"]
 
 [package.metadata.requires-dev]
 dev = [

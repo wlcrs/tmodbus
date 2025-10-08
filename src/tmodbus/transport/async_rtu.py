@@ -166,7 +166,7 @@ class AsyncRtuTransport(AsyncBaseTransport):
         except ImportError as e:  # pragma: no cover
             msg = (
                 "The 'serial_asyncio_fast' package is required for AsyncRtuTransport."
-                " Install with 'pip install tmodbus[async-rtu]'"
+                " Install with 'pip install tmodbus[async-serial]'"
             )
             raise ImportError(msg) from e
 

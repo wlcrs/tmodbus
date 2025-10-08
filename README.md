@@ -1,8 +1,11 @@
 # tModbus
+
+[![Homepage](https://img.shields.io/badge/Homepage-2088ff?logo=github&logoColor=white)](https://github.com/wlcrs/tmodbus)
+[![Documentation](https://img.shields.io/badge/Documentation-2D963D?logo=read-the-docs&logoColor=white)](https://github.com/wlcrs/tmodbus)
+[![GitHub License](https://img.shields.io/github/license/wlcrs/tmodbus)](https://github.com/wlcrs/tmodbus/blob/main/LICENSE)
 [![Release](https://img.shields.io/github/v/release/wlcrs/tmodbus.svg)](https://github.com/wlcrs/tmodbus/releases)
 [![Python Versions](https://img.shields.io/pypi/pyversions/tmodbus)](https://pypi.org/p/tmodbus/)
 [![Testing](https://github.com/wlcrs/tmodbus/actions/workflows/tests.yml/badge.svg)](https://github.com/wlcrs/tmodbus/actions/workflows/tests.yml)
-
 ## About
 
 A modern Python Modbus library that is fully **t**yped and well-**t**ested.
@@ -15,7 +18,7 @@ We choose to use the terminology _client_ and _server_ instead, as it is more cl
 - Pure Python library with minimal dependencies
 - Fully **t**yped
 - Full **t**est coverage
-- Support for both Modbus TCP and RTU clients
+- Support for Modbus TCP, RTU, ASCII and RTU-over-TCP clients
 - Support for TCP over SSL connections
 - Auto reconnect and retry functionality (which can be enabled optionally)
 - Extensible with custom Modbus functions and exception codes
@@ -66,19 +69,12 @@ Various examples for Modbus RTU and TCP can be found in the [examples](./example
 
 ## Dependencies
 
-**async-rtu**
+**async-serial**
 
 This library uses [pyserial-asyncio-fast](https://pypi.org/project/pyserial-asyncio-fast/) to
-access the serial port when using async RTU.
+access the serial port when using async RTU or ASCII.
 
-Use `pip install tmodbus[async-rtu]` to install.
-
-**smart**
-
-This library uses [tenacity](https://github.com/jd/tenacity) to implement the reconnect and retry-logic,
-giving you access to a powerful API to customize the retry behavior of this library.
-
-Use `pip install tmodbus[smart]` to install.
+Use `pip install tmodbus[async-serial]` to install.
 
 ## Changelog & releases
 

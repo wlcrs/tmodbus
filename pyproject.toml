@@ -1,22 +1,44 @@
 [project]
 name = "tmodbus"
-authors= [{name="wlcrs"}]
 description = "A modern, strongly typed Modbus client library."
+license = { text = "BSD-3-Clause" }
+authors = [{ name = "wlcrs" }]
 readme = "README.md"
 requires-python = ">=3.12"
-keywords = ["modbus", "modbus-tcp", "modbus-rtu"]
+keywords = [
+  "modbus",
+  "modbus-tcp",
+  "modbus-rtu",
+  "modbus-ascii",
+  "modbus-rtu-over-tcp",
+]
+
+classifiers = [
+  "Framework :: AsyncIO",
+  "Development Status :: 4 - Beta",
+  "Intended Audience :: Developers",
+  "License :: OSI Approved :: BSD License",
+  "Programming Language :: Python :: 3.12",
+  "Programming Language :: Python :: 3.13",
+  "Programming Language :: Python :: 3.14",
+  "Topic :: System :: Networking",
+  "Typing :: Typed",
+]
+
 dynamic = ["version"]
 
+dependencies = ["tenacity>=9.1.2"]
+
+[project.urls]
+HomePage = "https://github.com/wlcrs/tmodbus"
+Documentation = "https://tmodbus.readthedocs.org"
+Repository = "https://github.com/wlcrs/tmodbus"
+Issues = "https://github.com/wlcrs/tmodbus/issues"
+Changelog = "https://github.com/wlcrs/tmodbus/releases"
 
 [project.optional-dependencies]
 
-async-rtu = [
-    "pyserial-asyncio-fast>=0.16",
-]
-
-smart = [
-    "tenacity>=9.1.2",
-]
+async-serial = ["pyserial-asyncio-fast>=0.16"]
 
 [build-system]
 requires = ["hatchling", "hatch-vcs"]
@@ -39,11 +61,11 @@ line-length = 120
 
 [tool.ruff.lint]
 ignore = [
-  "ANN401", # Opinioated warning on disallowing dynamically typed expressions
-  "D203", # Conflicts with other rules
-  "D213", # Conflicts with other rules
+  "ANN401",  # Opinioated warning on disallowing dynamically typed expressions
+  "D203",    # Conflicts with other rules
+  "D213",    # Conflicts with other rules
   "PLR2004", # Just annoying, not really useful
-  "S101", # allow asserts
+  "S101",    # allow asserts
 
   # Conflicts with the Ruff formatter
   "COM812",
@@ -100,7 +122,7 @@ fail_under = 100
 
 
 [tool.uv]
-prerelease = "allow"
+prerelease = "if-necessary"
 
 [dependency-groups]
 dev = [
