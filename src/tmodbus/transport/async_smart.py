@@ -17,6 +17,7 @@ from typing import TYPE_CHECKING, TypeVar
 try:
     from tenacity import (
         AsyncRetrying,
+        RetryCallState,
         RetryError,
         retry_any,
         retry_if_exception_type,
@@ -38,7 +39,7 @@ from tmodbus.pdu import BaseClientPDU
 from .async_base import AsyncBaseTransport
 
 if TYPE_CHECKING:
-    from tenacity import retry_base
+    from tenacity.retry import RetryBaseT
 
 logger = logging.getLogger(__name__)
 
@@ -68,11 +69,12 @@ class AsyncSmartTransport(AsyncBaseTransport):
 
     _communication_lock: asyncio.Lock = asyncio.Lock()
     _should_be_connected: bool = False
+    _must_reconnect: bool = False
 
     auto_reconnect: AsyncRetrying | None = None
     response_retry_strategy: AsyncRetrying
 
-    def __init__(  # noqa: PLR0913
+    def __init__(  # noqa: C901, PLR0913
         self,
         base_transport: "AsyncBaseTransport",
         *,
@@ -123,14 +125,15 @@ class AsyncSmartTransport(AsyncBaseTransport):
             raise ValueError(msg)
         self.on_reconnected = on_reconnected
 
-        retry_functions: list[retry_base] = [
-            # retry if connection was interrupted
-            retry_if_exception_type((ConnectionResetError, asyncio.IncompleteReadError)),
-        ]
+        retry_functions: list[RetryBaseT] = []
+
         if not response_retry_strategy:
             response_retry_strategy = DEFAULT_RESPONSE_RETRY_STRATEGY
         elif response_retry_strategy.retry:
-            retry_functions.append(response_retry_strategy.retry)  # type: ignore[arg-type]
+            retry_functions.append(response_retry_strategy.retry)
+
+        if auto_reconnect:
+            retry_functions.append(self._retry_with_new_connection_if_needed)
 
         if retry_on_device_busy:
             retry_functions.append(retry_if_exception_type(ServerDeviceBusyError))
@@ -138,7 +141,7 @@ class AsyncSmartTransport(AsyncBaseTransport):
         if retry_on_device_failure:
             retry_functions.append(retry_if_exception_type(ServerDeviceFailureError))
 
-        self.response_retry_strategy = response_retry_strategy.copy(retry=retry_any(*retry_functions))
+        self.response_retry_strategy = response_retry_strategy.copy(retry=retry_any(*retry_functions))  # type: ignore[arg-type]
 
         self._last_request_finished_at: float | None = None
 
@@ -153,12 +156,19 @@ class AsyncSmartTransport(AsyncBaseTransport):
 
         """
         async with self._communication_lock:
-            await self.base_transport.open()
-            if self.wait_after_connect > 0:
-                logger.debug("Waiting %.2f seconds after TCP connection before sending data", self.wait_after_connect)
-                await asyncio.sleep(self.wait_after_connect)
+            await self._open()
 
-            self._should_be_connected = True
+    async def _open(self) -> None:
+        """Open Transport Connection without Lock.
+
+        This method is used internally when the lock is already held.
+        """
+        await self.base_transport.open()
+        if self.wait_after_connect > 0:
+            logger.debug("Waiting %.2f seconds after TCP connection before sending data", self.wait_after_connect)
+            await asyncio.sleep(self.wait_after_connect)
+
+        self._should_be_connected = True
 
     async def close(self) -> None:
         """Close Transport Connection.
@@ -184,12 +194,17 @@ class AsyncSmartTransport(AsyncBaseTransport):
     async def _do_auto_reconnect(self) -> None:
         """Reconnect to the Modbus device."""
         assert isinstance(self.auto_reconnect, AsyncRetrying)
+        if self.base_transport.is_open():
+            logger.debug("Closing existing connection before reconnecting.")
+            await self.base_transport.close()
+        else:
+            logger.debug("No existing connection to close before reconnecting.")
 
         try:
             async for attempt in self.auto_reconnect:
                 with attempt:
                     logger.info("Attempting to reconnect.")
-                    await self.open()
+                    await self._open()
         except RetryError as e:
             msg = (
                 f"Failed to reconnect after {attempt.retry_state.attempt_number} attempts "
@@ -205,9 +220,14 @@ class AsyncSmartTransport(AsyncBaseTransport):
     async def _reconnect_send_and_receive(self, unit_id: int, pdu: BaseClientPDU[RT]) -> RT:
         """Reconnect if necessary, then try to Send PDU and Receive Response."""
         # If auto_reconnect is enabled and the connection is not open, try to reconnect
-        if self.auto_reconnect and not self.base_transport.is_open():
-            logger.info("Connection lost. Attempting to reconnect...")
-            await self._do_auto_reconnect()
+        if self.auto_reconnect:
+            if self._must_reconnect:
+                logger.info("Forcing reconnection due to previous connection error.")
+                await self._do_auto_reconnect()
+                self._must_reconnect = False
+            if not self.base_transport.is_open():
+                logger.info("Connection lost. Attempting to reconnect...")
+                await self._do_auto_reconnect()
 
         # If a wait time between requests is configured, enforce it
         if self.wait_between_requests > 0 and self._last_request_finished_at is not None:
@@ -243,3 +263,15 @@ class AsyncSmartTransport(AsyncBaseTransport):
                 return response
             finally:
                 self._last_request_finished_at = time.monotonic()
+
+    def _retry_with_new_connection_if_needed(self, retry_state: RetryCallState) -> bool:
+        """Retry with a new connection if the connection was lost."""
+        if retry_state.outcome and retry_state.outcome.failed:
+            exception = retry_state.outcome.exception()
+            if isinstance(exception, ModbusConnectionError):
+                logger.warning(
+                    "Received an %s error. Closing the connection to force a reconnect.", type(exception).__name__
+                )
+                self._must_reconnect = True
+                return True
+        return False

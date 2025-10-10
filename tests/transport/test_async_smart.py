@@ -4,7 +4,7 @@ import time
 from unittest.mock import AsyncMock, MagicMock, patch
 
 import pytest
-from tenacity import AsyncRetrying, retry_if_exception_type, stop_after_attempt
+from tenacity import AsyncRetrying, Future, retry_if_exception_type, stop_after_attempt
 from tmodbus.exceptions import ModbusConnectionError, RequestRetryFailedError
 from tmodbus.pdu.base import BaseClientPDU
 from tmodbus.transport.async_base import AsyncBaseTransport
@@ -367,3 +367,129 @@ async def test_response_retry_strategy_with_falsy_retry_attribute(
 
     # Should not raise and should create a valid retry strategy
     assert t.response_retry_strategy is not None
+
+
+async def test_do_auto_reconnect_when_connection_already_closed(base_transport_mock: MagicMock) -> None:
+    """Test _do_auto_reconnect when base_transport.is_open() is False (line 201)."""
+    t = AsyncSmartTransport(
+        base_transport_mock,
+        auto_reconnect=AsyncRetrying(stop=stop_after_attempt(1), reraise=True),
+    )
+
+    # Make base_transport report as closed
+    base_transport_mock.is_open = lambda: False
+
+    await t._do_auto_reconnect()
+
+    # Should not call close since connection is already closed
+    base_transport_mock.close.assert_not_awaited()
+    # Should call open to reconnect
+    base_transport_mock.open.assert_awaited()
+
+
+async def test_reconnect_send_and_receive_with_must_reconnect_flag(base_transport_mock: MagicMock) -> None:
+    """Test _reconnect_send_and_receive when _must_reconnect is True (lines 225-227)."""
+    t = AsyncSmartTransport(base_transport_mock)
+
+    # Set the _must_reconnect flag
+    t._must_reconnect = True
+
+    # Make base_transport report as open so it doesn't trigger the second reconnect path
+    base_transport_mock.is_open = lambda: True
+
+    with patch.object(t, "_do_auto_reconnect", AsyncMock(side_effect=lambda: None)) as mock_reconnect:
+        resp = await t._reconnect_send_and_receive(1, DummyPDU())
+
+        # Should have called _do_auto_reconnect due to _must_reconnect flag
+        mock_reconnect.assert_awaited_once()
+        # Flag should be reset
+        assert not t._must_reconnect
+        assert resp == ("ok", b"")
+
+
+async def test_reconnect_send_and_receive_when_connection_not_open(base_transport_mock: MagicMock) -> None:
+    """Test _reconnect_send_and_receive when connection is not open (line 228->233)."""
+    t = AsyncSmartTransport(base_transport_mock)
+
+    # Make _must_reconnect False so we skip that path
+    t._must_reconnect = False
+
+    # Make base_transport report as closed to trigger the second reconnect path
+    base_transport_mock.is_open = lambda: False
+
+    async def do_reconnect() -> None:
+        # After reconnection, set is_open to True
+        base_transport_mock.is_open = lambda: True
+
+    with patch.object(t, "_do_auto_reconnect", AsyncMock(side_effect=do_reconnect)) as mock_reconnect:
+        resp = await t._reconnect_send_and_receive(1, DummyPDU())
+
+        # Should have called _do_auto_reconnect due to connection being closed
+        mock_reconnect.assert_awaited_once()
+        assert resp == ("ok", b"")
+
+
+async def test_retry_with_new_connection_if_needed_returns_true(base_transport_mock: AsyncBaseTransport) -> None:
+    """Test _retry_with_new_connection_if_needed returns True for ModbusConnectionError (lines 270-276)."""
+    t = AsyncSmartTransport(base_transport_mock)
+
+    # Create a mock retry_state with a ModbusConnectionError
+    retry_state = MagicMock()
+    retry_state.outcome = Future(0)
+    retry_state.outcome.set_exception(ModbusConnectionError("Connection lost"))
+
+    result = t._retry_with_new_connection_if_needed(retry_state)
+
+    # Should return True and set _must_reconnect
+    assert result is True
+    assert t._must_reconnect is True
+
+
+async def test_retry_with_new_connection_if_needed_returns_false_no_outcome(
+    base_transport_mock: AsyncBaseTransport,
+) -> None:
+    """Test _retry_with_new_connection_if_needed returns False when outcome is None."""
+    t = AsyncSmartTransport(base_transport_mock)
+
+    retry_state = MagicMock()
+    retry_state.outcome = None
+
+    result = t._retry_with_new_connection_if_needed(retry_state)
+
+    # Should return False
+    assert result is False
+    assert not t._must_reconnect
+
+
+async def test_retry_with_new_connection_if_needed_returns_false_not_failed(
+    base_transport_mock: AsyncBaseTransport,
+) -> None:
+    """Test _retry_with_new_connection_if_needed returns False when outcome.failed is False."""
+    t = AsyncSmartTransport(base_transport_mock)
+
+    retry_state = MagicMock()
+    retry_state.outcome = Future(0)
+    retry_state.outcome.set_result("success")
+
+    result = t._retry_with_new_connection_if_needed(retry_state)
+
+    # Should return False since outcome.failed is False
+    assert result is False
+    assert not t._must_reconnect
+
+
+async def test_retry_with_new_connection_if_needed_returns_false_different_exception(
+    base_transport_mock: AsyncBaseTransport,
+) -> None:
+    """Test _retry_with_new_connection_if_needed returns False for non-ModbusConnectionError."""
+    t = AsyncSmartTransport(base_transport_mock)
+
+    retry_state = MagicMock()
+    retry_state.outcome = Future(0)
+    retry_state.outcome.set_exception(ValueError("Some other error"))
+
+    result = t._retry_with_new_connection_if_needed(retry_state)
+
+    # Should return False since it's not a ModbusConnectionError
+    assert result is False
+    assert not t._must_reconnect
