@@ -64,7 +64,7 @@ class HoldingRegisterReadMixin(SupportsExecuteAsync):
                 quantity=format_struct.size // 2,
             )
         )
-        return format_struct.unpack_from(response_bytes)
+        return format_struct.unpack(response_bytes)
 
     async def read_simple_struct_format(
         self,
