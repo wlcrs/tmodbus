@@ -6,6 +6,8 @@ Implements async Modbus TCP protocol transport based on asyncio, including MBAP 
 import asyncio
 import logging
 import struct
+from collections.abc import Callable
+from dataclasses import dataclass
 from functools import partial
 from typing import Any, TypeVar
 
@@ -36,12 +38,9 @@ class AsyncTcpTransport(AsyncBaseTransport):
     - Async error handling and timeout management
     """
 
-    _reader: asyncio.StreamReader | None = None
-    _writer: asyncio.StreamWriter | None = None
-    _next_transaction_id: int = 1
-
+    _transport: asyncio.Transport | None = None
+    _protocol: "ModbusTcpProtocol | None" = None
     _communication_lock = asyncio.Lock()  # Prevents concurrent access to the transport layer
-    _last_request_finished_at: float = 0.0
 
     def __init__(
         self,
@@ -59,7 +58,8 @@ class AsyncTcpTransport(AsyncBaseTransport):
             port: Target port, default 502 (Modbus TCP standard port)
             timeout: Timeout in seconds, default 10.0s
             connect_timeout: Timeout for establishing connection, default 10.0s
-            connection_kwargs: Additional connection parameters passed to `asyncio.open_connection` (e.g., SSL context)
+            connection_kwargs: Additional connection parameters passed to `asyncio.create_connection`
+                               (e.g., SSL context)
 
         Raises:
             ValueError: When parameters are invalid
@@ -84,15 +84,18 @@ class AsyncTcpTransport(AsyncBaseTransport):
 
     async def open(self) -> None:
         """Async establish TCP connection."""
+        loop = asyncio.get_running_loop()
         async with self._communication_lock:
             if self.is_open():
                 logger.debug("Async TCP connection already open: %s:%d", self.host, self.port)
                 return
 
             try:
-                self._reader, self._writer = await asyncio.wait_for(
-                    asyncio.open_connection(self.host, self.port, **self.connection_kwargs),
-                    timeout=self.connect_timeout,
+                self._transport, self._protocol = await loop.create_connection(
+                    lambda: ModbusTcpProtocol(on_connection_lost=self._on_connection_lost, timeout=self.timeout),
+                    host=self.host,
+                    port=self.port,
+                    **self.connection_kwargs,
                 )
 
                 logger.info("Async TCP connection established: %s:%d", self.host, self.port)
@@ -106,40 +109,111 @@ class AsyncTcpTransport(AsyncBaseTransport):
     async def close(self) -> None:
         """Close TCP connection."""
         async with self._communication_lock:
-            if not self._writer:
+            if not self._transport or self._transport.is_closing():
                 logger.debug("Async TCP connection already closed: %s:%d", self.host, self.port)
                 return
 
             try:
-                self._writer.close()
-                await self._writer.wait_closed()
+                self._transport.close()
                 logger.info("Async TCP connection closed: %s:%d", self.host, self.port)
             except Exception as e:  # noqa: BLE001
-                logger.debug("Error during async connection close (ignorable): %s", e)
-            finally:
-                self._reader = None
-                self._writer = None
+                logger.debug("Error during async connection close: %s", e)
 
     def is_open(self) -> bool:
-        """Async check TCP connection status."""
-        if self._writer is None or self._reader is None:
-            return False
+        """Check if TCP connection is open."""
+        return self._transport is not None and not self._transport.is_closing()
 
-        return not self._writer.is_closing()
+    def _on_connection_lost(self, exc: Exception | None) -> None:
+        if exc:
+            logger.error("Async TCP connection lost due to error: %s", exc)
+        else:
+            logger.info("Async TCP connection closed by remote host.")
 
-    def _get_transaction_id(self) -> int:
-        """Get the next transaction ID."""
-        current_transaction_id = self._next_transaction_id
-        self._next_transaction_id = (self._next_transaction_id + 1) % 0x10000  # 16-bit wraparound
-        return current_transaction_id
+        self._transport = None
+        self._protocol = None
 
     async def send_and_receive(self, unit_id: int, pdu: BaseClientPDU[RT]) -> RT:
-        """Async send PDU and receive response."""
-        # Ensure that only one request is processed at a time
-        async with self._communication_lock:
-            return await self._do_send_and_receive(unit_id, pdu)
+        """Async send PDU and receive response.
 
-    async def _do_send_and_receive(self, unit_id: int, pdu: BaseClientPDU[RT]) -> RT:
+        Args:
+            unit_id: Unit identifier (slave address)
+            pdu: PDU object to send
+
+        """
+        if not self.is_open() or self._protocol is None:
+            msg = "Transport is not connected."
+            raise ModbusConnectionError(msg)
+
+        async with self._communication_lock:
+            return await self._protocol.send_and_receive(unit_id, pdu)
+
+
+@dataclass(frozen=True)
+class _ModbusMessage:
+    """Dataclass representing a Modbus message with MBAP header and PDU."""
+
+    transaction_id: int
+    protocol_id: int
+    length: int
+    unit_id: int
+    pdu_bytes: bytes
+
+    @property
+    def bytes(self) -> bytes:
+        """Get full message bytes including MBAP header and PDU."""
+        mbap_header = struct.pack(">HHHB", self.transaction_id, self.protocol_id, self.length, self.unit_id)
+        return mbap_header + self.pdu_bytes
+
+
+class ModbusTcpProtocol(asyncio.Protocol):
+    """Asyncio Protocol implementation for Modbus TCP with MBAP headers."""
+
+    transport: "asyncio.WriteTransport | None" = None
+
+    on_connection_lost: Callable[[Exception | None], None]
+    timeout: float
+
+    _on_con_lost: asyncio.Future[Exception | None]
+    _buffer: bytearray
+    _next_transaction_id: int
+    _transaction_id_lock: asyncio.Lock
+    _last_request_finished_at: float = 0.0
+    _pending_requests: dict[int, asyncio.Future[_ModbusMessage]]
+
+    def __init__(
+        self,
+        *,
+        on_connection_lost: Callable[[Exception | None], None],
+        timeout: float = 10.0,
+    ) -> None:
+        """Initialize Modbus TCP Protocol."""
+        super().__init__()
+
+        self.on_connection_lost = on_connection_lost
+        self.timeout = timeout
+
+        self._on_con_lost = asyncio.get_event_loop().create_future()
+        self._buffer = bytearray()
+        self._next_transaction_id = 1
+        self._transaction_id_lock = asyncio.Lock()
+        self._pending_requests = {}
+
+    async def _get_next_transaction_id(self) -> int:
+        async with self._transaction_id_lock:
+            current_id = self._next_transaction_id
+            self._next_transaction_id = (self._next_transaction_id + 1) % 0x10000  # 16-bit wraparound
+            return current_id
+
+    def connection_made(self, transport: asyncio.BaseTransport) -> None:
+        """Handle connection made event."""
+        if not isinstance(transport, asyncio.WriteTransport):
+            msg = "Expected a WriteTransport"
+            raise TypeError(msg)
+
+        self.transport = transport
+        logger.info("Modbus TCP protocol connection established.")
+
+    async def send_and_receive(self, unit_id: int, pdu: BaseClientPDU[RT]) -> RT:
         """Async send PDU and receive response.
 
         Implements complete async TCP protocol communication flow:
@@ -150,12 +224,12 @@ class AsyncTcpTransport(AsyncBaseTransport):
         5. Async receive response PDU
         6. Return response PDU
         """
-        if not self.is_open():
+        if self.transport is None or self.transport.is_closing():
             msg = "Not connected."
             raise ModbusConnectionError(msg)
 
         # 1. Generate transaction ID and build MBAP header
-        current_transaction_id = self._get_transaction_id()
+        current_transaction_id = await self._get_next_transaction_id()
 
         request_pdu_bytes = pdu.encode_request()  # Convert PDU to bytes
 
@@ -174,92 +248,86 @@ class AsyncTcpTransport(AsyncBaseTransport):
 
         # 2. Build complete request frame
         request_frame = mbap_header + request_pdu_bytes
-        log_raw_traffic("sent", request_frame)
 
         # 3. Async send request
-        if self._writer is None:
-            msg = "Connection not established."
-            raise ModbusConnectionError(msg)
-        self._writer.write(request_frame)
-        await asyncio.wait_for(self._writer.drain(), timeout=self.timeout)
+        read_future: asyncio.Future[_ModbusMessage] = asyncio.get_event_loop().create_future()
+        self._pending_requests[current_transaction_id] = read_future
 
-        # 4. Async receive response MBAP header (7 bytes)
-        response_mbap = await self._receive_exact(7)
+        self.transport.write(request_frame)
+        log_raw_traffic("sent", request_frame)
 
-        # 5. Parse response MBAP header
-        (
-            response_transaction_id,
-            response_protocol_id,
-            response_length,
-            response_unit_id,
-        ) = struct.unpack(">HHHB", response_mbap)
+        # 4. Async wait for response or timeout
+        try:
+            response = await asyncio.wait_for(read_future, timeout=self.timeout)
+        except TimeoutError as e:
+            msg = f"Response timeout after {self.timeout} seconds for transaction with ID {current_transaction_id:#04x}"
+            raise TimeoutError(msg) from e
+        finally:
+            self._pending_requests.pop(current_transaction_id, None)
 
         # 6. Validate MBAP header
-        if response_transaction_id != current_transaction_id:
-            msg = (
-                f" Transaction ID mismatch: expected {current_transaction_id:#04x}, "
-                f"received {response_transaction_id:#04x}"
-            )
-            raise InvalidResponseError(msg, response_bytes=response_mbap)
+        # We can skip checking the transaction ID: it was used to match the response to the read_future
+        # of this request.
 
-        if response_protocol_id != 0x0000:
-            msg = f"Invalid Protocol ID: expected 0x0000, received 0x{response_protocol_id:04x}"
-            raise InvalidResponseError(msg, response_bytes=response_mbap)
+        if response.protocol_id != 0x0000:
+            msg = f"Invalid Protocol ID: expected 0x0000, received 0x{response.protocol_id:04x}"
+            raise InvalidResponseError(msg, response_bytes=response.bytes)
 
-        if response_unit_id != unit_id:
-            msg = f"Unit ID mismatch: expected {unit_id:#04x}, received {response_unit_id:#04x}"
-            raise InvalidResponseError(msg, response_bytes=response_mbap)
-
-        # 7. Async receive response PDU
-        pdu_length = response_length - 1  # Subtract 1 byte for Unit ID
-        if pdu_length <= 0:
-            msg = f"Invalid PDU length: {pdu_length}"
-            raise InvalidResponseError(msg, response_bytes=response_mbap)
-
-        try:
-            response_pdu_bytes = await self._receive_exact(pdu_length)
-        except ModbusConnectionError as e:
-            log_raw_traffic("recv", e.response_bytes, is_error=True)
-            raise
-        else:
-            log_raw_traffic("recv", response_mbap + response_pdu_bytes)
+        if response.unit_id != unit_id:
+            msg = f"Unit ID mismatch: expected {unit_id:#04x}, received {response.unit_id:#04x}"
+            raise InvalidResponseError(msg, response_bytes=response.bytes)
 
         # 8.Check if it's an exception response
-        if len(response_pdu_bytes) > 0 and response_pdu_bytes[0] & 0x80:  # Exception response
-            function_code = response_pdu_bytes[0] & 0x7F  # Remove exception flag bit
-            exception_code = response_pdu_bytes[1] if len(response_pdu_bytes) > 1 else 0
+        if len(response.pdu_bytes) > 0 and response.pdu_bytes[0] & 0x80:  # Exception response
+            function_code = response.pdu_bytes[0] & 0x7F  # Remove exception flag bit
+            exception_code = response.pdu_bytes[1] if len(response.pdu_bytes) > 1 else 0
 
             error_class = error_code_to_exception_map.get(exception_code, UnknownModbusResponseError)
             raise error_class(exception_code, function_code)
 
-        return pdu.decode_response(response_pdu_bytes)
+        return pdu.decode_response(response.pdu_bytes)
 
-    async def _receive_exact(self, length: int) -> bytes:
-        """Async receive exact length of data.
+    def data_received(self, data: bytes) -> None:
+        """Handle data received event."""
+        self._buffer.extend(data)
+        log_raw_traffic("recv", data)
 
-        Args:
-            length: Number of bytes to receive
+        first_message_incomplete = False
+        # Check if we have enough data for MBAP header
+        while (
+            len(self._buffer) >= 7  # MBAP header is 7 bytes
+            and not first_message_incomplete  # stop when the first message in the buffer is not complete yet
+        ):
+            # Unpack MBAP header
+            transaction_id, protocol_id, length, unit_id = struct.unpack_from(">HHHB", self._buffer)
 
-        Returns:
-            Received data
+            total_length = 7 + (length - 1)  # Total length = MBAP header + PDU length
 
-        Raises:
-            TimeoutError: Receive timeout
-            ModbusConnectionError: Connection error
+            if len(self._buffer) >= total_length:
+                # Extract complete response
+                response = bytes(self._buffer[:total_length])
+                del self._buffer[:total_length]
 
-        """
-        if self._reader is None:
-            msg = "Connection not established."
-            raise ModbusConnectionError(msg)
+                # Match response to pending request
+                future = self._pending_requests.get(transaction_id)
+                if future and not future.done():
+                    future.set_result(
+                        _ModbusMessage(
+                            transaction_id=transaction_id,
+                            protocol_id=protocol_id,
+                            length=length,
+                            unit_id=unit_id,
+                            pdu_bytes=response[7:],  # PDU starts after MBAP header
+                        )
+                    )
+                else:
+                    logger.warning("Received unexpected response with Transaction ID: %d", transaction_id)
+            else:
+                first_message_incomplete = True
 
-        try:
-            return await asyncio.wait_for(self._reader.readexactly(length), timeout=self.timeout)
-        except asyncio.IncompleteReadError as e:
-            msg = f"Received incomplete data: expected {length} bytes, got {len(e.partial)} bytes"
-            raise ModbusConnectionError(msg, bytes_read=e.partial) from e
-        except TimeoutError as e:
-            msg = f"Receive timeout: expected {length} bytes, but timed out after {self.timeout} seconds"
-            raise TimeoutError(msg) from e
-        except Exception as e:
-            msg = f"Failed to read {length} bytes"
-            raise ModbusConnectionError(msg) from e
+    def connection_lost(self, exc: Exception | None) -> None:
+        """Handle connection lost event."""
+        self.on_connection_lost(exc)
+
+
+__all__ = ["AsyncTcpTransport"]
