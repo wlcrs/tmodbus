@@ -40,7 +40,6 @@ class AsyncTcpTransport(AsyncBaseTransport):
 
     _transport: asyncio.Transport | None = None
     _protocol: "ModbusTcpProtocol | None" = None
-    _communication_lock = asyncio.Lock()  # Prevents concurrent access to the transport layer
 
     def __init__(
         self,
@@ -85,39 +84,37 @@ class AsyncTcpTransport(AsyncBaseTransport):
     async def open(self) -> None:
         """Async establish TCP connection."""
         loop = asyncio.get_running_loop()
-        async with self._communication_lock:
-            if self.is_open():
-                logger.debug("Async TCP connection already open: %s:%d", self.host, self.port)
-                return
+        if self.is_open():
+            logger.debug("Async TCP connection already open: %s:%d", self.host, self.port)
+            return
 
-            try:
-                self._transport, self._protocol = await loop.create_connection(
-                    lambda: ModbusTcpProtocol(on_connection_lost=self._on_connection_lost, timeout=self.timeout),
-                    host=self.host,
-                    port=self.port,
-                    **self.connection_kwargs,
-                )
+        try:
+            self._transport, self._protocol = await loop.create_connection(
+                lambda: ModbusTcpProtocol(on_connection_lost=self._on_connection_lost, timeout=self.timeout),
+                host=self.host,
+                port=self.port,
+                **self.connection_kwargs,
+            )
 
-                logger.info("Async TCP connection established: %s:%d", self.host, self.port)
-            except TimeoutError:
-                logger.warning("Async TCP connection timeout: %s:%d", self.host, self.port, exc_info=True)
-                raise
-            except Exception as e:
-                logger.exception("Async TCP connection error: %s:%d", self.host, self.port)
-                raise ModbusConnectionError from e
+            logger.info("Async TCP connection established: %s:%d", self.host, self.port)
+        except TimeoutError:
+            logger.warning("Async TCP connection timeout: %s:%d", self.host, self.port, exc_info=True)
+            raise
+        except Exception as e:
+            logger.exception("Async TCP connection error: %s:%d", self.host, self.port)
+            raise ModbusConnectionError from e
 
     async def close(self) -> None:
         """Close TCP connection."""
-        async with self._communication_lock:
-            if not self._transport or self._transport.is_closing():
-                logger.debug("Async TCP connection already closed: %s:%d", self.host, self.port)
-                return
+        if not self._transport or self._transport.is_closing():
+            logger.debug("Async TCP connection already closed: %s:%d", self.host, self.port)
+            return
 
-            try:
-                self._transport.close()
-                logger.info("Async TCP connection closed: %s:%d", self.host, self.port)
-            except Exception as e:  # noqa: BLE001
-                logger.debug("Error during async connection close: %s", e)
+        try:
+            self._transport.close()
+            logger.info("Async TCP connection closed: %s:%d", self.host, self.port)
+        except Exception as e:  # noqa: BLE001
+            logger.debug("Error during async connection close: %s", e)
 
     def is_open(self) -> bool:
         """Check if TCP connection is open."""
@@ -144,8 +141,7 @@ class AsyncTcpTransport(AsyncBaseTransport):
             msg = "Transport is not connected."
             raise ModbusConnectionError(msg)
 
-        async with self._communication_lock:
-            return await self._protocol.send_and_receive(unit_id, pdu)
+        return await self._protocol.send_and_receive(unit_id, pdu)
 
 
 @dataclass(frozen=True)
