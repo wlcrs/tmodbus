@@ -1,7 +1,8 @@
 """Tests for tmodbus/transport/async_tcp.py with Protocol-based implementation."""
 
 import asyncio
-from unittest.mock import MagicMock, patch
+import struct
+from unittest.mock import AsyncMock, MagicMock, patch
 
 import pytest
 from tmodbus.exceptions import InvalidResponseError, ModbusConnectionError, ModbusResponseError
@@ -252,9 +253,10 @@ async def test_protocol_send_and_receive_timeout() -> None:
         await protocol.send_and_receive(1, pdu)
 
 
-async def test_protocol_send_and_receive_invalid_protocol_id() -> None:
+async def test_protocol_send_and_receive_invalid_protocol_id(caplog: pytest.LogCaptureFixture) -> None:
     """Test protocol validates protocol ID."""
-    protocol = ModbusTcpProtocol(on_connection_lost=lambda _: None, timeout=10.0)
+    caplog.set_level("DEBUG", logger="tmodbus.transport.async_tcp")
+    protocol = ModbusTcpProtocol(on_connection_lost=lambda _: None, timeout=0.02)
     mock_transport = MagicMock(spec=asyncio.WriteTransport)
     mock_transport.is_closing.return_value = False
     protocol.connection_made(mock_transport)
@@ -270,9 +272,38 @@ async def test_protocol_send_and_receive_invalid_protocol_id() -> None:
     # MBAP: tid=1, pid=1 (invalid!), len=3, uid=1
     response_data = b"\x00\x01\x00\x01\x00\x03\x01\x03\x04"
     protocol.data_received(response_data)
-
-    with pytest.raises(InvalidResponseError, match="Invalid Protocol ID"):
+    # Should log "garbage bytes" at debug level
+    with pytest.raises(TimeoutError):
         await task
+
+    assert any("garbage bytes" in record.message for record in caplog.records)
+
+
+async def test_protocol_send_and_receive_invalid_protocol_id_followed_by_correct(
+    caplog: pytest.LogCaptureFixture,
+) -> None:
+    """Test protocol validates protocol ID."""
+    caplog.set_level("DEBUG", logger="tmodbus.transport.async_tcp")
+    protocol = ModbusTcpProtocol(on_connection_lost=lambda _: None, timeout=0.02)
+    mock_transport = MagicMock(spec=asyncio.WriteTransport)
+    mock_transport.is_closing.return_value = False
+    protocol.connection_made(mock_transport)
+
+    pdu = _DummyPDU()
+
+    # Start send_and_receive in the background
+    task = asyncio.create_task(protocol.send_and_receive(1, pdu))
+
+    # Give it time to setup
+    await asyncio.sleep(0.01)
+
+    # MBAP: tid=1, pid=1 (invalid!), len=3, uid=1
+    response_data = b"\x00\x01\x00\x01\x00\x03\x01\x03\x04\x00\x01\x00\x00\x00\x03\x01\x03\x04"
+    protocol.data_received(response_data)
+    # Should log "garbage bytes" at debug level
+    await task
+
+    assert any("garbage bytes" in record.message for record in caplog.records)
 
 
 async def test_protocol_send_and_receive_invalid_unit_id() -> None:
@@ -540,3 +571,122 @@ async def test_protocol_data_received_incomplete_pdu() -> None:
 
     # Now it should be complete
     assert future.done()
+
+
+async def test_connection_lost_with_pending_requests() -> None:
+    """Test that connection_lost sets exception on pending requests (lines 343-344)."""
+    protocol = ModbusTcpProtocol(on_connection_lost=lambda _: None, timeout=10.0)
+
+    # Create a mock that passes isinstance check for asyncio.WriteTransport
+    mock_transport = MagicMock(spec=asyncio.WriteTransport)
+    mock_transport.is_closing.return_value = False
+    protocol.connection_made(mock_transport)
+
+    # Create a dummy PDU
+    pdu = _DummyPDU()
+
+    # Start a send_and_receive request - this creates a pending future
+    task = asyncio.create_task(protocol.send_and_receive(unit_id=1, pdu=pdu))
+
+    # Give it time to set up the pending request
+    await asyncio.sleep(0.01)
+
+    # Verify there's a pending request
+    assert len(protocol._pending_requests) == 1
+
+    # Now simulate connection lost
+    test_exception = RuntimeError("Network error")
+    protocol.connection_lost(test_exception)
+
+    # The task should receive a ModbusConnectionError
+    with pytest.raises(ModbusConnectionError, match="Connection lost before response was received"):
+        await task
+
+    # Pending requests should be cleared
+    assert len(protocol._pending_requests) == 0
+
+
+async def test_connection_lost_with_already_done_future() -> None:
+    """Test that connection_lost skips already-done futures (branch 343->342)."""
+    protocol = ModbusTcpProtocol(on_connection_lost=lambda _: None, timeout=10.0)
+
+    # Create a mock that passes isinstance check for asyncio.WriteTransport
+    mock_transport = MagicMock(spec=asyncio.WriteTransport)
+    mock_transport.is_closing.return_value = False
+    protocol.connection_made(mock_transport)
+
+    # Create a dummy PDU
+    pdu = _DummyPDU()
+
+    # Start a send_and_receive request - this creates a pending future
+    task = asyncio.create_task(protocol.send_and_receive(unit_id=1, pdu=pdu))
+
+    # Give it time to set up the pending request
+    await asyncio.sleep(0.01)
+
+    # Verify there's a pending request
+    assert len(protocol._pending_requests) == 1
+    transaction_id = next(iter(protocol._pending_requests.keys()))
+
+    # Simulate receiving a response - this completes the future
+    # MBAP: tid=transaction_id, pid=0, len=3, uid=1 + PDU: 0x03 0x04
+    response_data = struct.pack(">HHHB", transaction_id, 0, 3, 1) + b"\x03\x04"
+    protocol.data_received(response_data)
+
+    # Wait for the task to complete successfully
+    result = await task
+    assert result == ("decoded", b"\x03\x04")
+
+    # Now manually add the future back to pending_requests (as if it wasn't cleaned up)
+    # This simulates the edge case where connection_lost is called with a done future
+    future = asyncio.get_event_loop().create_future()
+    future.set_result("already done")
+    protocol._pending_requests[transaction_id] = future
+
+    # Now call connection_lost - it should skip the already-done future
+    protocol.connection_lost(None)
+
+    # The future should still have its original result, not an exception
+    assert future.result() == "already done"
+
+    # Pending requests should be cleared
+    assert len(protocol._pending_requests) == 0
+
+
+async def test_transport_send_and_receive_delegates_to_protocol(monkeypatch: pytest.MonkeyPatch) -> None:
+    """Test that AsyncTcpTransport.send_and_receive delegates to protocol (line 144)."""
+    t = AsyncTcpTransport("host", port=1234)
+
+    # Create mock protocol and transport
+    mock_protocol = MagicMock(spec=ModbusTcpProtocol)
+    mock_transport = MagicMock(spec=asyncio.WriteTransport)
+    mock_transport.is_closing.return_value = False
+
+    # Mock the protocol's send_and_receive to return a known value
+    expected_result = ("decoded", b"\x03\x04")
+    mock_protocol.send_and_receive = AsyncMock(return_value=expected_result)
+
+    async def mock_create_connection(*_args: object, **_kwargs: object) -> tuple[object, object]:
+        return mock_transport, mock_protocol
+
+    loop = asyncio.get_running_loop()
+    monkeypatch.setattr(loop, "create_connection", mock_create_connection)
+
+    # Open the transport
+    await t.open()
+    assert t.is_open()
+
+    # Create a dummy PDU
+    pdu = _DummyPDU()
+
+    # Call send_and_receive - this should delegate to the protocol
+    result = await t.send_and_receive(unit_id=1, pdu=pdu)
+
+    # Verify the result
+    assert result == expected_result
+
+    # Verify the protocol's send_and_receive was called with correct arguments
+    mock_protocol.send_and_receive.assert_called_once_with(1, pdu)
+
+    # Cleanup
+    await t.close()

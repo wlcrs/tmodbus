@@ -14,7 +14,7 @@ class LoginChallenge:
 
 
 @dataclass(frozen=True)
-class LoginRequestChallengePDU(BaseSubFunctionClientPDU[LoginChallenge]):  # type: ignore[misc]
+class LoginRequestChallengePDU(BaseSubFunctionClientPDU[LoginChallenge]):
     """Modbus PDU to request a login challenge."""
 
     function_code = 0x41

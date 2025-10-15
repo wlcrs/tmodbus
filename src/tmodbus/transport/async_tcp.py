@@ -265,9 +265,8 @@ class ModbusTcpProtocol(asyncio.Protocol):
         # We can skip checking the transaction ID: it was used to match the response to the read_future
         # of this request.
 
-        if response.protocol_id != 0x0000:
-            msg = f"Invalid Protocol ID: expected 0x0000, received 0x{response.protocol_id:04x}"
-            raise InvalidResponseError(msg, response_bytes=response.bytes)
+        # We can also skip checking the protocol ID: the parser already discarded any message with a
+        # different protocol ID.
 
         if response.unit_id != unit_id:
             msg = f"Unit ID mismatch: expected {unit_id:#04x}, received {response.unit_id:#04x}"
@@ -297,6 +296,25 @@ class ModbusTcpProtocol(asyncio.Protocol):
             # Unpack MBAP header
             transaction_id, protocol_id, length, unit_id = struct.unpack_from(">HHHB", self._buffer)
 
+            # Do some sanity checks on the contents of the header: can it be the start of a valid message?
+            if protocol_id != 0x0000:
+                # Unexpected contents: let's try to discard as much as needed to find a valid header
+                # We look for the next occurrence of 0x0000 in the buffer
+                next_protocol_id_pos = self._buffer.find(b"\x00\x00", 2)  # start searching after the first 2 bytes
+                if next_protocol_id_pos == -1:
+                    # No occurrence found: discard everything except the last byte (in case it's part of a valid header)
+                    logger.debug("Discarding garbage bytes: %s", self._buffer[:-1].hex(" ").upper())
+                    del self._buffer[:-1]
+                    return  # buffer is exhausted, wait for more data
+
+                # Discard bytes up to the potential start of the next message
+                logger.debug("Discarding garbage bytes: %s", self._buffer[:next_protocol_id_pos].hex(" ").upper())
+                # keep the 2 bytes before the found occurrence, as it contains the transaction ID
+                del self._buffer[: next_protocol_id_pos - 2]
+                continue  # Re-evaluate the buffer from the start
+
+            # we have a valid protocol ID, now check if we have the full message
+
             total_length = 7 + (length - 1)  # Total length = MBAP header + PDU length
 
             if len(self._buffer) >= total_length:
@@ -317,12 +335,21 @@ class ModbusTcpProtocol(asyncio.Protocol):
                         )
                     )
                 else:
-                    logger.warning("Received unexpected response with Transaction ID: %d", transaction_id)
+                    logger.warning(
+                        "Received unexpected response with Transaction ID: %d. Discarding bytes: %s",
+                        transaction_id,
+                        response.hex(" ").upper(),
+                    )
             else:
                 first_message_incomplete = True
 
     def connection_lost(self, exc: Exception | None) -> None:
         """Handle connection lost event."""
+        for future in self._pending_requests.values():
+            if not future.done():
+                future.set_exception(ModbusConnectionError("Connection lost before response was received."))
+        self._pending_requests.clear()
+
         self.on_connection_lost(exc)
 
 
