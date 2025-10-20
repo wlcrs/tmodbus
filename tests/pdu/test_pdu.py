@@ -6,6 +6,7 @@ from tmodbus.pdu import (
     BaseClientPDU,
     BaseSubFunctionClientPDU,
     get_pdu_class,
+    get_subfunction_pdu_class,
     register_pdu_class,
 )
 
@@ -15,23 +16,23 @@ class TestGetPDUClass:
 
     def test_get_pdu_class_valid_function_code(self) -> None:
         """Test getting PDU class by valid function code."""
-        pdu_class = get_pdu_class(bytes([int(FunctionCode.READ_HOLDING_REGISTERS)]))
+        pdu_class = get_pdu_class(FunctionCode.READ_HOLDING_REGISTERS)
         assert pdu_class.__name__ == "ReadHoldingRegistersPDU"
 
     def test_get_pdu_class_valid_function_code_as_int(self) -> None:
         """Test getting PDU class by function code as int."""
-        pdu_class = get_pdu_class(bytes([0x03]))  # FunctionCode.READ_HOLDING_REGISTERS
+        pdu_class = get_pdu_class(0x03)  # FunctionCode.READ_HOLDING_REGISTERS
         assert pdu_class.__name__ == "ReadHoldingRegistersPDU"
 
     def test_get_pdu_class_unknown_function_code(self) -> None:
         """Test unknown function code raises ValueError."""
         with pytest.raises(ValueError, match="Unsupported function code: 0x99"):
-            get_pdu_class(bytes([0x99]))
+            get_pdu_class(0x99)
 
     def test_get_pdu_class_with_sub_function(self) -> None:
         """Test getting PDU class with sub-function code."""
         # ReadDeviceIdentificationPDU uses function code 0x2B and sub-function code 0x0E
-        pdu_class = get_pdu_class(bytes([0x2B, 0x0E]))
+        pdu_class = get_subfunction_pdu_class(0x2B, 0x0E)
         assert pdu_class.__name__ == "ReadDeviceIdentificationPDU"
 
     def test_get_pdu_class_unknown_sub_function_code(self) -> None:
@@ -41,7 +42,7 @@ class TestGetPDUClass:
             ValueError,
             match="Unsupported sub-function code: 0xff for function code 0x2b",
         ):
-            get_pdu_class(bytes([0x2B, 0xFF]))
+            get_subfunction_pdu_class(0x2B, 0xFF)
 
 
 class TestRegisterPDUClass:
@@ -63,7 +64,7 @@ class TestRegisterPDUClass:
         register_pdu_class(CustomPDU)
 
         # Verify it can be retrieved
-        pdu_class = get_pdu_class(bytes([0xF0]))
+        pdu_class = get_pdu_class(0xF0)
         assert pdu_class == CustomPDU
 
     def test_register_duplicate_normal_pdu_class(self) -> None:
@@ -114,7 +115,7 @@ class TestRegisterPDUClass:
         register_pdu_class(CustomSubFunctionPDU)
 
         # Verify it can be retrieved
-        pdu_class = get_pdu_class(bytes([0xF2, 0x01]))
+        pdu_class = get_subfunction_pdu_class(0xF2, 0x01)
         assert pdu_class == CustomSubFunctionPDU
 
     def test_register_duplicate_sub_function_pdu_class(self) -> None:
@@ -263,7 +264,7 @@ class TestRegisterPDUClass:
         register_pdu_class(SubFunctionPDUB)
 
         # Verify both can be retrieved
-        pdu_class_a = get_pdu_class(bytes([0xF6, 0x01]))
-        pdu_class_b = get_pdu_class(bytes([0xF6, 0x02]))
+        pdu_class_a = get_subfunction_pdu_class(0xF6, 0x01)
+        pdu_class_b = get_subfunction_pdu_class(0xF6, 0x02)
         assert pdu_class_a == SubFunctionPDUA
         assert pdu_class_b == SubFunctionPDUB

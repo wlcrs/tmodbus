@@ -1,9 +1,10 @@
-"""Tests for tmodbus/transport/async_rtu.py ."""
+"""Tests for tmodbus/transport/async_rtu.py with Protocol-based architecture."""
 
 import asyncio
+import contextlib
 import time
-from collections.abc import Coroutine
-from typing import Any, Never
+from collections.abc import Callable
+from typing import Any
 from unittest.mock import AsyncMock, MagicMock, patch
 
 import pytest
@@ -18,8 +19,8 @@ from tmodbus.exceptions import (
 from tmodbus.pdu.base import BaseClientPDU
 from tmodbus.transport.async_rtu import (
     MAX_RTU_FRAME_SIZE,
-    MIN_RTU_RESPONSE_LENGTH,
     AsyncRtuTransport,
+    ModbusRtuProtocol,
     compute_interframe_delay,
     compute_max_continuous_transmission_delay,
 )
@@ -47,26 +48,69 @@ class _DummyPDU(BaseClientPDU[tuple[str, bytes]]):
         return ("decoded", data)
 
 
+@pytest.fixture
+def mock_transport() -> MagicMock:
+    """Fixture to create a mock transport."""
+    mock_transport = MagicMock(spec=asyncio.WriteTransport)
+    mock_transport.is_closing.return_value = False
+    return mock_transport
+
+
+@pytest.fixture
+def mock_serial_connection(
+    mock_transport: MagicMock,
+    monkeypatch: pytest.MonkeyPatch,
+) -> tuple[MagicMock, Callable[[], ModbusRtuProtocol | None]]:
+    """Fixture to mock serial_asyncio_fast.create_serial_connection."""
+    created_protocol: ModbusRtuProtocol | None = None
+
+    async def fake_create_serial_connection(
+        _loop: Any, protocol_factory: Callable[[], ModbusRtuProtocol], **_kwargs: Any
+    ) -> tuple[asyncio.Transport, asyncio.Protocol]:
+        nonlocal created_protocol
+        created_protocol = protocol_factory()
+        created_protocol.connection_made(mock_transport)
+        return mock_transport, created_protocol
+
+    monkeypatch.setattr(
+        serial_asyncio_fast,
+        "create_serial_connection",
+        fake_create_serial_connection,
+    )
+
+    # Return transport and a callable to get the protocol
+    return mock_transport, lambda: created_protocol
+
+
 async def test_open_already_open() -> None:
     """Test that open early-returns if already open and logs debug."""
-    reader = AsyncMock()
-    writer = MagicMock()
-    writer.is_closing.return_value = False
     t = AsyncRtuTransport("/dev/ttyUSB0", baudrate=9600)
-    # simulate already open
-    t._reader = reader
-    t._writer = writer
-    # patch logger and call open; should early-return and call debug
-    with patch("tmodbus.transport.async_rtu.logger") as log:
+
+    # Mock create_serial_connection to setup transport/protocol
+    mock_transport = MagicMock(spec=asyncio.WriteTransport)
+    mock_transport.is_closing.return_value = False
+
+    async def fake_create_serial_connection(
+        _loop: Any, protocol_factory: Any, **_kwargs: Any
+    ) -> tuple[asyncio.Transport, asyncio.Protocol]:
+        protocol = protocol_factory()
+        protocol.connection_made(mock_transport)
+        return mock_transport, protocol
+
+    with patch.object(serial_asyncio_fast, "create_serial_connection", fake_create_serial_connection):
         await t.open()
-        log.debug.assert_called()
+        assert t.is_open()
+
+        # Second open should early-return and log debug
+        with patch("tmodbus.transport.async_rtu.logger") as log:
+            await t.open()
+            log.debug.assert_called()
 
 
 async def test_open_timeout(monkeypatch: pytest.MonkeyPatch) -> None:
-    """Test that open raises TimeoutError when open_serial_connection times out."""
-    # simulate open_serial_connection timing out
+    """Test that open raises TimeoutError when create_serial_connection times out."""
     monkeypatch.setattr(
-        "serial_asyncio_fast.open_serial_connection",
+        "serial_asyncio_fast.create_serial_connection",
         AsyncMock(side_effect=asyncio.TimeoutError),
     )
     t = AsyncRtuTransport("/dev/ttyUSB0", baudrate=9600)
@@ -74,51 +118,38 @@ async def test_open_timeout(monkeypatch: pytest.MonkeyPatch) -> None:
         await t.open()
 
 
-@pytest.fixture
-def mock_asyncio_connection(monkeypatch: pytest.MonkeyPatch) -> tuple[MagicMock, MagicMock]:
-    """Fixture to mock serial_asyncio_fast connection."""
-    reader = MagicMock(asyncio.StreamReader)
-    writer = MagicMock(asyncio.StreamWriter)
-    writer.is_closing.return_value = False
-
-    monkeypatch.setattr(serial_asyncio_fast, "open_serial_connection", AsyncMock(return_value=(reader, writer)))
-    return reader, writer
-
-
-@pytest.mark.usefixtures("mock_asyncio_connection")
+@pytest.mark.usefixtures("mock_serial_connection")
 async def test_open_close_is_open() -> None:
     """Test open, close, and is_open functionality."""
-    # simulate serial_asyncio_fast open
     t = AsyncRtuTransport("/dev/ttyUSB0", baudrate=9600)
     await t.open()
     assert t.is_open()
-    await t.close()
+
+    # When we close, the transport should call connection_lost callback
+    # Simulate that by calling it after close
+    if t._protocol:
+        t._protocol.connection_lost(None)
+
     assert not t.is_open()
 
 
 async def test_send_and_receive_success(
-    mock_asyncio_connection: tuple[MagicMock, MagicMock],
+    mock_transport: MagicMock,
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     """Test successful send_and_receive with a valid response."""
-    reader, writer = mock_asyncio_connection
+    protocol = ModbusRtuProtocol(on_connection_lost=lambda _: None)
+    protocol.connection_made(mock_transport)
 
-    t = AsyncRtuTransport("/dev/ttyUSB0", baudrate=9600)
-    # prepare reader/writer
+    # Prepare response data
     pdu = _DummyPDU()
     unit_id = 1
-    # construct response: unit + function + data(1 byte) + crc
     response_data = b"\x05"
     payload = bytes([unit_id, pdu.function_code]) + response_data
     crc = calculate_crc16(payload)
     response_adu = payload + crc
-    # first read returns first 4 bytes, then remaining byte
-    response_begin = response_adu[:MIN_RTU_RESPONSE_LENGTH]
-    remaining = response_adu[MIN_RTU_RESPONSE_LENGTH:]
 
-    reader.readexactly = AsyncMock(side_effect=[response_begin, remaining])
-
-    # monkeypatch get_pdu_class to return a dummy class with expected length 1
+    # Mock get_pdu_class to return a dummy class with expected length 1
     class DummyPduClass:
         @staticmethod
         def get_expected_response_data_length(_begin_bytes: bytes) -> int:
@@ -126,344 +157,893 @@ async def test_send_and_receive_success(
 
     monkeypatch.setattr("tmodbus.transport.async_rtu.get_pdu_class", lambda _: DummyPduClass)
 
-    t._reader = reader
-    t._writer = writer
-    # ensure no waiting
-    t._last_frame_ended_at = time.monotonic() - 10
-    result = await t.send_and_receive(unit_id, pdu)
+    # Set last frame time to avoid inter-frame delay
+    protocol._last_frame_ended_at = time.monotonic() - 10
+
+    # Send request in background and simulate receiving response
+    async def simulate_response() -> None:
+        await asyncio.sleep(0.01)  # Small delay to let send_and_receive start
+        protocol.data_received(response_adu)
+
+    result_task = asyncio.create_task(protocol.send_and_receive(unit_id, pdu))
+    response_task = asyncio.create_task(simulate_response())
+
+    result = await result_task
+    await response_task
+
     assert result[0] == "decoded"
-
-
-async def test_receive_response_no_reader() -> None:
-    """Test that if _reader is None, ModbusConnectionError is raised."""
-    t = AsyncRtuTransport("/dev/ttyUSB0", baudrate=9600)
-    t._reader = None
-    with pytest.raises(ModbusConnectionError):
-        await t._receive_response()
-
-
-async def test_receive_response_incomplete(
-    mock_asyncio_connection: tuple[MagicMock, MagicMock],
-) -> None:
-    """Test that if readexactly raises IncompleteReadError, it is propagated as RTUFrameError."""
-    reader, _writer = mock_asyncio_connection
-    reader.readexactly = AsyncMock(side_effect=asyncio.IncompleteReadError(partial=b"abc", expected=10))
-    t = AsyncRtuTransport("/dev/ttyUSB0", baudrate=9600)
-    await t.open()
-
-    with pytest.raises(RTUFrameError):
-        await t._receive_response()
-
-
-async def test_close_early_return_and_logger() -> None:
-    """Test that close early-returns if not open and logs debug if writer is None."""
-    # when _writer is None, close should log debug and return
-    t = AsyncRtuTransport("/dev/ttyUSB0", baudrate=9600)
-    t._writer = None
-    t._reader = None
-
-    with patch("tmodbus.transport.async_rtu.logger") as log:
-        await t.close()
-        log.debug.assert_called()
-
-
-async def test_interframe_sleep(monkeypatch: pytest.MonkeyPatch) -> None:
-    """Test that if the last frame ended recently, send_and_receive waits the interframe delay."""
-    # ensure sleep is awaited when last frame ended recently
-    t = AsyncRtuTransport("/dev/ttyUSB0", baudrate=9600)
-    reader = AsyncMock()
-    writer = MagicMock()
-    writer.drain = AsyncMock()
-    writer.is_closing.return_value = False
-    t._reader = reader
-    t._writer = writer
-    # set last ended very recent
-    t._last_frame_ended_at = time.monotonic()
-    t._interframe_delay = 0.1
-    pdu = _DummyPDU()
-    # monkeypatch _receive_response to return a valid frame to avoid further exceptions
-    monkeypatch.setattr(
-        t,
-        "_receive_response",
-        AsyncMock(
-            return_value=bytes([1, pdu.function_code, 0x05]) + calculate_crc16(bytes([1, pdu.function_code, 0x05]))
-        ),
-    )
-    sleep_called = False
-
-    async def fake_sleep(_d: float) -> None:
-        nonlocal sleep_called
-        sleep_called = True
-
-    monkeypatch.setattr("asyncio.sleep", fake_sleep)
-    await t.send_and_receive(1, pdu)
-    assert sleep_called
-
-
-async def test_send_and_receive_writer_none_after_is_open(monkeypatch: pytest.MonkeyPatch) -> None:
-    """Test that if writer is None after is_open returns True, ModbusConnectionError is raised."""
-    # Force is_open to return True but writer None to hit connection-not-established branch
-    t = AsyncRtuTransport("/dev/ttyUSB0", baudrate=9600)
-    t._reader = AsyncMock()
-    t._writer = None
-    pdu = _DummyPDU()
-    # patch is_open to True so code proceeds past initial check
-    monkeypatch.setattr(AsyncRtuTransport, "is_open", lambda _: True)
-    with pytest.raises(ModbusConnectionError, match=r"Connection not established."):
-        await t.send_and_receive(1, pdu)
-
-
-async def test_expected_length_exceeds_max(
-    mock_asyncio_connection: tuple[MagicMock, MagicMock],
-    monkeypatch: pytest.MonkeyPatch,
-) -> None:
-    """Test that if the expected length exceeds MAX_RTU_FRAME_SIZE, RTUFrameError is raised."""
-    # craft response_begin with non-exception function code and force get_pdu_class to return large length
-    unit_id = 1
-    function = 0x03
-    response_begin = bytes([unit_id, function, 0x00, 0x00])
-    reader, _writer = mock_asyncio_connection
-    reader.readexactly = AsyncMock(side_effect=[response_begin])
-    t = AsyncRtuTransport("/dev/ttyUSB0", baudrate=9600)
-    await t.open()
-
-    class BigPduClass:
-        @staticmethod
-        def get_expected_response_data_length(_begin_bytes: bytes) -> int:
-            return MAX_RTU_FRAME_SIZE
-
-    monkeypatch.setattr("tmodbus.transport.async_rtu.get_pdu_class", lambda _b: BigPduClass)
-    with pytest.raises(RTUFrameError):
-        await t._receive_response()
-
-
-async def test_receive_response_remaining_raises_rtuframe(
-    mock_asyncio_connection: tuple[MagicMock, MagicMock], monkeypatch: pytest.MonkeyPatch
-) -> None:
-    """Test that if the remaining read raises RTUFrameError, it is propagated and response_bytes includes all bytes."""
-    reader, _writer = mock_asyncio_connection
-    # make initial read succeed, then remaining raises RTUFrameError
-    unit_id = 1
-    function = 0x03
-    response_begin = bytes([unit_id, function, 0x00, 0x00])
-    reader.readexactly = AsyncMock(side_effect=[response_begin, RTUFrameError("err", response_bytes=b"x")])
-    t = AsyncRtuTransport("/dev/ttyUSB0", baudrate=9600)
-    await t.open()
-
-    class DummyPduClass:
-        @staticmethod
-        def get_expected_response_data_length(_begin_bytes: bytes) -> int:
-            return 3
-
-    monkeypatch.setattr("tmodbus.transport.async_rtu.get_pdu_class", lambda _b: DummyPduClass)
-    with pytest.raises(RTUFrameError) as excinfo:
-        await t._receive_response()
-    # ensure response_bytes includes both parts
-    assert excinfo.value.response_bytes.startswith(response_begin)
-
-
-async def test_receive_response_initial_timeout() -> None:
-    """Test that if the initial read raises TimeoutError, it is propagated and response_bytes is empty."""
-    reader = AsyncMock()
-    reader.readexactly = AsyncMock(side_effect=TimeoutError)
-    t = AsyncRtuTransport("/dev/ttyUSB0", baudrate=9600)
-    t._reader = reader
-    with pytest.raises(TimeoutError):
-        await t._receive_response()
-
-
-async def test_receive_response_remaining_modbus_connection_error(monkeypatch: pytest.MonkeyPatch) -> None:
-    """Test that if the remaining read raises ModbusConnectionError, it is wrapped and response_bytes set."""
-    # initial read succeeds, remaining raises ModbusConnectionError and should be wrapped
-    unit_id = 1
-    function = 0x03
-    response_begin = bytes([unit_id, function, 0x00, 0x00])
-    reader = AsyncMock()
-    reader.readexactly = AsyncMock(side_effect=[response_begin, ModbusConnectionError("fail", bytes_read=b"ERR")])
-    t = AsyncRtuTransport("/dev/ttyUSB0", baudrate=9600)
-    t._reader = reader
-
-    class DummyPduClass:
-        @staticmethod
-        def get_expected_response_data_length(_begin_bytes: bytes) -> int:
-            return 3
-
-    monkeypatch.setattr("tmodbus.transport.async_rtu.get_pdu_class", lambda _b: DummyPduClass)
-    with pytest.raises(ModbusConnectionError) as excinfo:
-        await t._receive_response()
-    # ensure bytes_read contains the initial bytes
-    assert getattr(excinfo.value, "response_bytes", b"") or getattr(excinfo.value, "response_bytes", None) is not None
-
-
-async def test_send_and_receive_crc_and_address_and_exception(
-    mock_asyncio_connection: tuple[MagicMock, MagicMock],
-    monkeypatch: pytest.MonkeyPatch,
-) -> None:
-    """Test that send_and_receive properly handles error conditions.
-
-    The error conditions checked are: CRC error, address mismatch, exception response, function code mismatch.
-    """
-    reader, _writer = mock_asyncio_connection
-    # Test CRC error, slave address mismatch, and exception response mapping
-    t = AsyncRtuTransport("/dev/ttyUSB0", baudrate=9600)
-    await t.open()
-    pdu = _DummyPDU()
-    unit_id = 1
-
-    # 1) CRC error: create frame with bad CRC
-    payload = bytes([unit_id, pdu.function_code, 0x01])
-    bad_response = payload + b"\x00\x00"
-
-    reader.readexactly = AsyncMock(side_effect=[bad_response[:4], bad_response[4:]])
-
-    class DummyPduClass:
-        @staticmethod
-        def get_expected_response_data_length(_begin_bytes: bytes) -> int:
-            return 1
-
-    monkeypatch.setattr("tmodbus.transport.async_rtu.get_pdu_class", lambda _: DummyPduClass)
-
-    t._last_frame_ended_at = time.monotonic() - 10
-    with pytest.raises(CRCError):
-        await t.send_and_receive(unit_id, pdu)
-
-    # 2) Slave address mismatch
-    other_unit = 2
-    payload = bytes([other_unit, pdu.function_code, 0x01])
-    crc = calculate_crc16(payload)
-    response = payload + crc
-    reader.readexactly = AsyncMock(side_effect=[response[:4], response[4:]])
-    with pytest.raises(InvalidResponseError, match=r"Slave address mismatch"):
-        await t.send_and_receive(unit_id, pdu)
-
-    # 3) Exception response mapped to specific class
-    exc_code = 0x01  # ILLEGAL_FUNCTION
-    payload = bytes([unit_id, pdu.function_code | 0x80, exc_code])
-    crc = calculate_crc16(payload)
-    response = payload + crc
-    reader.readexactly = AsyncMock(side_effect=[response[:4], response[4:]])
-    with pytest.raises(IllegalFunctionError):
-        await t.send_and_receive(unit_id, pdu)
-
-    # 4) Function code mismatch
-    payload = bytes([unit_id, 0x04, 0x01])
-    crc = calculate_crc16(payload)
-    response = payload + crc
-    reader.readexactly = AsyncMock(side_effect=[response[:4], response[4:]])
-    with pytest.raises(InvalidResponseError, match=r"Function code mismatch"):
-        await t.send_and_receive(unit_id, pdu)
-
-
-async def test_open_raises_modbus_connection_error_on_generic_exception(monkeypatch: pytest.MonkeyPatch) -> None:
-    """Test that open raises ModbusConnectionError when open_serial_connection raises RuntimeError."""
-    # open_serial_connection raises RuntimeError -> open should raise ModbusConnectionError
-    monkeypatch.setattr(
-        "serial_asyncio_fast.open_serial_connection",
-        AsyncMock(side_effect=RuntimeError("boom")),
-    )
-    t = AsyncRtuTransport("/dev/ttyUSB0", baudrate=9600)
-    with pytest.raises(ModbusConnectionError):
-        await t.open()
-
-
-async def test_open_and_close_log_info(
-    mock_asyncio_connection: tuple[MagicMock, MagicMock],
-) -> None:
-    """Test that open and close log info messages."""
-    _reader, writer = mock_asyncio_connection
-    # ensure wait_closed exists
-    writer.wait_closed = AsyncMock()
-    t = AsyncRtuTransport("/dev/ttyUSB0", baudrate=9600)
-
-    with patch("tmodbus.transport.async_rtu.logger") as log:
-        await t.open()
-        log.info.assert_called_with("Async Serial connection established to '%s'", t.port)
-        await t.close()
-        log.info.assert_called_with("Serial connection closed: %s", t.port)
-
-
-# (the reload-style import test was removed; the exec-based test above is sufficient)
-
-
-async def test_close_logs_on_exception(
-    mock_asyncio_connection: tuple[MagicMock, MagicMock],
-) -> None:
-    """Test that close logs debug if writer.wait_closed raises an exception."""
-    # simulate writer.wait_closed raising, hitting the except branch in close()
-    _reader, writer = mock_asyncio_connection
-
-    async def bad_wait_closed() -> None:
-        raise RuntimeError
-
-    writer.wait_closed = bad_wait_closed
-
-    t = AsyncRtuTransport("/dev/ttyUSB0", baudrate=9600)
-    await t.open()
-    with patch("tmodbus.transport.async_rtu.logger") as log:
-        await t.close()
-        # ensure the debug log for exception during close was called
-        log.debug.assert_called()
 
 
 async def test_send_and_receive_not_connected() -> None:
     """Test that send_and_receive raises ModbusConnectionError when not connected."""
     t = AsyncRtuTransport("/dev/ttyUSB0", baudrate=9600)
-    # ensure no reader/writer set (is_open() returns False)
-    with pytest.raises(ModbusConnectionError, match=r"Not connected"):
+    # Don't open the connection
+    with pytest.raises(ModbusConnectionError, match=r"not connected"):
         await t.send_and_receive(1, _DummyPDU())
 
 
-@pytest.mark.usefixtures("mock_asyncio_connection")
-async def test_send_and_receive_recv_exception_logs(
+async def test_protocol_send_and_receive_not_connected() -> None:
+    """Test that send_and_receive raises ModbusConnectionError when not connected."""
+    p = ModbusRtuProtocol(on_connection_lost=lambda _: None)
+    # Don't open the connection
+    with pytest.raises(ModbusConnectionError, match=r"Not connected"):
+        await p.send_and_receive(1, _DummyPDU())
+
+
+async def test_send_and_receive_crc_error(
+    mock_transport: MagicMock,
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
-    """Test that send_and_receive logs raw traffic when _receive_response raises RTUFrameError."""
-    # Ensure that when _receive_response raises RTUFrameError, send_and_receive logs raw traffic with is_error=True
+    """Test that send_and_receive raises CRCError on invalid CRC."""
+    protocol = ModbusRtuProtocol(on_connection_lost=lambda _: None)
+    protocol.connection_made(mock_transport)
+
+    pdu = _DummyPDU()
+    unit_id = 1
+    response_data = b"\x05"
+    payload = bytes([unit_id, pdu.function_code]) + response_data
+    # Use wrong CRC
+    response_adu = payload + b"\x00\x00"
+
+    class DummyPduClass:
+        @staticmethod
+        def get_expected_response_data_length(_begin_bytes: bytes) -> int:
+            return 1
+
+    monkeypatch.setattr("tmodbus.transport.async_rtu.get_pdu_class", lambda _: DummyPduClass)
+    protocol._last_frame_ended_at = time.monotonic() - 10
+
+    async def simulate_response() -> None:
+        await asyncio.sleep(0.01)
+        protocol.data_received(response_adu)
+
+    result_task = asyncio.create_task(protocol.send_and_receive(unit_id, pdu))
+    response_task = asyncio.create_task(simulate_response())
+
+    with pytest.raises(CRCError):
+        await result_task
+    await response_task
+
+
+async def test_send_and_receive_address_mismatch(
+    mock_transport: MagicMock,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """Test that send_and_receive validates the unit_id in the response."""
+    protocol = ModbusRtuProtocol(on_connection_lost=lambda _: None)
+    protocol.connection_made(mock_transport)
+
+    pdu = _DummyPDU()
+    unit_id = 1
+    wrong_unit_id = 2  # Response has wrong unit_id
+    response_data = b"\x05"
+    # Build response with wrong unit_id but correct function code
+    payload = bytes([wrong_unit_id, pdu.function_code]) + response_data
+    crc = calculate_crc16(payload)
+    wrong_response = payload + crc
+
+    # Build correct response
+    correct_payload = bytes([unit_id, pdu.function_code]) + response_data
+    correct_crc = calculate_crc16(correct_payload)
+    correct_response = correct_payload + correct_crc
+
+    class DummyPduClass:
+        @staticmethod
+        def get_expected_response_data_length(_begin_bytes: bytes) -> int:
+            return 1
+
+    monkeypatch.setattr("tmodbus.transport.async_rtu.get_pdu_class", lambda _: DummyPduClass)
+    protocol._last_frame_ended_at = time.monotonic() - 10
+
+    async def simulate_response() -> None:
+        await asyncio.sleep(0.01)
+        # First send wrong response (will be discarded as garbage)
+        protocol.data_received(wrong_response)
+        await asyncio.sleep(0.01)
+        # Then send correct response
+        protocol.data_received(correct_response)
+
+    result_task = asyncio.create_task(protocol.send_and_receive(unit_id, pdu))
+    response_task = asyncio.create_task(simulate_response())
+
+    # Should succeed with correct response after discarding wrong one
+    result = await result_task
+    await response_task
+
+    assert result[0] == "decoded"
+
+
+async def test_send_and_receive_exception_response(
+    mock_transport: MagicMock,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """Test that send_and_receive raises appropriate exception for exception response."""
+    protocol = ModbusRtuProtocol(on_connection_lost=lambda _: None)
+    protocol.connection_made(mock_transport)
+
+    pdu = _DummyPDU()
+    unit_id = 1
+    # Exception response: function code | 0x80, exception code 0x01 (illegal function)
+    payload = bytes([unit_id, pdu.function_code | 0x80, 0x01])
+    crc = calculate_crc16(payload)
+    response_adu = payload + crc
+
+    # Create a dummy PDU class for exception responses
+    class DummyExceptionPduClass:
+        @staticmethod
+        def get_expected_response_data_length(_begin_bytes: bytes) -> int:
+            return 0
+
+    monkeypatch.setattr(
+        "tmodbus.transport.async_rtu.get_pdu_class",
+        lambda _: DummyExceptionPduClass(),
+    )
+    protocol._last_frame_ended_at = time.monotonic() - 10
+
+    async def simulate_response() -> None:
+        await asyncio.sleep(0.01)
+        protocol.data_received(response_adu)
+
+    result_task = asyncio.create_task(protocol.send_and_receive(unit_id, pdu))
+    response_task = asyncio.create_task(simulate_response())
+
+    with pytest.raises(IllegalFunctionError):
+        await result_task
+    await response_task
+
+
+async def test_send_and_receive_timeout(
+    mock_transport: MagicMock,
+) -> None:
+    """Test that send_and_receive raises TimeoutError when no response is received."""
+    protocol = ModbusRtuProtocol(on_connection_lost=lambda _: None, timeout=0.2)
+    protocol.connection_made(mock_transport)
+    protocol._last_frame_ended_at = time.monotonic() - 10
+
+    pdu = _DummyPDU()
+    unit_id = 1
+
+    with pytest.raises(TimeoutError, match="timeout"):
+        await protocol.send_and_receive(unit_id, pdu)
+
+
+async def test_protocol_garbage_data_handling(
+    mock_transport: MagicMock,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """Test that protocol handles garbage data by searching for expected unit_id."""
+    protocol = ModbusRtuProtocol(on_connection_lost=lambda _: None)
+    protocol.connection_made(mock_transport)
+
+    pdu = _DummyPDU()
+    unit_id = 1
+    response_data = b"\x05"
+    payload = bytes([unit_id, pdu.function_code]) + response_data
+    crc = calculate_crc16(payload)
+    response_adu = payload + crc
+
+    # Prepend garbage data
+    garbage = b"\xff\xfe\xfd"
+    data_with_garbage = garbage + response_adu
+
+    class DummyPduClass:
+        @staticmethod
+        def get_expected_response_data_length(_begin_bytes: bytes) -> int:
+            return 1
+
+    monkeypatch.setattr("tmodbus.transport.async_rtu.get_pdu_class", lambda _: DummyPduClass)
+    protocol._last_frame_ended_at = time.monotonic() - 10
+
+    async def simulate_response() -> None:
+        await asyncio.sleep(0.01)
+        # Send garbage followed by valid response
+        protocol.data_received(data_with_garbage)
+
+    result_task = asyncio.create_task(protocol.send_and_receive(unit_id, pdu))
+    response_task = asyncio.create_task(simulate_response())
+
+    result = await result_task
+    await response_task
+
+    assert result[0] == "decoded"
+
+
+async def test_protocol_per_unit_request_tracking(
+    mock_transport: MagicMock,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """Test that protocol tracks pending requests per unit_id."""
+    protocol = ModbusRtuProtocol(on_connection_lost=lambda _: None)
+    protocol.connection_made(mock_transport)
+
+    pdu1 = _DummyPDU()
+    pdu2 = _DummyPDU()
+    unit_id_1 = 1
+    unit_id_2 = 2
+
+    class DummyPduClass:
+        @staticmethod
+        def get_expected_response_data_length(_begin_bytes: bytes) -> int:
+            return 1
+
+    monkeypatch.setattr("tmodbus.transport.async_rtu.get_pdu_class", lambda _: DummyPduClass)
+    protocol._last_frame_ended_at = time.monotonic() - 10
+
+    # Start two requests for different units simultaneously
+    async def send_and_respond(unit_id: int, pdu: BaseClientPDU) -> Any:  # type: ignore[type-arg]
+        response_data = b"\x05"
+        payload = bytes([unit_id, pdu.function_code]) + response_data
+        crc = calculate_crc16(payload)
+        response_adu = payload + crc
+
+        async def simulate_response() -> None:
+            await asyncio.sleep(0.02)
+            protocol.data_received(response_adu)
+
+        result_task = asyncio.create_task(protocol.send_and_receive(unit_id, pdu))
+        response_task = asyncio.create_task(simulate_response())
+
+        result = await result_task
+        await response_task
+        return result
+
+    # Send requests to two different units - should work concurrently
+    result1, result2 = await asyncio.gather(
+        send_and_respond(unit_id_1, pdu1),
+        send_and_respond(unit_id_2, pdu2),
+    )
+
+    assert result1[0] == "decoded"
+    assert result2[0] == "decoded"
+
+
+async def test_protocol_waits_for_previous_request_same_unit(
+    mock_transport: MagicMock,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """Test that protocol waits for previous request to same unit to complete."""
+    protocol = ModbusRtuProtocol(on_connection_lost=lambda _: None)
+    protocol.connection_made(mock_transport)
+
+    pdu1 = _DummyPDU()
+    pdu2 = _DummyPDU()
+    unit_id = 1
+
+    class DummyPduClass:
+        @staticmethod
+        def get_expected_response_data_length(_begin_bytes: bytes) -> int:
+            return 1
+
+    monkeypatch.setattr("tmodbus.transport.async_rtu.get_pdu_class", lambda _: DummyPduClass)
+    protocol._last_frame_ended_at = time.monotonic() - 10
+
+    request1_started = False
+    request2_started = False
+
+    async def send_request_1() -> Any:
+        nonlocal request1_started
+        request1_started = True
+
+        response_data = b"\x05"
+        payload = bytes([unit_id, pdu1.function_code]) + response_data
+        crc = calculate_crc16(payload)
+        response_adu = payload + crc
+
+        async def simulate_response() -> None:
+            await asyncio.sleep(0.05)
+            protocol.data_received(response_adu)
+
+        result_task = asyncio.create_task(protocol.send_and_receive(unit_id, pdu1))
+        response_task = asyncio.create_task(simulate_response())
+
+        result = await result_task
+        await response_task
+        return result
+
+    async def send_request_2() -> Any:
+        # Wait a bit to ensure request1 starts first
+        await asyncio.sleep(0.01)
+        nonlocal request2_started
+        request2_started = True
+
+        response_data = b"\x06"
+        payload = bytes([unit_id, pdu2.function_code]) + response_data
+        crc = calculate_crc16(payload)
+        response_adu = payload + crc
+
+        async def simulate_response() -> None:
+            await asyncio.sleep(0.01)
+            protocol.data_received(response_adu)
+
+        result_task = asyncio.create_task(protocol.send_and_receive(unit_id, pdu2))
+        response_task = asyncio.create_task(simulate_response())
+
+        result = await result_task
+        await response_task
+        return result
+
+    # Both requests should complete, but request2 waits for request1
+    result1, result2 = await asyncio.gather(
+        send_request_1(),
+        send_request_2(),
+    )
+
+    assert request1_started
+    assert request2_started
+    assert result1[0] == "decoded"
+    assert result2[0] == "decoded"
+
+
+async def test_connection_lost_sets_exception_on_pending_requests(
+    mock_transport: MagicMock,
+) -> None:
+    """Test that connection_lost sets exception on all pending requests."""
+    protocol = ModbusRtuProtocol(on_connection_lost=lambda _: None)
+    protocol.connection_made(mock_transport)
+    protocol._last_frame_ended_at = time.monotonic() - 10
+
+    pdu = _DummyPDU()
+    unit_id = 1
+
+    async def lose_connection() -> None:
+        await asyncio.sleep(0.05)
+        protocol.connection_lost(None)
+
+    result_task = asyncio.create_task(protocol.send_and_receive(unit_id, pdu))
+    connection_task = asyncio.create_task(lose_connection())
+
+    with pytest.raises(ModbusConnectionError, match="Connection lost"):
+        await result_task
+
+    await connection_task
+
+
+async def test_open_raises_modbus_connection_error_on_generic_exception(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """Test that open raises ModbusConnectionError when create_serial_connection fails."""
+    monkeypatch.setattr(
+        "serial_asyncio_fast.create_serial_connection",
+        AsyncMock(side_effect=RuntimeError("Serial error")),
+    )
+    t = AsyncRtuTransport("/dev/ttyUSB0", baudrate=9600)
+    with pytest.raises(ModbusConnectionError):
+        await t.open()
+
+
+async def test_close_when_already_closed() -> None:
+    """Test that close logs debug when connection is already closed."""
+    t = AsyncRtuTransport("/dev/ttyUSB0", baudrate=9600)
+
+    with patch("tmodbus.transport.async_rtu.logger") as log:
+        await t.close()
+        log.debug.assert_called_once()
+
+
+async def test_close_with_exception(
+    mock_serial_connection: tuple[MagicMock, Any],
+) -> None:
+    """Test that close handles exceptions during close."""
+    mock_transport, _get_protocol = mock_serial_connection
 
     t = AsyncRtuTransport("/dev/ttyUSB0", baudrate=9600)
     await t.open()
-    # make _receive_response raise RTUFrameError
-    err_bytes = b"\x01\x83\x02"
 
-    async def raise_err() -> None:
-        msg = "boom"
-        raise RTUFrameError(msg, response_bytes=err_bytes)
+    # Make transport.close() raise an exception
+    mock_transport.close.side_effect = RuntimeError("Close failed")
 
-    monkeypatch.setattr(t, "_receive_response", raise_err)
-
-    with patch("tmodbus.transport.async_rtu.log_raw_traffic") as log_raw:
-        with pytest.raises(RTUFrameError):
-            await t.send_and_receive(1, _DummyPDU())
-        log_raw.assert_called_with("recv", err_bytes, is_error=True)
+    with patch("tmodbus.transport.async_rtu.logger") as log:
+        await t.close()
+        log.debug.assert_called()
 
 
-@pytest.mark.usefixtures("mock_asyncio_connection")
-async def test_receive_response_wait_for_timeout() -> None:
-    """Test that _receive_response properly handles asyncio.TimeoutError from wait_for."""
-    # Force asyncio.wait_for to raise TimeoutError to hit the except TimeoutError branch
+async def test_on_connection_lost_with_exception() -> None:
+    """Test that _on_connection_lost logs error when exc is not None."""
     t = AsyncRtuTransport("/dev/ttyUSB0", baudrate=9600)
-    await t.open()
 
-    async def _fake_wait_for_with_timeout_error(
-        coro: Coroutine[Any, Any, Any],
-        timeout: int,  # noqa: ARG001, ASYNC109
-        *_args: Any,
-        **_kwargs: Any,
-    ) -> Never:
-        await coro
-        raise TimeoutError
+    with patch("tmodbus.transport.async_rtu.logger") as log:
+        t._on_connection_lost(RuntimeError("Connection error"))
+        log.error.assert_called_once()
 
-    with patch("asyncio.wait_for", _fake_wait_for_with_timeout_error), pytest.raises(TimeoutError):
-        await t._receive_response()
 
-    async def _fake_wait_for_with_runtime_error(
-        coro: Coroutine[Any, Any, Any],
-        timeout: int,  # noqa: ARG001, ASYNC109
-        *_args: Any,
-        **_kwargs: Any,
-    ) -> Never:
-        await coro
-        raise RuntimeError
+async def test_on_connection_lost_without_exception() -> None:
+    """Test that _on_connection_lost logs info when exc is None."""
+    t = AsyncRtuTransport("/dev/ttyUSB0", baudrate=9600)
 
-    with patch("asyncio.wait_for", _fake_wait_for_with_runtime_error), pytest.raises(ModbusConnectionError):
-        await t._receive_response()
+    with patch("tmodbus.transport.async_rtu.logger") as log:
+        t._on_connection_lost(None)
+        log.info.assert_called()
+
+
+async def test_on_connection_lost_pending_futures(mock_serial_connection: tuple[MagicMock, Any]) -> None:
+    """Test that _on_connection_lost sets exception on pending futures."""
+    mock_transport, _get_protocol = mock_serial_connection
+    t = AsyncRtuTransport("/dev/ttyUSB0", baudrate=9600)
+    protocol = ModbusRtuProtocol(on_connection_lost=t._on_connection_lost)
+    protocol.connection_made(mock_transport)
+
+    pdu = _DummyPDU()
+    unit_id = 1
+
+    # add a future that is already done to _pending_requests to test that it is skipped
+    done_future = asyncio.get_event_loop().create_future()
+    done_future.set_result(None)
+    protocol._pending_requests[2] = done_future
+
+    # Start a send_and_receive to create a pending future
+    send_task = asyncio.create_task(protocol.send_and_receive(unit_id, pdu))
+    await asyncio.sleep(0.01)  # Ensure the send_and_receive has started
+    assert protocol._pending_requests[unit_id]
+    # Now simulate connection lost
+    protocol.connection_lost(None)
+
+    with pytest.raises(ModbusConnectionError, match=r"Connection lost before response was received\."):
+        await send_task
+
+
+async def test_connection_made_with_wrong_transport_type() -> None:
+    """Test that connection_made raises TypeError for non-WriteTransport."""
+    protocol = ModbusRtuProtocol(
+        on_connection_lost=lambda _: None,
+        timeout=10.0,
+        interframe_delay=0.00175,
+    )
+
+    # Create a transport that's not a WriteTransport
+    mock_transport = MagicMock(spec=asyncio.BaseTransport)
+
+    with pytest.raises(TypeError, match="Expected a WriteTransport"):
+        protocol.connection_made(mock_transport)
+
+
+async def test_send_and_receive_function_code_mismatch(
+    mock_transport: MagicMock,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """Test that send_and_receive raises InvalidResponseError on function code mismatch."""
+    protocol = ModbusRtuProtocol(on_connection_lost=lambda _: None)
+    protocol.connection_made(mock_transport)
+
+    pdu = _DummyPDU()
+    unit_id = 1
+    wrong_function_code = 0x04  # Different from pdu.function_code (0x03)
+    response_data = b"\x05"
+    payload = bytes([unit_id, wrong_function_code]) + response_data
+    crc = calculate_crc16(payload)
+    response_adu = payload + crc
+
+    class DummyPduClass:
+        @staticmethod
+        def get_expected_response_data_length(_begin_bytes: bytes) -> int:
+            return 1
+
+    monkeypatch.setattr("tmodbus.transport.async_rtu.get_pdu_class", lambda _: DummyPduClass)
+    protocol._last_frame_ended_at = time.monotonic() - 10
+
+    async def simulate_response() -> None:
+        await asyncio.sleep(0.01)
+        protocol.data_received(response_adu)
+
+    result_task = asyncio.create_task(protocol.send_and_receive(unit_id, pdu))
+    response_task = asyncio.create_task(simulate_response())
+
+    with pytest.raises(InvalidResponseError, match="Function code mismatch"):
+        await result_task
+    await response_task
+
+
+async def test_garbage_data_no_pending_requests(
+    mock_transport: MagicMock,
+) -> None:
+    """Test garbage handling when there are no pending requests."""
+    protocol = ModbusRtuProtocol(on_connection_lost=lambda _: None)
+    protocol.connection_made(mock_transport)
+
+    # Send garbage data when no requests are pending
+    garbage = b"\xff\xfe\xfd\xfc"
+
+    with patch("tmodbus.transport.async_rtu.logger") as log:
+        protocol.data_received(garbage)
+
+        # Should log warning about discarding data with no pending requests
+        assert any("no pending requests" in str(call) for call in log.warning.call_args_list)
+        # Buffer should be cleared
+        assert len(protocol._buffer) == 0
+
+
+async def test_garbage_data_unexpected_state(
+    mock_transport: MagicMock,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """Test garbage handling in unexpected state (should not normally happen)."""
+    protocol = ModbusRtuProtocol(on_connection_lost=lambda _: None)
+    protocol.connection_made(mock_transport)
+
+    pdu = _DummyPDU()
+    unit_id = 1
+
+    class DummyPduClass:
+        @staticmethod
+        def get_expected_response_data_length(_begin_bytes: bytes) -> int:
+            return 1
+
+    monkeypatch.setattr("tmodbus.transport.async_rtu.get_pdu_class", lambda _: DummyPduClass)
+    protocol._last_frame_ended_at = time.monotonic() - 10
+
+    # Start a request to create a pending request for unit_id 1
+    response_data = b"\x05"
+    payload = bytes([unit_id, pdu.function_code]) + response_data
+    crc = calculate_crc16(payload)
+    response_adu = payload + crc
+
+    async def send_request_and_trigger_unexpected_state() -> tuple[str, bytes]:
+        async def simulate_response() -> None:
+            await asyncio.sleep(0.01)
+            # Add a byte for a different unit (2) that has no pending request
+            # This should trigger the garbage handling
+            garbage_byte = bytes([2])  # Unit ID 2 with no pending request
+            protocol.data_received(garbage_byte)
+            await asyncio.sleep(0.01)
+            # Now send the real response
+            protocol.data_received(response_adu)
+
+        result_task = asyncio.create_task(protocol.send_and_receive(unit_id, pdu))
+        response_task = asyncio.create_task(simulate_response())
+
+        result = await result_task
+        await response_task
+        return result
+
+    with patch("tmodbus.transport.async_rtu.logger") as log:
+        result = await send_request_and_trigger_unexpected_state()
+        assert result[0] == "decoded"
+
+        # Should have logged about discarding bytes
+        assert any("Discarding" in str(call) for call in log.warning.call_args_list)
+
+
+async def test_exception_response_empty_pdu(
+    mock_transport: MagicMock,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """Test exception response with empty pdu_bytes."""
+    protocol = ModbusRtuProtocol(on_connection_lost=lambda _: None, timeout=0.02)
+    protocol.connection_made(mock_transport)
+
+    pdu = _DummyPDU()
+    unit_id = 1
+    # Exception response with only function code, no exception code
+    payload = bytes([unit_id, pdu.function_code | 0x80])
+    crc = calculate_crc16(payload)
+    response_adu = payload + crc
+
+    class DummyExceptionPduClass:
+        @staticmethod
+        def get_expected_response_data_length(_begin_bytes: bytes) -> int:
+            return 0
+
+    monkeypatch.setattr("tmodbus.transport.async_rtu.get_pdu_class", lambda _: DummyExceptionPduClass())
+
+    async def simulate_response() -> None:
+        await asyncio.sleep(0.01)
+        protocol.data_received(response_adu)
+
+    result_task = asyncio.create_task(protocol.send_and_receive(unit_id, pdu))
+    response_task = asyncio.create_task(simulate_response())
+
+    with pytest.raises(TimeoutError):
+        await result_task
+    await response_task
+
+
+async def test_frame_exceeds_max_size(
+    mock_transport: MagicMock,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """Test that frame size exceeding max raises RTUFrameError."""
+    protocol = ModbusRtuProtocol(on_connection_lost=lambda _: None, timeout=0.02)
+    protocol.connection_made(mock_transport)
+
+    pdu = _DummyPDU()
+    unit_id = 1
+
+    # Mock get_pdu_class to return a huge expected length
+    class OversizedPduClass:
+        @staticmethod
+        def get_expected_response_data_length(_begin_bytes: bytes) -> int:
+            return MAX_RTU_FRAME_SIZE + 100  # Exceeds max
+
+    monkeypatch.setattr("tmodbus.transport.async_rtu.get_pdu_class", lambda _: OversizedPduClass())
+    protocol._last_frame_ended_at = time.monotonic() - 10
+
+    async def simulate_response() -> None:
+        await asyncio.sleep(0.01)
+        # Send enough data to trigger the check
+        payload = bytes([unit_id, pdu.function_code]) + b"\x00" * (MAX_RTU_FRAME_SIZE + 1000)
+        crc = calculate_crc16(payload)
+        protocol.data_received(payload + crc)
+
+    result_task = asyncio.create_task(protocol.send_and_receive(unit_id, pdu))
+    response_task = asyncio.create_task(simulate_response())
+
+    with pytest.raises(RTUFrameError, match="Expected frame length"):
+        await result_task
+    await response_task
+
+
+async def test_pending_future_already_done(
+    mock_transport: MagicMock,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """Test that we don't set result on already-done future."""
+    protocol = ModbusRtuProtocol(on_connection_lost=lambda _: None)
+    protocol.connection_made(mock_transport)
+
+    pdu = _DummyPDU()
+    unit_id = 1
+    response_data = b"\x05"
+    payload = bytes([unit_id, pdu.function_code]) + response_data
+    crc = calculate_crc16(payload)
+    response_adu = payload + crc
+
+    class DummyPduClass:
+        @staticmethod
+        def get_expected_response_data_length(_begin_bytes: bytes) -> int:
+            return 1
+
+    monkeypatch.setattr("tmodbus.transport.async_rtu.get_pdu_class", lambda _: DummyPduClass)
+    protocol._last_frame_ended_at = time.monotonic() - 10
+
+    async def simulate_response() -> None:
+        await asyncio.sleep(0.05)
+        # By this time, the request should be cancelled
+        # Try to send response anyway
+        protocol.data_received(response_adu)
+
+    result_task = asyncio.create_task(protocol.send_and_receive(unit_id, pdu))
+    response_task = asyncio.create_task(simulate_response())
+
+    # Cancel the request task immediately
+    await asyncio.sleep(0.01)
+    result_task.cancel()
+
+    with contextlib.suppress(asyncio.CancelledError):
+        await result_task
+
+    await response_task
+
+    # If we get here without exceptions, the test passes
+
+
+async def test_timeout_not_none_in_pyserial_options() -> None:
+    """Test that explicit timeout in pyserial_options is used (line 153)."""
+    # This tests the branch where timeout is NOT None
+    t = AsyncRtuTransport("/dev/ttyUSB0", baudrate=9600, timeout=5.0)
+    assert t.timeout == 5.0
+
+
+async def test_send_and_receive_previous_request_timeout(
+    mock_transport: MagicMock,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """Test waiting for previous request that times out (lines 329-330)."""
+    protocol = ModbusRtuProtocol(on_connection_lost=lambda _: None, timeout=0.1)
+    protocol.connection_made(mock_transport)
+
+    pdu = _DummyPDU()
+    unit_id = 1
+
+    class DummyPduClass:
+        @staticmethod
+        def get_expected_response_data_length(_begin_bytes: bytes) -> int:
+            return 1
+
+    monkeypatch.setattr("tmodbus.transport.async_rtu.get_pdu_class", lambda _: DummyPduClass)
+    protocol._last_frame_ended_at = time.monotonic() - 10
+
+    # Directly test the code path by mocking a pending future that will timeout
+    mock_future: asyncio.Future[Any] = asyncio.Future()
+    protocol._pending_requests[unit_id] = mock_future
+
+    # Now when we call send_and_receive, it should wait for the mock_future
+    # which will timeout
+    response_data = b"\x05"
+    payload = bytes([unit_id, pdu.function_code]) + response_data
+    crc = calculate_crc16(payload)
+    response_adu = payload + crc
+
+    async def send_after_delay() -> None:
+        await asyncio.sleep(0.15)  # After the timeout
+        protocol.data_received(response_adu)
+
+    with patch("tmodbus.transport.async_rtu.logger") as log:
+        send_task = asyncio.create_task(send_after_delay())
+
+        # This should log about timeout while waiting for the mock_future
+        result = await protocol.send_and_receive(unit_id, pdu)
+        await send_task
+
+        # Should have logged about timeout
+        assert any("timed out" in str(call) for call in log.debug.call_args_list)
+        assert result[0] == "decoded"
+
+
+async def test_send_and_receive_previous_request_failed(
+    mock_transport: MagicMock,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """Test waiting for previous request that has failed."""
+    protocol = ModbusRtuProtocol(on_connection_lost=lambda _: None, timeout=0.1)
+    protocol.connection_made(mock_transport)
+
+    pdu = _DummyPDU()
+    unit_id = 1
+
+    class DummyPduClass:
+        @staticmethod
+        def get_expected_response_data_length(_begin_bytes: bytes) -> int:
+            return 1
+
+    monkeypatch.setattr("tmodbus.transport.async_rtu.get_pdu_class", lambda _: DummyPduClass)
+    protocol._last_frame_ended_at = time.monotonic() - 10
+
+    # Directly test the code path by mocking a pending future that has failed
+    mock_future: asyncio.Future[Any] = asyncio.Future()
+    protocol._pending_requests[unit_id] = mock_future
+
+    # Now when we call send_and_receive, it should wait for the mock_future
+    # which will timeout
+    response_data = b"\x05"
+    payload = bytes([unit_id, pdu.function_code]) + response_data
+    crc = calculate_crc16(payload)
+    response_adu = payload + crc
+
+    async def error_after_delay() -> None:
+        await asyncio.sleep(0.01)
+        mock_future.set_exception(RuntimeError("Previous request failed"))
+        await asyncio.sleep(0.01)
+        protocol.data_received(response_adu)
+
+    with patch("tmodbus.transport.async_rtu.logger") as log:
+        error_task = asyncio.create_task(error_after_delay())
+
+        # This should log about timeout while waiting for the mock_future
+        result = await protocol.send_and_receive(unit_id, pdu)
+        await error_task
+
+        # Should have logged about failed request
+        assert any("failed" in str(call) for call in log.debug.call_args_list)
+        assert result[0] == "decoded"
+
+
+async def test_data_received_cannot_determine_length(
+    mock_transport: MagicMock,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """Test data_received when PDU class raises error determining length (lines 462-464)."""
+    protocol = ModbusRtuProtocol(on_connection_lost=lambda _: None)
+    protocol.connection_made(mock_transport)
+
+    pdu = _DummyPDU()
+    unit_id = 1
+
+    # Mock get_pdu_class to raise ValueError when determining length
+    class BadPduClass:
+        @staticmethod
+        def get_expected_response_data_length(_begin_bytes: bytes) -> int:
+            msg = "Cannot determine length"
+            raise ValueError(msg)
+
+    monkeypatch.setattr("tmodbus.transport.async_rtu.get_pdu_class", lambda _: BadPduClass())
+    protocol._last_frame_ended_at = time.monotonic() - 10
+
+    # Start a request
+    async def send_request_and_receive_partial() -> None:
+        result_task = asyncio.create_task(protocol.send_and_receive(unit_id, pdu))
+
+        # Send partial data that will trigger the ValueError
+        await asyncio.sleep(0.01)
+        partial_data = bytes([unit_id, pdu.function_code, 0x01])  # Incomplete
+        protocol.data_received(partial_data)
+
+        # Buffer should still contain the partial data (waiting for more)
+        assert len(protocol._buffer) == 3
+
+        # Cancel the request
+        result_task.cancel()
+        with contextlib.suppress(asyncio.CancelledError):
+            await result_task
+
+    await send_request_and_receive_partial()
+
+
+async def test_determine_expected_frame_length__too_short(
+    mock_transport: MagicMock,
+) -> None:
+    """Test data_received when PDU class raises error determining length (lines 462-464)."""
+    protocol = ModbusRtuProtocol(on_connection_lost=lambda _: None)
+    protocol.connection_made(mock_transport)
+
+    protocol._buffer.extend(b"\01")
+    assert protocol._determine_expected_frame_length() is None
+
+
+async def test_determine_expected_frame_length__too_short_subfunction_pdu(
+    mock_transport: MagicMock,
+) -> None:
+    """Test data_received when PDU class raises error determining length (lines 462-464)."""
+    protocol = ModbusRtuProtocol(on_connection_lost=lambda _: None)
+    protocol.connection_made(mock_transport)
+
+    protocol._buffer.extend(bytes.fromhex("01 2B 0E"))
+    assert protocol._determine_expected_frame_length() is None
+
+
+async def test_determine_expected_frame_length__subfunction_pdu(
+    mock_transport: MagicMock,
+) -> None:
+    """Test data_received when PDU class raises error determining length (lines 462-464)."""
+    protocol = ModbusRtuProtocol(on_connection_lost=lambda _: None)
+    protocol.connection_made(mock_transport)
+
+    protocol._buffer.extend(bytes.fromhex("01 2B 0E 01 01 00 "))
+    assert protocol._determine_expected_frame_length() is None
+
+
+async def test_data_received_insufficient_data(
+    mock_transport: MagicMock,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """Test data_received returns early when insufficient data (line 468-469)."""
+    protocol = ModbusRtuProtocol(on_connection_lost=lambda _: None)
+    protocol.connection_made(mock_transport)
+
+    pdu = _DummyPDU()
+    unit_id = 1
+
+    class DummyPduClass:
+        @staticmethod
+        def get_expected_response_data_length(_begin_bytes: bytes) -> int:
+            return 10  # Expecting 10 bytes of data
+
+    monkeypatch.setattr("tmodbus.transport.async_rtu.get_pdu_class", lambda _: DummyPduClass)
+    protocol._last_frame_ended_at = time.monotonic() - 10
+
+    # Start a request
+    async def send_request_and_receive_partial() -> None:
+        result_task = asyncio.create_task(protocol.send_and_receive(unit_id, pdu))
+
+        # Send partial data (less than expected)
+        await asyncio.sleep(0.01)
+        partial_data = bytes([unit_id, pdu.function_code, 0x01, 0x02])  # Only 2 bytes, need 10
+        protocol.data_received(partial_data)
+
+        # Buffer should still contain the partial data (waiting for more)
+        assert len(protocol._buffer) == 4
+
+        # Cancel the request
+        result_task.cancel()
+        with contextlib.suppress(asyncio.CancelledError):
+            await result_task
+
+    await send_request_and_receive_partial()

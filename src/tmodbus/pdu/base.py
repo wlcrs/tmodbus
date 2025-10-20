@@ -35,14 +35,14 @@ class BaseClientPDU[RT](ABC):
         """
 
     @classmethod
-    def get_expected_response_data_length(cls, data: bytes) -> int:
+    def get_expected_response_data_length(cls, data: bytes) -> int | None:
         """Get the expected number of bytes for the data part of the response PDU.
 
         This method should be implemented by subclasses to return the expected
         length of the response based on the specific PDU type.
 
         Returns:
-            Expected length of the response PDU in bytes
+            Expected length of the response PDU in bytes, or None if it cannot be determined yet.
 
         """
         # if a fixed length is defined for the response PDU, return it
@@ -115,14 +115,14 @@ class BaseSubFunctionClientPDU[RT](BaseClientPDU[RT]):
     sub_function_code: int
 
     @classmethod
-    def get_expected_response_data_length(cls, data: bytes) -> int:
+    def get_expected_response_data_length(cls, data: bytes) -> int | None:
         """Get the expected number of bytes for the data part of the response PDU.
 
         This method should be implemented by subclasses to return the expected
         length of the response based on the specific PDU type.
 
         Returns:
-            Expected length of the response PDU in bytes
+            Expected length of the response PDU in bytes, or None if it cannot be determined yet.
 
         """
         # Always assume that the first byte of the data-part of the frame contains the sub-function code
@@ -151,7 +151,7 @@ class BaseSubFunctionPDU[RT](BaseSubFunctionClientPDU[RT], BasePDU[RT]):
     sub_function_code: int
 
     @classmethod
-    def get_expected_response_data_length(cls, data: bytes) -> int:
+    def get_expected_response_data_length(cls, data: bytes) -> int | None:
         """Get the expected number of bytes for the data part of the response PDU.
 
         This method should be implemented by subclasses to return the expected

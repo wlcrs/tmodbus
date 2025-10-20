@@ -283,3 +283,107 @@ class TestReadDeviceIdentificationPDU:
         pdu = ReadDeviceIdentificationPDU(read_device_id_code=0x01, object_id=0x00)
         assert pdu.function_code == 0x2B
         assert pdu.sub_function_code == 0x0E
+
+
+class TestReadDeviceIdentificationPDUGetExpectedResponseDataLength:
+    """Test get_expected_response_data_length method."""
+
+    def test_insufficient_data_for_header(self) -> None:
+        """Test with insufficient data to read header."""
+        # Header is 7 bytes, provide only 6
+        data = b"\x0e\x01\x01\x00\x00\x03"
+        result = ReadDeviceIdentificationPDU.get_expected_response_data_length(data)
+        assert result is None
+
+    def test_invalid_sub_function_code(self) -> None:
+        """Test with invalid sub-function code."""
+        # Sub-function code should be 0x0E, but provide 0x0F
+        data = struct.pack(">BBBBBB", 0x0F, 0x01, 0x01, 0x00, 0x00, 0x00)
+        with pytest.raises(Exception, match=r"Expected sub-function code"):
+            ReadDeviceIdentificationPDU.get_expected_response_data_length(data)
+
+    def test_zero_objects(self) -> None:
+        """Test with zero objects."""
+        data = struct.pack(">BBBBBB", 0x0E, 0x01, 0x01, 0x00, 0x00, 0x00)
+        result = ReadDeviceIdentificationPDU.get_expected_response_data_length(data)
+        assert result == 6
+
+    def test_single_object_complete(self) -> None:
+        """Test with single complete object."""
+        data = struct.pack(">BBBBBB", 0x0E, 0x01, 0x01, 0x00, 0x00, 0x01)
+        # Add object: ID=0x00, Length=6, Value="Vendor"
+        data += struct.pack(">BB", 0x00, 6) + b"Vendor"
+        result = ReadDeviceIdentificationPDU.get_expected_response_data_length(data)
+        assert result == 6 + 2 + 6  # header + obj_header + obj_value
+
+    def test_single_object_incomplete_header(self) -> None:
+        """Test with single object but incomplete object header."""
+        data = struct.pack(">BBBBBB", 0x0E, 0x01, 0x01, 0x00, 0x00, 0x01)
+        # Add only 1 byte of object header (need 2)
+        data += b"\x00"
+        result = ReadDeviceIdentificationPDU.get_expected_response_data_length(data)
+        assert result is None
+
+    def test_single_object_incomplete_value(self) -> None:
+        """Test with single object but incomplete value."""
+        data = struct.pack(">BBBBBB", 0x0E, 0x01, 0x01, 0x00, 0x00, 0x01)
+        # Add object header claiming length 10, but only provide 5 bytes
+        data += struct.pack(">BB", 0x00, 10) + b"Short"
+        result = ReadDeviceIdentificationPDU.get_expected_response_data_length(data)
+        assert result == 18
+
+    def test_multiple_objects_complete(self) -> None:
+        """Test with multiple complete objects."""
+        data = struct.pack(">BBBBBB", 0x0E, 0x01, 0x01, 0x00, 0x00, 0x03)
+        # Add three objects
+        data += struct.pack(">BB", 0x00, 6) + b"Vendor"
+        data += struct.pack(">BB", 0x01, 7) + b"Product"
+        data += struct.pack(">BB", 0x02, 3) + b"1.0"
+        result = ReadDeviceIdentificationPDU.get_expected_response_data_length(data)
+        # header(6) + obj1(2+6) + obj2(2+7) + obj3(2+3)  # noqa: ERA001
+        assert result == 6 + 8 + 9 + 5
+
+    def test_multiple_objects_incomplete_second_object(self) -> None:
+        """Test with multiple objects where second object is incomplete."""
+        data = struct.pack(">BBBBBB", 0x0E, 0x01, 0x01, 0x00, 0x00, 0x03)
+        # Add first object complete
+        data += struct.pack(">BB", 0x00, 6) + b"Vendor"
+        # Add second object header only
+        data += struct.pack(">BB", 0x01, 10)
+        result = ReadDeviceIdentificationPDU.get_expected_response_data_length(data)
+        assert result is None
+
+    def test_object_with_empty_value(self) -> None:
+        """Test with object having zero-length value."""
+        data = struct.pack(">BBBBBB", 0x0E, 0x01, 0x01, 0x00, 0x00, 0x01)
+        # Add object with length 0
+        data += struct.pack(">BB", 0x00, 0)
+        result = ReadDeviceIdentificationPDU.get_expected_response_data_length(data)
+        assert result == 6 + 2  # header + obj_header
+
+    def test_multiple_objects_with_varying_lengths(self) -> None:
+        """Test with multiple objects of varying lengths."""
+        data = struct.pack(">BBBBBB", 0x0E, 0x02, 0x03, 0x00, 0x00, 0x05)
+        # Add objects of different sizes
+        data += struct.pack(">BB", 0x00, 10) + b"VendorName"
+        data += struct.pack(">BB", 0x01, 0)  # Empty
+        data += struct.pack(">BB", 0x02, 5) + b"v1.23"
+        data += struct.pack(">BB", 0x03, 17) + b"http://vendor.com"
+        data += struct.pack(">BB", 0x04, 1) + b"X"
+        result = ReadDeviceIdentificationPDU.get_expected_response_data_length(data)
+        # header(6) + obj1(2+10) + obj2(2+0) + obj3(2+5) + obj4(2+17) + obj5(2+1)  # noqa: ERA001
+        assert result == 6 + 12 + 2 + 7 + 19 + 3
+
+    def test_more_follows_flag_variations(self) -> None:
+        """Test that 'more follows' flag doesn't affect length calculation."""
+        # Test with more=0x00
+        data1 = struct.pack(">BBBBBB", 0x0E, 0x01, 0x01, 0x00, 0x00, 0x01)
+        data1 += struct.pack(">BB", 0x00, 4) + b"Test"
+        result1 = ReadDeviceIdentificationPDU.get_expected_response_data_length(data1)
+
+        # Test with more=0xFF
+        data2 = struct.pack(">BBBBBB", 0x0E, 0x01, 0x01, 0xFF, 0x00, 0x01)
+        data2 += struct.pack(">BB", 0x00, 4) + b"Test"
+        result2 = ReadDeviceIdentificationPDU.get_expected_response_data_length(data2)
+
+        assert result1 == result2 == 6 + 2 + 4

@@ -92,11 +92,16 @@ def register_pdu_class(pdu_class: type[BaseClientPDU[Any]]) -> None:
         function_code_to_pdu_map[pdu_class.function_code] = pdu_class
 
 
-def get_pdu_class(begin_bytes: bytes) -> type[BaseClientPDU[Any]]:
+def is_function_code_for_subfunction_pdu(function_code: int) -> bool:
+    """Check if a PDU class is a sub-function PDU class."""
+    return function_code in sub_function_code_to_pdu_map
+
+
+def get_pdu_class(function_code: int) -> type[BaseClientPDU[Any]]:
     """Get PDU class by function code.
 
     Args:
-        begin_bytes: Beginning bytes of the PDU, starting with function code
+        function_code: Function code
 
     Returns:
         Corresponding PDU class
@@ -105,20 +110,32 @@ def get_pdu_class(begin_bytes: bytes) -> type[BaseClientPDU[Any]]:
         ValueError: If function code is not supported
 
     """
-    function_code = begin_bytes[0]
-    if pdu_class := function_code_to_pdu_map.get(function_code):
-        return pdu_class
+    try:
+        return function_code_to_pdu_map[function_code]
+    except KeyError:
+        msg = f"Unsupported function code: {function_code:#02x}"
+        raise ValueError(msg) from None
 
-    if sub_function_pdus := sub_function_code_to_pdu_map.get(function_code):
-        sub_function_code = begin_bytes[1]
-        try:
-            return sub_function_pdus[sub_function_code]
-        except KeyError:
-            msg = f"Unsupported sub-function code: {sub_function_code:#02x} for function code {function_code:#02x}"
-            raise ValueError(msg) from None
 
-    msg = f"Unsupported function code: {function_code:#02x}"
-    raise ValueError(msg)
+def get_subfunction_pdu_class(function_code: int, sub_function_code: int) -> type[BaseSubFunctionClientPDU[Any]]:
+    """Get Sub-function PDU class by function code and sub-function code.
+
+    Args:
+        function_code: Function code
+        sub_function_code: Sub-function code
+
+    Returns:
+        Corresponding PDU class
+
+    Raises:
+        ValueError: If function code is not supported
+
+    """
+    try:
+        return sub_function_code_to_pdu_map[function_code][sub_function_code]
+    except KeyError:
+        msg = f"Unsupported sub-function code: {sub_function_code:#02x} for function code {function_code:#02x}"
+        raise ValueError(msg) from None
 
 
 __all__ = [

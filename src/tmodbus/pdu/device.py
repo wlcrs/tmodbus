@@ -10,6 +10,7 @@ from enum import IntEnum
 from typing import Literal
 
 from tmodbus.const import FunctionCode
+from tmodbus.exceptions import InvalidResponseError
 
 from .base import BaseSubFunctionClientPDU
 
@@ -133,3 +134,50 @@ class ReadDeviceIdentificationPDU(BaseSubFunctionClientPDU[ReadDeviceIdentificat
             number_of_objects=number_of_objects,
             objects=objects,
         )
+
+    @classmethod
+    def get_expected_response_data_length(cls, data: bytes) -> int | None:
+        """Get the expected number of bytes for the data part of the response PDU.
+
+        Returns:
+            Expected length of the response PDU in bytes, or None if it cannot be determined yet.
+
+        """
+        # the first two bytes with the slave address and function code are not passed
+        # into this function.
+        response_header_struct = struct.Struct(">BBBBBB")
+
+        if len(data) < response_header_struct.size:
+            # we currently have insufficient data to determine the frame length
+            return None
+
+        (
+            sub_function_code,
+            _device_id_code,
+            _conformity_level,
+            _more,
+            _next_object_id,
+            number_of_objects,
+        ) = response_header_struct.unpack_from(data, 0)
+
+        # the first byte should thus contain the sub_function_code:
+
+        if sub_function_code != cls.sub_function_code:
+            msg = f"Expected sub-function code {cls.sub_function_code}, got {data[0]}"
+            raise InvalidResponseError(msg, response_bytes=data)
+
+        offset = response_header_struct.size
+
+        object_header_struct = struct.Struct(">BB")
+
+        for _ in range(number_of_objects):
+            if len(data) < offset + object_header_struct.size:
+                # we currently have insufficient data to determine the frame length
+                return None
+
+            _obj_id, obj_length = object_header_struct.unpack_from(data, offset)
+            offset += object_header_struct.size + obj_length
+
+        # the offset contains the index just past the last object
+        # this is conveniently also the result we are looking for here.
+        return offset

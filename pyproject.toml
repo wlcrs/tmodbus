@@ -107,7 +107,7 @@ warn_unused_ignores = true
 
 
 [tool.pytest.ini_options]
-addopts = "--cov"
+#addopts = "--cov"
 asyncio_mode = "auto"
 
 [tool.coverage.run]
