@@ -542,6 +542,17 @@ async def test_close_when_already_closed(caplog: pytest.LogCaptureFixture) -> No
         assert any("already closed" in record.message.lower() for record in caplog.records)
 
 
+@pytest.mark.usefixtures("mock_serial_connection")
+async def test_close(caplog: pytest.LogCaptureFixture) -> None:
+    """Test that close handles exceptions during close."""
+    t = AsyncRtuTransport("/dev/ttyUSB0", baudrate=9600)
+    await t.open()
+
+    with caplog.at_level(logging.DEBUG, logger="tmodbus.transport.async_rtu"):
+        await t.close()
+        assert len(caplog.records) > 0
+
+
 async def test_close_with_exception(
     mock_serial_connection: tuple[MagicMock, Any],
     caplog: pytest.LogCaptureFixture,
@@ -576,6 +587,18 @@ async def test_on_connection_lost_without_exception(caplog: pytest.LogCaptureFix
     with caplog.at_level(logging.INFO, logger="tmodbus.transport.async_rtu"):
         t._on_connection_lost(None)
         assert any(record.levelname == "INFO" for record in caplog.records)
+
+
+async def test_transport_send_and_receive() -> None:
+    """Test that send_and_receive calls protocol's send_and_receive."""
+    t = AsyncRtuTransport("/dev/ttyUSB0", baudrate=9600, timeout=0.1)
+    t._protocol = MagicMock(spec=ModbusRtuProtocol)
+
+    t._transport = MagicMock(spec=asyncio.WriteTransport)
+    t._transport.is_closing.return_value = False
+
+    await t.send_and_receive(1, _DummyPDU())
+    assert t._protocol.send_and_receive.called
 
 
 async def test_on_connection_lost_pending_futures(mock_serial_connection: tuple[MagicMock, Any]) -> None:
