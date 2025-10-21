@@ -325,18 +325,7 @@ class ModbusRtuProtocol(asyncio.Protocol):
             raise ModbusConnectionError(msg)
 
         # 1. Wait for any existing request for this unit_id to complete
-        existing_future = self._pending_requests.get(unit_id)
-        if existing_future is not None and not existing_future.done():
-            # Wait for the previous request to complete (or fail)
-            # If it fails, we continue with the new request
-            try:
-                await asyncio.wait_for(existing_future, timeout=self.timeout)
-            except TimeoutError:
-                logger.debug("Previous request for unit %d timed out, proceeding with new request", unit_id)
-            except Exception as e:  # noqa: BLE001
-                logger.debug("Previous request for unit %d failed: %s, proceeding with new request", unit_id, e)
-            else:
-                logger.debug("Previous request for unit %d succeeded, proceeding with new request", unit_id)
+        await self._wait_on_pending_request(unit_id)
 
         # 2. Build request frame
         request_pdu_bytes = pdu.encode_request()
@@ -385,6 +374,23 @@ class ModbusRtuProtocol(asyncio.Protocol):
 
         # 9. Return decoded response
         return pdu.decode_response(response.pdu_bytes)
+
+    async def _wait_on_pending_request(self, unit_id: int) -> None:
+        """Wait for any existing pending request for the given unit_id to complete."""
+        existing_future = self._pending_requests.get(unit_id)
+        if existing_future is not None and not existing_future.done():
+            # Wait for the previous request to complete (or fail)
+            # If it fails, we continue with the new request
+            try:
+                await asyncio.wait_for(existing_future, timeout=self.timeout)
+            except TimeoutError:
+                logger.debug("Previous request for unit %d timed out, proceeding with new request", unit_id)
+            except asyncio.CancelledError:
+                logger.debug("Previous request for unit %d was cancelled, proceeding with new request", unit_id)
+            except Exception as e:  # noqa: BLE001
+                logger.debug("Previous request for unit %d failed: %s, proceeding with new request", unit_id, e)
+            else:
+                logger.debug("Previous request for unit %d succeeded, proceeding with new request", unit_id)
 
     def _discard_garbage_data(self) -> None:
         """Discard garbage data from the buffer."""

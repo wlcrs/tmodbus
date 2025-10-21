@@ -3,6 +3,7 @@
 import pytest
 from tmodbus.exceptions import (
     ModbusResponseError,
+    UnknownModbusResponseError,
     error_code_to_exception_map,
     register_custom_exception,
 )
@@ -33,3 +34,12 @@ def test_register_custom_exception() -> None:
     # Registering again should raise ValueError
     with pytest.raises(ValueError, match=r".* already registered."):
         register_custom_exception(CustomError)
+
+
+def test_unknown_modbus_response_error() -> None:
+    """Test UnknownModbusResponseError for unknown error codes."""
+    # Test with an unknown error code (not in error_code_to_exception_map)
+    unknown_error = UnknownModbusResponseError(0xFF, 0x03)
+    assert unknown_error.error_code == 0xFF
+    assert unknown_error.function_code == 0x03
+    assert "0xFF" in str(unknown_error) or "255" in str(unknown_error)

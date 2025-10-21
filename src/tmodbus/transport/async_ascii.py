@@ -6,6 +6,8 @@ Implements async Modbus ASCII protocol transport based on asyncio, including LRC
 import asyncio
 import logging
 import time
+from collections.abc import Callable
+from dataclasses import dataclass
 from functools import partial
 from typing import NotRequired, TypedDict, TypeVar, Unpack
 
@@ -28,6 +30,7 @@ log_raw_traffic = partial(base_log_raw_traffic, "ASCII")
 RT = TypeVar("RT")
 
 DEFAULT_TIMEOUT = 10.0  # Default timeout in seconds for async operations
+MIN_INTERFRAME_GAP = 0.001  # Minimum gap between frames in seconds (1ms)
 
 
 class PySerialOptions(TypedDict):
@@ -90,18 +93,256 @@ def parse_ascii_frame(frame: bytes) -> bytes:
     return raw  # address + pdu + lrc
 
 
+@dataclass(frozen=True)
+class _ModbusAsciiMessage:
+    """Dataclass representing a Modbus ASCII message with address, PDU, and LRC."""
+
+    unit_id: int
+    pdu_bytes: bytes
+    lrc: bytes
+
+    @property
+    def bytes(self) -> bytes:
+        """Get full message bytes including address, PDU, and LRC."""
+        return bytes([self.unit_id]) + self.pdu_bytes + self.lrc
+
+
+class ModbusAsciiProtocol(asyncio.Protocol):
+    """Asyncio Protocol implementation for Modbus ASCII with frame detection."""
+
+    transport: "asyncio.WriteTransport | None" = None
+
+    on_connection_lost: Callable[[Exception | None], None]
+    timeout: float
+    interframe_gap: float
+
+    _buffer: bytearray
+    _last_frame_ended_at: float
+    _pending_requests: dict[int, asyncio.Future[_ModbusAsciiMessage]]
+
+    def __init__(
+        self,
+        *,
+        on_connection_lost: Callable[[Exception | None], None],
+        timeout: float = 10.0,
+        interframe_gap: float = MIN_INTERFRAME_GAP,
+    ) -> None:
+        """Initialize Modbus ASCII Protocol."""
+        super().__init__()
+
+        self.on_connection_lost = on_connection_lost
+        self.timeout = timeout
+        self.interframe_gap = interframe_gap
+
+        self._buffer = bytearray()
+        self._last_frame_ended_at = 0.0
+        self._pending_requests = {}
+
+        self.connection_made_event = asyncio.Event()
+
+    def connection_made(self, transport: asyncio.BaseTransport) -> None:
+        """Handle connection made event."""
+        if not isinstance(transport, asyncio.WriteTransport):
+            msg = "Expected a WriteTransport"
+            raise TypeError(msg)
+
+        self.transport = transport
+        logger.info("Modbus ASCII protocol connection established.")
+        self.connection_made_event.set()
+
+    async def send_and_receive(self, unit_id: int, pdu: BaseClientPDU[RT]) -> RT:
+        r"""Async send PDU and receive response (ASCII mode).
+
+        Implements complete ASCII protocol communication flow:
+        1. Wait for any pending request for this unit_id to complete
+        2. Build ASCII frame (':' + hex + LRC + '\r\n')
+        3. Wait for inter-frame gap
+        4. Async send request
+        5. Async receive response
+        6. Validate LRC and address
+        7. Return response PDU
+        """
+        if self.transport is None or self.transport.is_closing():
+            msg = "Not connected."
+            raise ModbusConnectionError(msg)
+
+        # 1. Wait for any existing request for this unit_id to complete
+        await self._wait_on_pending_request(unit_id)
+
+        # 2. Build request frame
+        request_pdu_bytes = pdu.encode_request()
+        request_adu = build_ascii_frame(unit_id, request_pdu_bytes)
+
+        # 3. Wait for inter-frame gap
+        time_since_last_frame = time.monotonic() - self._last_frame_ended_at
+        if time_since_last_frame < self.interframe_gap:
+            to_wait = self.interframe_gap - time_since_last_frame
+            await asyncio.sleep(to_wait)
+
+        # 4. Async send request
+        read_future: asyncio.Future[_ModbusAsciiMessage] = asyncio.get_event_loop().create_future()
+        self._pending_requests[unit_id] = read_future
+
+        self.transport.write(request_adu)
+        log_raw_traffic("sent", request_adu)
+        # Mark the end of this frame
+        self._last_frame_ended_at = time.monotonic()
+
+        # 5. Async wait for response or timeout
+        try:
+            response = await asyncio.wait_for(read_future, timeout=self.timeout)
+        except TimeoutError as e:
+            logger.exception(
+                "Response timeout for unit %d after %.2f seconds. Cancelling read future.", unit_id, self.timeout
+            )
+            read_future.cancel()
+            msg = f"Response timeout after {self.timeout} seconds"
+            raise TimeoutError(msg) from e
+        finally:
+            # Remove from pending requests
+            self._pending_requests.pop(unit_id, None)
+
+        # 6. Check if it's an exception response
+        if len(response.pdu_bytes) > 0 and response.pdu_bytes[0] & 0x80:  # Exception response
+            function_code = response.pdu_bytes[0] & 0x7F  # Remove exception flag bit
+            exception_code = response.pdu_bytes[1] if len(response.pdu_bytes) > 1 else 0
+
+            error_class = error_code_to_exception_map.get(exception_code, UnknownModbusResponseError)
+            raise error_class(exception_code, function_code)
+
+        # 7. Validate function code
+        response_function_code = response.pdu_bytes[0]
+        if response_function_code != pdu.function_code:
+            msg = f"Function code mismatch: expected {pdu.function_code}, received {response_function_code}"
+            raise InvalidResponseError(msg, response_bytes=response.bytes)
+
+        # 8. Return decoded response
+        return pdu.decode_response(response.pdu_bytes)
+
+    async def _wait_on_pending_request(self, unit_id: int) -> None:
+        """Wait for any existing pending request for the given unit_id to complete."""
+        existing_future = self._pending_requests.get(unit_id)
+        if existing_future is not None and not existing_future.done():
+            # Wait for the previous request to complete (or fail)
+            # If it fails, we continue with the new request
+            try:
+                await asyncio.wait_for(existing_future, timeout=self.timeout)
+            except TimeoutError:
+                logger.debug("Previous request for unit %d timed out, proceeding with new request", unit_id)
+            except asyncio.CancelledError:
+                logger.debug("Previous request for unit %d was cancelled, proceeding with new request", unit_id)
+            except Exception as e:  # noqa: BLE001
+                logger.debug("Previous request for unit %d failed: %s, proceeding with new request", unit_id, e)
+            else:
+                logger.debug("Previous request for unit %d succeeded, proceeding with new request", unit_id)
+
+    def _discard_garbage_data(self) -> None:
+        """Discard garbage data from the buffer until we find a frame start."""
+        # Look for the next ASCII_FRAME_START (':')
+        start_pos = self._buffer.find(ASCII_FRAME_START)
+
+        if start_pos == -1:
+            # No start marker found, discard everything
+            if len(self._buffer) > 0:
+                logger.warning(
+                    "No frame start found. Discarding %d bytes: %s",
+                    len(self._buffer),
+                    self._buffer.hex(" ").upper(),
+                )
+                self._buffer.clear()
+        elif start_pos > 0:
+            # Found start marker, discard everything before it
+            discarded = bytes(self._buffer[:start_pos])
+            logger.warning(
+                "Discarding %d byte(s) before frame start: %s",
+                start_pos,
+                discarded.hex(" ").upper(),
+            )
+            del self._buffer[:start_pos]
+
+    def data_received(self, data: bytes) -> None:
+        """Handle data received event."""
+        self._buffer.extend(data)
+        log_raw_traffic("recv", data)
+
+        # Try to process complete frames
+        while len(self._buffer) >= 1:
+            # Look for a complete frame: ':' ... '\r\n'
+            if not self._buffer.startswith(ASCII_FRAME_START):
+                # Buffer doesn't start with ':', discard garbage
+                self._discard_garbage_data()
+                continue
+
+            # Look for frame end
+            end_pos = self._buffer.find(ASCII_FRAME_END)
+            if end_pos == -1:
+                # No complete frame yet
+                # Check if buffer is getting too large (potential garbage/flood)
+                if len(self._buffer) > MAX_ASCII_FRAME_SIZE:
+                    logger.warning(
+                        "Buffer exceeded max frame size. Discarding %d bytes: %s",
+                        len(self._buffer),
+                        self._buffer.hex(" ").upper(),
+                    )
+                    self._buffer.clear()
+                return  # Wait for more data
+
+            # Extract complete frame
+            frame_length = end_pos + len(ASCII_FRAME_END)
+            frame = bytes(self._buffer[:frame_length])
+            del self._buffer[:frame_length]
+
+            # Parse and validate the frame
+            try:
+                raw = parse_ascii_frame(frame)
+            except (ASCIIFrameError, LRCError) as e:
+                logger.warning("Invalid frame received: %s", e)
+                # Continue to next frame
+                continue
+
+            # Extract unit_id from frame
+            unit_id = raw[0]
+            pdu_bytes = raw[1:-1]  # Remove address and LRC
+            lrc = raw[-1:]
+
+            # Check if this unit_id has a pending request
+            pending_future = self._pending_requests.get(unit_id)
+            if pending_future is None or pending_future.done():
+                # No pending request for this unit_id
+                logger.warning(
+                    "Received frame for unit %d with no pending request. Discarding frame.",
+                    unit_id,
+                )
+                continue
+
+            # Deliver response to pending request
+            pending_future.set_result(
+                _ModbusAsciiMessage(
+                    unit_id=unit_id,
+                    pdu_bytes=pdu_bytes,
+                    lrc=lrc,
+                )
+            )
+
+    def connection_lost(self, exc: Exception | None) -> None:
+        """Handle connection lost event."""
+        # Set exception on all pending requests
+        for pending_future in self._pending_requests.values():
+            if not pending_future.done():
+                pending_future.set_exception(ModbusConnectionError("Connection lost before response was received."))
+
+        self._pending_requests.clear()
+        self.on_connection_lost(exc)
+
+
 class AsyncAsciiTransport(AsyncBaseTransport):
     """Async Modbus ASCII Transport Layer Implementation.
 
     Handles async Modbus Serial communication using the ASCII framing, LRC checking, and timeouts.
     """
 
-    _reader: asyncio.StreamReader | None = None
-    _writer: asyncio.StreamWriter | None = None
-    _last_frame_ended_at: float = 0.0
-    _communication_lock: asyncio.Lock
-
-    pyserial_options: PySerialOptions
+    _transport: asyncio.Transport | None = None
+    _protocol: "ModbusAsciiProtocol | None" = None
 
     def __init__(
         self,
@@ -117,8 +358,11 @@ class AsyncAsciiTransport(AsyncBaseTransport):
         """
         self.port = port
         self.pyserial_options = pyserial_options
-        self.timeout = pyserial_options.get("timeout", DEFAULT_TIMEOUT)
-        self._communication_lock = asyncio.Lock()
+
+        timeout = pyserial_options.get("timeout")
+        if timeout is None:
+            timeout = DEFAULT_TIMEOUT
+        self.timeout = timeout
 
     async def open(self) -> None:
         """Establish Serial connection."""
@@ -131,154 +375,83 @@ class AsyncAsciiTransport(AsyncBaseTransport):
             )
             raise ImportError(msg) from e
 
-        async with self._communication_lock:
-            if self.is_open():
-                logger.debug("Serial connection already open: %s", self.port)
-                return
+        loop = asyncio.get_running_loop()
+        if self.is_open():
+            logger.debug("Serial connection already open: %s", self.port)
+            return
 
-            try:
-                self._reader, self._writer = await asyncio.wait_for(
-                    serial_asyncio_fast.open_serial_connection(
-                        url=self.port,
-                        **self.pyserial_options,
+        try:
+            # Use serial_asyncio_fast to create a serial connection with Protocol
+            transport, protocol = await asyncio.wait_for(
+                serial_asyncio_fast.create_serial_connection(
+                    loop,
+                    lambda: ModbusAsciiProtocol(
+                        on_connection_lost=self._on_connection_lost,
+                        timeout=self.timeout,
+                        interframe_gap=MIN_INTERFRAME_GAP,
                     ),
-                    timeout=self.pyserial_options.get("timeout", DEFAULT_TIMEOUT),
-                )
-                logger.info("Async Serial connection established to '%s'", self.port)
+                    url=self.port,
+                    **self.pyserial_options,
+                ),
+                timeout=self.pyserial_options.get("timeout", DEFAULT_TIMEOUT),
+            )
 
-            except TimeoutError:
-                raise
-            except Exception as e:
-                raise ModbusConnectionError from e
+            assert isinstance(transport, asyncio.WriteTransport)
+            assert isinstance(protocol, ModbusAsciiProtocol)
+            self._transport = transport
+            self._protocol = protocol
+
+            logger.info("Async Serial connection established to '%s'", self.port)
+
+            # pyserial can be slow to call connection_made, we explicitly wait for it here
+            assert self._protocol
+            await asyncio.wait_for(
+                self._protocol.connection_made_event.wait(),
+                timeout=self.timeout,
+            )
+
+        except TimeoutError:
+            logger.warning("Async Serial connection timeout: %s", self.port, exc_info=True)
+            raise
+        except Exception as e:
+            logger.exception("Async Serial connection error: %s", self.port)
+            raise ModbusConnectionError from e
 
     async def close(self) -> None:
         """Close Serial connection."""
-        async with self._communication_lock:
-            if not self._writer:
-                logger.debug("Serial connection already closed: %s", self.port)
-                return
+        if not self._transport or self._transport.is_closing():
+            logger.debug("Serial connection already closed: %s", self.port)
+            return
 
-            try:
-                self._writer.close()
-                await self._writer.wait_closed()
-                logger.info("Serial connection closed: %s", self.port)
-            except Exception as e:  # noqa: BLE001
-                logger.debug("Error during async connection close (ignorable): %s", e)
-            finally:
-                self._reader = None
-                self._writer = None
+        try:
+            self._transport.close()
+            logger.info("Serial connection closed: %s", self.port)
+        except Exception as e:  # noqa: BLE001
+            logger.debug("Error during async connection close: %s", e)
 
     def is_open(self) -> bool:
         """Check Serial connection status."""
-        if self._writer is None or self._reader is None:
-            return False
-        return not self._writer.is_closing()
+        return self._transport is not None and not self._transport.is_closing()
+
+    def _on_connection_lost(self, exc: Exception | None) -> None:
+        if exc:
+            logger.error("Async Serial connection lost due to error: %s", exc)
+        else:
+            logger.info("Async Serial connection closed.")
+
+        self._transport = None
+        self._protocol = None
 
     async def send_and_receive(self, unit_id: int, pdu: BaseClientPDU[RT]) -> RT:
-        r"""Async send PDU and receive response (ASCII mode).
+        """Async send PDU and receive response.
 
-        1. Build ASCII frame (':' + hex + LRC + '\r\n')
-        2. Wait for end-of-frame gap (min 1 char time)
-        3. Send request
-        4. Receive response
-        5. Validate LRC/format
-        6. Validate address
-        7. Check for error response
-        8. Mark end of frame
+        Args:
+            unit_id: Unit identifier (slave address)
+            pdu: PDU object to send
+
         """
-        async with self._communication_lock:
-            if not self.is_open():
-                msg = "Not connected."
-                raise ModbusConnectionError(msg)
-
-            # 1. Build request frame
-            request_pdu_bytes = pdu.encode_request()
-            request_adu = build_ascii_frame(unit_id, request_pdu_bytes)
-
-            log_raw_traffic("sent", request_adu)
-
-            # 2. Wait for end-of-frame gap (1 char time minimum)
-            # For simplicity, use 1ms
-            time_since_last_frame = time.monotonic() - self._last_frame_ended_at
-            min_gap = 0.001
-            if time_since_last_frame < min_gap:
-                await asyncio.sleep(min_gap - time_since_last_frame)
-
-            # 3. Send request
-            if not self._writer:
-                msg = "Connection not established."
-                raise ModbusConnectionError(msg)
-            self._writer.write(request_adu)
-            await asyncio.wait_for(self._writer.drain(), timeout=self.timeout)
-
-            # 4. Receive response
-            try:
-                response_adu: bytes = await self._receive_response()
-            except (ASCIIFrameError, ModbusConnectionError) as e:
-                log_raw_traffic("recv", e.response_bytes, is_error=True)
-                raise
-            else:
-                log_raw_traffic("recv", response_adu)
-
-            # 5. Validate LRC and parse
-            raw = parse_ascii_frame(response_adu)
-
-            # 6. Validate slave address
-            if raw[0] != unit_id:
-                msg = f"Slave address mismatch: expected {unit_id}, received {raw[0]}"
-                raise InvalidResponseError(msg, response_bytes=response_adu)
-
-            response_pdu = raw[1:-1]
-            response_function_code = response_pdu[0]
-
-            # 7. Exception response
-            if response_function_code & 0x80:
-                function_code = response_function_code & 0x7F
-                exception_code = response_pdu[1] if len(response_pdu) > 1 else 0
-
-                error_class = error_code_to_exception_map.get(exception_code, UnknownModbusResponseError)
-                raise error_class(exception_code, function_code)
-
-            if response_function_code != pdu.function_code:
-                msg = f"Function code mismatch: expected {pdu.function_code}, received {response_function_code}"
-                raise InvalidResponseError(msg, response_bytes=response_adu)
-
-            # 8. Mark the end of this frame
-            self._last_frame_ended_at = time.monotonic()
-            return pdu.decode_response(response_pdu)
-
-    async def _receive_response(self) -> bytes:
-        """Receive complete ASCII response frame."""
-        if not self._reader:
-            msg = "Serial connection not established."
+        if not self.is_open() or self._protocol is None:
+            msg = "Transport is not connected."
             raise ModbusConnectionError(msg)
 
-        try:
-            # Read until ':' (start of frame)
-            c = await asyncio.wait_for(self._reader.readuntil(ASCII_FRAME_START), timeout=self.timeout)
-            if len(c) > 1:
-                log_raw_traffic("recv", c[:-1], is_error=True)
-                logger.info("Discarded %d bytes of garbage before start of frame: %s", len(c) - 1, c[:-1])
-
-            frame = bytes([c[-1]])
-
-            # Read until '\r\n'
-            frame += await asyncio.wait_for(self._reader.readuntil(b"\r\n"), timeout=self.timeout)
-
-        except asyncio.IncompleteReadError as e:
-            msg = "Incomplete read while waiting for start of frame."
-            raise ASCIIFrameError(msg, response_bytes=e.partial) from e
-        except TimeoutError:
-            raise
-        except Exception as e:
-            msg = "Failed to read Modbus response."
-            raise ModbusConnectionError(msg) from e
-        else:
-            # protect against garbage/flood
-            if len(frame) > MAX_ASCII_FRAME_SIZE:
-                msg = "ASCII frame too large"
-                raise ASCIIFrameError(msg, response_bytes=frame)
-
-            return frame
-        finally:
-            self._last_frame_ended_at = time.monotonic()
+        return await self._protocol.send_and_receive(unit_id, pdu)

@@ -2,6 +2,7 @@
 
 import asyncio
 import contextlib
+import logging
 import time
 from collections.abc import Callable
 from typing import Any
@@ -21,6 +22,7 @@ from tmodbus.transport.async_rtu import (
     MAX_RTU_FRAME_SIZE,
     AsyncRtuTransport,
     ModbusRtuProtocol,
+    _ModbusRtuMessage,
     compute_interframe_delay,
     compute_max_continuous_transmission_delay,
 )
@@ -531,17 +533,18 @@ async def test_open_raises_modbus_connection_error_on_generic_exception(
         await t.open()
 
 
-async def test_close_when_already_closed() -> None:
+async def test_close_when_already_closed(caplog: pytest.LogCaptureFixture) -> None:
     """Test that close logs debug when connection is already closed."""
     t = AsyncRtuTransport("/dev/ttyUSB0", baudrate=9600)
 
-    with patch("tmodbus.transport.async_rtu.logger") as log:
+    with caplog.at_level(logging.DEBUG, logger="tmodbus.transport.async_rtu"):
         await t.close()
-        log.debug.assert_called_once()
+        assert any("already closed" in record.message.lower() for record in caplog.records)
 
 
 async def test_close_with_exception(
     mock_serial_connection: tuple[MagicMock, Any],
+    caplog: pytest.LogCaptureFixture,
 ) -> None:
     """Test that close handles exceptions during close."""
     mock_transport, _get_protocol = mock_serial_connection
@@ -552,27 +555,27 @@ async def test_close_with_exception(
     # Make transport.close() raise an exception
     mock_transport.close.side_effect = RuntimeError("Close failed")
 
-    with patch("tmodbus.transport.async_rtu.logger") as log:
+    with caplog.at_level(logging.DEBUG, logger="tmodbus.transport.async_rtu"):
         await t.close()
-        log.debug.assert_called()
+        assert len(caplog.records) > 0
 
 
-async def test_on_connection_lost_with_exception() -> None:
+async def test_on_connection_lost_with_exception(caplog: pytest.LogCaptureFixture) -> None:
     """Test that _on_connection_lost logs error when exc is not None."""
     t = AsyncRtuTransport("/dev/ttyUSB0", baudrate=9600)
 
-    with patch("tmodbus.transport.async_rtu.logger") as log:
+    with caplog.at_level(logging.ERROR, logger="tmodbus.transport.async_rtu"):
         t._on_connection_lost(RuntimeError("Connection error"))
-        log.error.assert_called_once()
+        assert any(record.levelname == "ERROR" for record in caplog.records)
 
 
-async def test_on_connection_lost_without_exception() -> None:
+async def test_on_connection_lost_without_exception(caplog: pytest.LogCaptureFixture) -> None:
     """Test that _on_connection_lost logs info when exc is None."""
     t = AsyncRtuTransport("/dev/ttyUSB0", baudrate=9600)
 
-    with patch("tmodbus.transport.async_rtu.logger") as log:
+    with caplog.at_level(logging.INFO, logger="tmodbus.transport.async_rtu"):
         t._on_connection_lost(None)
-        log.info.assert_called()
+        assert any(record.levelname == "INFO" for record in caplog.records)
 
 
 async def test_on_connection_lost_pending_futures(mock_serial_connection: tuple[MagicMock, Any]) -> None:
@@ -654,6 +657,7 @@ async def test_send_and_receive_function_code_mismatch(
 
 async def test_garbage_data_no_pending_requests(
     mock_transport: MagicMock,
+    caplog: pytest.LogCaptureFixture,
 ) -> None:
     """Test garbage handling when there are no pending requests."""
     protocol = ModbusRtuProtocol(on_connection_lost=lambda _: None)
@@ -662,11 +666,11 @@ async def test_garbage_data_no_pending_requests(
     # Send garbage data when no requests are pending
     garbage = b"\xff\xfe\xfd\xfc"
 
-    with patch("tmodbus.transport.async_rtu.logger") as log:
+    with caplog.at_level(logging.WARNING, logger="tmodbus.transport.async_rtu"):
         protocol.data_received(garbage)
 
         # Should log warning about discarding data with no pending requests
-        assert any("no pending requests" in str(call) for call in log.warning.call_args_list)
+        assert any("no pending requests" in record.message for record in caplog.records)
         # Buffer should be cleared
         assert len(protocol._buffer) == 0
 
@@ -674,6 +678,7 @@ async def test_garbage_data_no_pending_requests(
 async def test_garbage_data_unexpected_state(
     mock_transport: MagicMock,
     monkeypatch: pytest.MonkeyPatch,
+    caplog: pytest.LogCaptureFixture,
 ) -> None:
     """Test garbage handling in unexpected state (should not normally happen)."""
     protocol = ModbusRtuProtocol(on_connection_lost=lambda _: None)
@@ -714,12 +719,12 @@ async def test_garbage_data_unexpected_state(
         await response_task
         return result
 
-    with patch("tmodbus.transport.async_rtu.logger") as log:
+    with caplog.at_level(logging.WARNING, logger="tmodbus.transport.async_rtu"):
         result = await send_request_and_trigger_unexpected_state()
         assert result[0] == "decoded"
 
         # Should have logged about discarding bytes
-        assert any("Discarding" in str(call) for call in log.warning.call_args_list)
+        assert any("Discarding" in record.message for record in caplog.records)
 
 
 async def test_exception_response_empty_pdu(
@@ -1047,3 +1052,117 @@ async def test_data_received_insufficient_data(
             await result_task
 
     await send_request_and_receive_partial()
+
+
+async def test_wait_on_pending_request_no_pending() -> None:
+    """Test _wait_on_pending_request when there's no pending request for the unit_id."""
+    protocol = ModbusRtuProtocol(on_connection_lost=lambda _: None)
+
+    # Should return immediately when there's no pending request
+    await protocol._wait_on_pending_request(1)
+    # If we get here without blocking, the test passes
+
+
+async def test_wait_on_pending_request_already_done() -> None:
+    """Test _wait_on_pending_request when pending request is already done."""
+    protocol = ModbusRtuProtocol(on_connection_lost=lambda _: None)
+
+    # Create a future that's already done
+    done_future: asyncio.Future[_ModbusRtuMessage] = asyncio.get_event_loop().create_future()
+    done_future.set_result(_ModbusRtuMessage(unit_id=1, pdu_bytes=b"\x03\x00", crc=b"\x00\x00"))
+    protocol._pending_requests[1] = done_future
+
+    # Should return immediately when future is already done
+    await protocol._wait_on_pending_request(1)
+    # If we get here without blocking, the test passes
+
+
+async def test_wait_on_pending_request_waits_for_completion(caplog: pytest.LogCaptureFixture) -> None:
+    """Test _wait_on_pending_request waits for pending request to complete successfully."""
+    protocol = ModbusRtuProtocol(on_connection_lost=lambda _: None, timeout=1.0)
+
+    # Create a pending future
+    pending_future: asyncio.Future[_ModbusRtuMessage] = asyncio.get_event_loop().create_future()
+    protocol._pending_requests[1] = pending_future
+
+    # Set up a task to complete the future after a delay
+    async def complete_future() -> None:
+        await asyncio.sleep(0.05)
+        pending_future.set_result(_ModbusRtuMessage(unit_id=1, pdu_bytes=b"\x03\x00", crc=b"\x00\x00"))
+
+    complete_task = asyncio.create_task(complete_future())
+
+    # Should wait for the future to complete
+    with caplog.at_level(logging.DEBUG, logger="tmodbus.transport.async_rtu"):
+        await protocol._wait_on_pending_request(1)
+
+        # Should have logged success
+        assert any("succeeded" in record.message for record in caplog.records)
+
+    await complete_task
+
+
+async def test_wait_on_pending_request_cancelled(caplog: pytest.LogCaptureFixture) -> None:
+    """Test _wait_on_pending_request when pending request is cancelled."""
+    protocol = ModbusRtuProtocol(on_connection_lost=lambda _: None, timeout=1.0)
+
+    # Create a pending future
+    pending_future: asyncio.Future[_ModbusRtuMessage] = asyncio.get_event_loop().create_future()
+    protocol._pending_requests[1] = pending_future
+
+    # Set up a task to cancel the future after a delay
+    async def cancel_future() -> None:
+        await asyncio.sleep(0.05)
+        pending_future.cancel()
+
+    cancel_task = asyncio.create_task(cancel_future())
+
+    # Should wait for the future and handle cancellation
+    with caplog.at_level(logging.DEBUG, logger="tmodbus.transport.async_rtu"):
+        await protocol._wait_on_pending_request(1)
+
+        # Should have logged cancellation
+        assert any("cancelled" in record.message for record in caplog.records)
+
+    await cancel_task
+
+
+async def test_wait_on_pending_request_generic_exception(caplog: pytest.LogCaptureFixture) -> None:
+    """Test _wait_on_pending_request when pending request raises a generic exception."""
+    protocol = ModbusRtuProtocol(on_connection_lost=lambda _: None, timeout=1.0)
+
+    # Create a pending future
+    pending_future: asyncio.Future[_ModbusRtuMessage] = asyncio.get_event_loop().create_future()
+    protocol._pending_requests[1] = pending_future
+
+    # Set up a task to fail the future after a delay
+    async def fail_future() -> None:
+        await asyncio.sleep(0.05)
+        pending_future.set_exception(RuntimeError("Previous request error"))
+
+    fail_task = asyncio.create_task(fail_future())
+
+    # Should wait for the future and handle the exception
+    with caplog.at_level(logging.DEBUG, logger="tmodbus.transport.async_rtu"):
+        await protocol._wait_on_pending_request(1)
+
+        # Should have logged the failure
+        assert any("failed" in record.message for record in caplog.records)
+
+    await fail_task
+
+
+async def test_wait_on_pending_request_timeout_waiting(caplog: pytest.LogCaptureFixture) -> None:
+    """Test _wait_on_pending_request when waiting times out."""
+    protocol = ModbusRtuProtocol(on_connection_lost=lambda _: None, timeout=0.1)
+
+    # Create a pending future that never completes
+    pending_future: asyncio.Future[_ModbusRtuMessage] = asyncio.get_event_loop().create_future()
+    protocol._pending_requests[1] = pending_future
+
+    # Should timeout and log it
+    with caplog.at_level(logging.DEBUG, logger="tmodbus.transport.async_rtu"):
+        await protocol._wait_on_pending_request(1)
+
+        # Should have logged timeout
+        assert any("timed out" in record.message for record in caplog.records)
