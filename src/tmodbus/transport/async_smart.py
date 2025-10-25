@@ -164,6 +164,7 @@ class AsyncSmartTransport(AsyncBaseTransport):
         This method is used internally when the lock is already held.
         """
         await self.base_transport.open()
+        logger.debug("Opened underlying transport connection.")
         if self.wait_after_connect > 0:
             logger.debug("Waiting %.2f seconds after TCP connection before sending data", self.wait_after_connect)
             await asyncio.sleep(self.wait_after_connect)
@@ -177,6 +178,7 @@ class AsyncSmartTransport(AsyncBaseTransport):
         """
         async with self._communication_lock:
             try:
+                logger.debug("Closing underlying transport connection.")
                 await self.base_transport.close()
             finally:
                 self._should_be_connected = False
@@ -222,9 +224,9 @@ class AsyncSmartTransport(AsyncBaseTransport):
         # If auto_reconnect is enabled and the connection is not open, try to reconnect
         if self.auto_reconnect:
             if self._must_reconnect:
+                self._must_reconnect = False
                 logger.info("Forcing reconnection due to previous connection error.")
                 await self._do_auto_reconnect()
-                self._must_reconnect = False
             if not self.base_transport.is_open():
                 logger.info("Connection lost. Attempting to reconnect...")
                 await self._do_auto_reconnect()
