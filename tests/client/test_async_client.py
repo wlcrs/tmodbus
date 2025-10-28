@@ -375,6 +375,7 @@ def test_for_unit_id_creates_new_instance_with_different_unit_id() -> None:
     assert client2.unit_id == 42
     assert client2.transport is client1.transport
     assert client2.word_order == client1.word_order
+    assert client2.byte_order == client1.byte_order
     assert client2 is not client1
 
 
@@ -385,6 +386,15 @@ def test_for_unit_id_preserves_word_order(word_order: Literal["big", "little"]) 
     client1 = AsyncModbusClient(transport, unit_id=5, word_order=word_order)
     client2 = client1.for_unit_id(10)
     assert client2.word_order == word_order
+
+
+@pytest.mark.parametrize("byte_order", ["big", "little"])
+def test_for_unit_id_preserves_byte_order(byte_order: Literal["big", "little"]) -> None:
+    """Test that for_unit_id preserves the byte_order setting."""
+    transport = DummyAsyncTransport()
+    client1 = AsyncModbusClient(transport, unit_id=5, byte_order=byte_order)
+    client2 = client1.for_unit_id(10)
+    assert client2.byte_order == byte_order
 
 
 def test_for_unit_id_raises_value_error_for_invalid_unit_id() -> None:

@@ -3,7 +3,7 @@
 from struct import Struct
 from typing import Any, Literal, Protocol, TypeVar, cast
 
-from tmodbus.utils.word_aware_struct import WordOrderAwareStruct
+from tmodbus.utils.order_aware_struct import OrderAwareStruct
 
 from .base import BasePDU
 from .holding_registers import RawReadHoldingRegistersPDU, RawReadInputRegistersPDU, RawWriteMultipleRegistersPDU
@@ -23,15 +23,34 @@ class HoldingRegisterReadMixin(SupportsExecuteAsync):
     """Mixin for holding register read operations."""
 
     word_order: Literal["big", "little"]
+    byte_order: Literal["big", "little"]
 
-    def __init__(self, word_order: Literal["big", "little"] = "big") -> None:
+    def __init__(
+        self,
+        word_order: Literal["big", "little"] = "big",
+        byte_order: Literal["big", "little"] = "big",
+    ) -> None:
         """Initialize the mixin.
+
+        The combination of word_order and byte_order determines the final byte ordering:
+
+        Byte Order Combinations (for a 32-bit value 0x0A0B0C0D):
+            - word_order="big",   byte_order="big":    ABCD → 0x0A 0x0B 0x0C 0x0D (standard Modbus)
+            - word_order="big",   byte_order="little": BADC → 0x0B 0x0A 0x0D 0x0C (byte-swapped)
+            - word_order="little", byte_order="big":   CDAB → 0x0C 0x0D 0x0A 0x0B (word-swapped)
+            - word_order="little", byte_order="little": DCBA → 0x0D 0x0C 0x0B 0x0A (full little-endian)
 
         Args:
             word_order: Word order for multi-register values ('big' or 'little').
+                - 'big': Most significant register first (standard Modbus)
+                - 'little': Least significant register first
+            byte_order: Byte order within each register ('big' or 'little').
+                - 'big': Most significant byte first within each register (standard Modbus)
+                - 'little': Least significant byte first within each register
 
         """
         self.word_order = word_order
+        self.byte_order = byte_order
 
     async def read_struct_format[RT](
         self,
@@ -54,9 +73,11 @@ class HoldingRegisterReadMixin(SupportsExecuteAsync):
         pdu_class = RawReadInputRegistersPDU if input_register else RawReadHoldingRegistersPDU
 
         if isinstance(format_struct, Struct):
-            format_struct = WordOrderAwareStruct(format_struct.format, word_order=self.word_order)
+            format_struct = OrderAwareStruct(
+                format_struct.format, word_order=self.word_order, byte_order=self.byte_order
+            )
         if isinstance(format_struct, str):
-            format_struct = WordOrderAwareStruct(format_struct, word_order=self.word_order)
+            format_struct = OrderAwareStruct(format_struct, word_order=self.word_order, byte_order=self.byte_order)
 
         response_bytes = await self.execute(
             pdu_class(
@@ -304,7 +325,9 @@ class HoldingRegisterReadMixin(SupportsExecuteAsync):
             Decoded string value.
 
         """
-        format_struct = WordOrderAwareStruct(f">{number_of_registers * 2}s", word_order=self.word_order)
+        format_struct = OrderAwareStruct(
+            f">{number_of_registers * 2}s", word_order=self.word_order, byte_order=self.byte_order
+        )
         string_bytes = cast(
             "bytes",
             await self.read_simple_struct_format(
@@ -320,15 +343,34 @@ class HoldingRegisterWriteMixin(SupportsExecuteAsync):
     """Mixin for holding register write operations."""
 
     word_order: Literal["big", "little"]
+    byte_order: Literal["big", "little"]
 
-    def __init__(self, word_order: Literal["big", "little"] = "big") -> None:
+    def __init__(
+        self,
+        word_order: Literal["big", "little"] = "big",
+        byte_order: Literal["big", "little"] = "big",
+    ) -> None:
         """Initialize the mixin.
+
+        The combination of word_order and byte_order determines the final byte ordering:
+
+        Byte Order Combinations (for a 32-bit value 0x0A0B0C0D):
+            - word_order="big",   byte_order="big":    ABCD → 0x0A 0x0B 0x0C 0x0D (standard Modbus)
+            - word_order="big",   byte_order="little": BADC → 0x0B 0x0A 0x0D 0x0C (byte-swapped)
+            - word_order="little", byte_order="big":   CDAB → 0x0C 0x0D 0x0A 0x0B (word-swapped)
+            - word_order="little", byte_order="little": DCBA → 0x0D 0x0C 0x0B 0x0A (full little-endian)
 
         Args:
             word_order: Word order for multi-register values ('big' or 'little').
+                - 'big': Most significant register first (standard Modbus)
+                - 'little': Least significant register first
+            byte_order: Byte order within each register ('big' or 'little').
+                - 'big': Most significant byte first within each register (standard Modbus)
+                - 'little': Least significant byte first within each register
 
         """
         self.word_order = word_order
+        self.byte_order = byte_order
 
     async def write_struct_format(
         self,
@@ -349,9 +391,11 @@ class HoldingRegisterWriteMixin(SupportsExecuteAsync):
 
         """
         if isinstance(format_struct, Struct):
-            format_struct = WordOrderAwareStruct(format_struct.format, word_order=self.word_order)
+            format_struct = OrderAwareStruct(
+                format_struct.format, word_order=self.word_order, byte_order=self.byte_order
+            )
         if isinstance(format_struct, str):
-            format_struct = WordOrderAwareStruct(format_struct, word_order=self.word_order)
+            format_struct = OrderAwareStruct(format_struct, word_order=self.word_order, byte_order=self.byte_order)
 
         return await self.execute(
             RawWriteMultipleRegistersPDU(
@@ -618,7 +662,9 @@ class HoldingRegisterWriteMixin(SupportsExecuteAsync):
             msg = f"String length exceeds maximum size of {max_length} bytes."
             raise ValueError(msg)
 
-        format_struct = WordOrderAwareStruct(f">{number_of_registers * 2}s", word_order=self.word_order)
+        format_struct = OrderAwareStruct(
+            f">{number_of_registers * 2}s", word_order=self.word_order, byte_order=self.byte_order
+        )
         # Pad with null bytes if necessary
         value_bytes = value_bytes.ljust(format_struct.size, b"\x00")
 

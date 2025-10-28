@@ -8,7 +8,7 @@ from unittest.mock import AsyncMock
 import pytest
 from tmodbus.pdu.base import BaseClientPDU
 from tmodbus.pdu.holding_registers_struct import HoldingRegisterReadMixin, HoldingRegisterWriteMixin
-from tmodbus.utils.word_aware_struct import WordOrderAwareStruct
+from tmodbus.utils.order_aware_struct import OrderAwareStruct
 
 
 class MockClient(HoldingRegisterReadMixin, HoldingRegisterWriteMixin):
@@ -33,7 +33,7 @@ class TestHoldingRegisterReadMixin:
         # Mock response: 4 bytes representing uint32
         client.execute.return_value = b"\x0a\x0b\x0c\x0d"
 
-        format_struct = WordOrderAwareStruct(">I", word_order=word_order)
+        format_struct = OrderAwareStruct(">I", word_order=word_order)
         result = await client.read_struct_format(100, format_struct=format_struct)
 
         # Verify execute was called with correct PDU
@@ -53,7 +53,7 @@ class TestHoldingRegisterReadMixin:
         # Mock response: 4 bytes representing uint32
         client.execute.return_value = b"\x0a\x0b\x0c\x0d"
 
-        # Pass a string instead of WordOrderAwareStruct to test line 56
+        # Pass a string instead of OrderAwareStruct to test line 56
         result = await client.read_struct_format(100, format_struct=">I")
 
         # Verify execute was called with correct PDU
@@ -72,7 +72,7 @@ class TestHoldingRegisterReadMixin:
         client = MockClient(word_order=word_order)
         client.execute.return_value = b"\x01\x02"
 
-        format_struct = WordOrderAwareStruct(">H", word_order=word_order)
+        format_struct = OrderAwareStruct(">H", word_order=word_order)
         result = await client.read_struct_format(50, format_struct=format_struct, input_register=True)
 
         assert client.execute.called
@@ -84,7 +84,7 @@ class TestHoldingRegisterReadMixin:
         client = MockClient(word_order=word_order)
         client.execute.return_value = b"\x12\x34"
 
-        format_struct = WordOrderAwareStruct(">H", word_order=word_order)
+        format_struct = OrderAwareStruct(">H", word_order=word_order)
         result = await client.read_simple_struct_format(100, format_struct=format_struct)
 
         # Should return single value, not tuple
@@ -256,7 +256,7 @@ class TestHoldingRegisterWriteMixin:
         client = MockClient(word_order=word_order)
         client.execute.return_value = 2  # Number of registers written
 
-        format_struct = WordOrderAwareStruct(">I", word_order=word_order)
+        format_struct = OrderAwareStruct(">I", word_order=word_order)
         result = await client.write_struct_format(100, (0x0A0B0C0D,), format_struct=format_struct)
 
         assert result == 2
@@ -273,7 +273,7 @@ class TestHoldingRegisterWriteMixin:
         client = MockClient(word_order=word_order)
         client.execute.return_value = 1
 
-        format_struct = WordOrderAwareStruct(">H", word_order=word_order)
+        format_struct = OrderAwareStruct(">H", word_order=word_order)
         result = await client.write_simple_struct_format(100, 0x1234, format_struct=format_struct)
 
         assert result == 1

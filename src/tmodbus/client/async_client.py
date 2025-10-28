@@ -61,17 +61,31 @@ class AsyncModbusClient(HoldingRegisterReadMixin, HoldingRegisterWriteMixin):
         *,
         unit_id: int,
         word_order: Literal["big", "little"] = "big",
+        byte_order: Literal["big", "little"] = "big",
     ) -> None:
         """Initialize Async Modbus Client.
+
+        The combination of word_order and byte_order determines the final byte ordering:
+
+        Byte Order Combinations (for a 32-bit value 0x0A0B0C0D):
+            - word_order="big",   byte_order="big":    ABCD → 0x0A 0x0B 0x0C 0x0D (standard Modbus)
+            - word_order="big",   byte_order="little": BADC → 0x0B 0x0A 0x0D 0x0C (byte-swapped)
+            - word_order="little", byte_order="big":   CDAB → 0x0C 0x0D 0x0A 0x0B (word-swapped)
+            - word_order="little", byte_order="little": DCBA → 0x0D 0x0C 0x0B 0x0A (full little-endian)
 
         Args:
             transport: Async transport layer instance (AsyncTcpTransport, etc.)
             unit_id: Unit ID of the Modbus device
             word_order: Word order for multi-register values ('big' or 'little').
+                - 'big': Most significant register first (standard Modbus)
+                - 'little': Least significant register first
+            byte_order: Byte order within each register ('big' or 'little').
+                - 'big': Most significant byte first within each register (standard Modbus)
+                - 'little': Least significant byte first within each register
 
         """
-        HoldingRegisterReadMixin.__init__(self, word_order=word_order)
-        HoldingRegisterWriteMixin.__init__(self, word_order=word_order)
+        HoldingRegisterReadMixin.__init__(self, word_order=word_order, byte_order=byte_order)
+        HoldingRegisterWriteMixin.__init__(self, word_order=word_order, byte_order=byte_order)
         self.transport = transport
 
         if not (0 <= unit_id <= 255):
@@ -443,4 +457,6 @@ class AsyncModbusClient(HoldingRegisterReadMixin, HoldingRegisterWriteMixin):
             A new instance of AsyncModbusClient configured for the specified unit ID.
 
         """
-        return AsyncModbusClient(self.transport, unit_id=unit_id, word_order=self.word_order)
+        return AsyncModbusClient(
+            self.transport, unit_id=unit_id, word_order=self.word_order, byte_order=self.byte_order
+        )

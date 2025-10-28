@@ -59,10 +59,10 @@ to control the order of the registers.
 By default, the word order is set to `"big"`, meaning that the first register read will
 be the most significant word.
 
-This library includes an utility class :class:`~tmodbus.utils.WordOrderAwareStruct` that
+This library includes an utility class :class:`~tmodbus.utils.OrderAwareStruct` that
 extends `struct.Struct` to handle word order automatically. So even if your device uses
-little-endian word order, you can still use the same struct format string as you would
-for big-endian.
+little-endian word order and/or byte order, you can still use the same struct format
+string as you would for big-endian.
 
 .. note::
 
