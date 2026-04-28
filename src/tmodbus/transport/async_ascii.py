@@ -9,7 +9,10 @@ import time
 from collections.abc import Callable
 from dataclasses import dataclass
 from functools import partial
-from typing import NotRequired, TypedDict, TypeVar, Unpack
+from typing import TYPE_CHECKING, NotRequired, TypedDict, TypeVar, Unpack
+
+if TYPE_CHECKING:
+    from serialx import Parity, StopBits
 
 from tmodbus.exceptions import (
     ASCIIFrameError,
@@ -33,19 +36,15 @@ DEFAULT_TIMEOUT = 10.0  # Default timeout in seconds for async operations
 MIN_INTERFRAME_GAP = 0.001  # Minimum gap between frames in seconds (1ms)
 
 
-class PySerialOptions(TypedDict):
-    """Options for the PySerial connection."""
+class SerialXOptions(TypedDict):
+    """Options for the SerialX connection."""
 
     baudrate: int
-    bytesize: NotRequired[int]
-    parity: NotRequired[str]
-    stopbits: NotRequired[float]
-    timeout: NotRequired[float | None]
+    parity: NotRequired["Parity"]
+    stopbits: NotRequired["StopBits"]
     xonxoff: NotRequired[bool]
     rtscts: NotRequired[bool]
-    write_timeout: NotRequired[float | None]
-    dsrdtr: NotRequired[bool]
-    inter_byte_timeout: NotRequired[float | None]
+    exclusive: NotRequired[bool]
 
 
 ASCII_FRAME_START = b":"
@@ -347,30 +346,31 @@ class AsyncAsciiTransport(AsyncBaseTransport):
     def __init__(
         self,
         port: str,
-        **pyserial_options: Unpack[PySerialOptions],
+        *,
+        timeout: float | None = None,
+        **serialx_options: Unpack[SerialXOptions],
     ) -> None:
         """Initialize async Serial transport layer for ASCII.
 
         Args:
             port: Target serial port (e.g., '/dev/ttyUSB0')
-            pyserial_options: Additional PySerial options like baudrate, bytesize, parity, etc.
+            timeout: Optional timeout for connection and response operations (in seconds)
+            serialx_options: Additional SerialX options like baudrate, parity, stopbits, etc.
 
         """
         self.port = port
-        self.pyserial_options = pyserial_options
-
-        timeout = pyserial_options.get("timeout")
         if timeout is None:
             timeout = DEFAULT_TIMEOUT
         self.timeout = timeout
+        self.serialx_options = serialx_options
 
     async def open(self) -> None:
         """Establish Serial connection."""
         try:
-            import serial_asyncio_fast  # noqa: PLC0415
+            import serialx  # noqa: PLC0415
         except ImportError as e:  # pragma: no cover
             msg = (
-                "The 'serial_asyncio_fast' package is required for AsyncAsciiTransport."
+                "The 'serialx' package is required for AsyncAsciiTransport."
                 " Install with 'pip install tmodbus[async-serial]'"
             )
             raise ImportError(msg) from e
@@ -381,9 +381,9 @@ class AsyncAsciiTransport(AsyncBaseTransport):
             return
 
         try:
-            # Use serial_asyncio_fast to create a serial connection with Protocol
+            # Use serialx to create a serial connection with Protocol
             transport, protocol = await asyncio.wait_for(
-                serial_asyncio_fast.create_serial_connection(
+                serialx.create_serial_connection(
                     loop,
                     lambda: ModbusAsciiProtocol(
                         on_connection_lost=self._on_connection_lost,
@@ -391,9 +391,9 @@ class AsyncAsciiTransport(AsyncBaseTransport):
                         interframe_gap=MIN_INTERFRAME_GAP,
                     ),
                     url=self.port,
-                    **self.pyserial_options,
+                    **self.serialx_options,
                 ),
-                timeout=self.pyserial_options.get("timeout", DEFAULT_TIMEOUT),
+                timeout=self.timeout,
             )
 
             assert isinstance(transport, asyncio.WriteTransport)
@@ -403,7 +403,7 @@ class AsyncAsciiTransport(AsyncBaseTransport):
 
             logger.info("Async Serial connection established to '%s'", self.port)
 
-            # pyserial can be slow to call connection_made, we explicitly wait for it here
+            # serialx can be slow to call connection_made, we explicitly wait for it here
             assert self._protocol
             await asyncio.wait_for(
                 self._protocol.connection_made_event.wait(),

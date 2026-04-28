@@ -71,7 +71,7 @@ Various examples for Modbus RTU and TCP can be found in the [examples](./example
 
 **async-serial**
 
-This library uses [pyserial-asyncio-fast](https://pypi.org/project/pyserial-asyncio-fast/) to
+This library uses [serialx](https://puddly.github.io/serialx/) to
 access the serial port when using async RTU or ASCII.
 
 Use `pip install tmodbus[async-serial]` to install.

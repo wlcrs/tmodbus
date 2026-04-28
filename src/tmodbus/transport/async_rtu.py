@@ -48,7 +48,10 @@ import time
 from collections.abc import Callable
 from dataclasses import dataclass
 from functools import partial
-from typing import NotRequired, TypedDict, TypeVar, Unpack
+from typing import TYPE_CHECKING, NotRequired, TypedDict, TypeVar, Unpack
+
+if TYPE_CHECKING:
+    from serialx import Parity, StopBits
 
 from tmodbus.exceptions import (
     CRCError,
@@ -72,19 +75,15 @@ RT = TypeVar("RT")
 DEFAULT_TIMEOUT = 10.0  # Default timeout in seconds for async operations
 
 
-class PySerialOptions(TypedDict):
-    """Options for the PySerial connection."""
+class SerialXOptions(TypedDict):
+    """Options for the SerialX connection."""
 
     baudrate: int
-    bytesize: NotRequired[int]
-    parity: NotRequired[str]
-    stopbits: NotRequired[float]
-    timeout: NotRequired[float | None]
+    parity: NotRequired["Parity"]
+    stopbits: NotRequired["StopBits"]
     xonxoff: NotRequired[bool]
     rtscts: NotRequired[bool]
-    write_timeout: NotRequired[float | None]
-    dsrdtr: NotRequired[bool]
-    inter_byte_timeout: NotRequired[float | None]
+    exclusive: NotRequired[bool]
 
 
 MAX_RTU_FRAME_SIZE = 256  # Maximum RTU frame size in bytes
@@ -132,14 +131,16 @@ class AsyncRtuTransport(AsyncBaseTransport):
     def __init__(
         self,
         port: str,
-        **pyserial_options: Unpack[PySerialOptions],
+        *,
+        timeout: float | None = None,
+        **serialx_options: Unpack[SerialXOptions],
     ) -> None:
         """Initialize async Serial transport layer.
 
         Args:
             port: Target serial port (e.g., '/dev/ttyUSB0')
             timeout: Timeout in seconds, default 10.0 seconds
-            pyserial_options: Additional PySerial options like baudrate, bytesize, parity, etc.
+            serialx_options: Additional SerialX options like baudrate, parity, stopbits, etc.
 
         Raises:
             ValueError: When parameters are invalid
@@ -147,13 +148,14 @@ class AsyncRtuTransport(AsyncBaseTransport):
 
         """
         self.port = port
-        self.pyserial_options = pyserial_options
 
-        timeout = pyserial_options.get("timeout")
         if timeout is None:
             timeout = DEFAULT_TIMEOUT
         self.timeout = timeout
-        self._baudrate = pyserial_options.get("baudrate", 9600)
+
+        self.serialx_options = serialx_options
+
+        self._baudrate = serialx_options.get("baudrate", 9600)
 
         one_char_send_duration = BITS_PER_CHAR / self._baudrate
         self._interframe_delay = compute_interframe_delay(one_char_send_duration)
@@ -161,10 +163,10 @@ class AsyncRtuTransport(AsyncBaseTransport):
     async def open(self) -> None:
         """Establish Serial connection."""
         try:
-            import serial_asyncio_fast  # noqa: PLC0415
+            import serialx  # noqa: PLC0415
         except ImportError as e:  # pragma: no cover
             msg = (
-                "The 'serial_asyncio_fast' package is required for AsyncRtuTransport."
+                "The 'serialx' package is required for AsyncRtuTransport."
                 " Install with 'pip install tmodbus[async-serial]'"
             )
             raise ImportError(msg) from e
@@ -175,9 +177,9 @@ class AsyncRtuTransport(AsyncBaseTransport):
             return
 
         try:
-            # Use serial_asyncio_fast to create a serial connection with Protocol
+            # Use serialx to create a serial connection with Protocol
             transport, protocol = await asyncio.wait_for(
-                serial_asyncio_fast.create_serial_connection(
+                serialx.create_serial_connection(
                     loop,
                     lambda: ModbusRtuProtocol(
                         on_connection_lost=self._on_connection_lost,
@@ -185,9 +187,9 @@ class AsyncRtuTransport(AsyncBaseTransport):
                         interframe_delay=self._interframe_delay,
                     ),
                     url=self.port,
-                    **self.pyserial_options,
+                    **self.serialx_options,
                 ),
-                timeout=self.pyserial_options.get("timeout", DEFAULT_TIMEOUT),
+                timeout=self.timeout,
             )
 
             assert isinstance(transport, asyncio.WriteTransport)
@@ -197,7 +199,7 @@ class AsyncRtuTransport(AsyncBaseTransport):
 
             logger.info("Async serial connection established to '%s'", self.port)
 
-            # pyserial can be slow to call connection_made, we explicitly wait for it here
+            # serialx can be slow to call connection_made, we explicitly wait for it here
             assert self._protocol
             await asyncio.wait_for(
                 self._protocol.connection_made_event.wait(),

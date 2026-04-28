@@ -38,7 +38,7 @@ Changelog = "https://github.com/wlcrs/tmodbus/releases"
 
 [project.optional-dependencies]
 
-async-serial = ["pyserial-asyncio-fast>=0.16"]
+async-serial = ["serialx"]
 
 [build-system]
 requires = ["hatchling", "hatch-vcs"]

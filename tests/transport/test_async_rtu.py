@@ -9,7 +9,7 @@ from typing import Any
 from unittest.mock import AsyncMock, MagicMock, patch
 
 import pytest
-import serial_asyncio_fast
+import serialx
 from tmodbus.exceptions import (
     CRCError,
     IllegalFunctionError,
@@ -63,7 +63,7 @@ def mock_serial_connection(
     mock_transport: MagicMock,
     monkeypatch: pytest.MonkeyPatch,
 ) -> tuple[MagicMock, Callable[[], ModbusRtuProtocol | None]]:
-    """Fixture to mock serial_asyncio_fast.create_serial_connection."""
+    """Fixture to mock serialx.create_serial_connection."""
     created_protocol: ModbusRtuProtocol | None = None
 
     async def fake_create_serial_connection(
@@ -75,7 +75,7 @@ def mock_serial_connection(
         return mock_transport, created_protocol
 
     monkeypatch.setattr(
-        serial_asyncio_fast,
+        serialx,
         "create_serial_connection",
         fake_create_serial_connection,
     )
@@ -99,7 +99,7 @@ async def test_open_already_open() -> None:
         protocol.connection_made(mock_transport)
         return mock_transport, protocol
 
-    with patch.object(serial_asyncio_fast, "create_serial_connection", fake_create_serial_connection):
+    with patch.object(serialx, "create_serial_connection", fake_create_serial_connection):
         await t.open()
         assert t.is_open()
 
@@ -112,7 +112,7 @@ async def test_open_already_open() -> None:
 async def test_open_timeout(monkeypatch: pytest.MonkeyPatch) -> None:
     """Test that open raises TimeoutError when create_serial_connection times out."""
     monkeypatch.setattr(
-        "serial_asyncio_fast.create_serial_connection",
+        "serialx.create_serial_connection",
         AsyncMock(side_effect=asyncio.TimeoutError),
     )
     t = AsyncRtuTransport("/dev/ttyUSB0", baudrate=9600)
@@ -525,7 +525,7 @@ async def test_open_raises_modbus_connection_error_on_generic_exception(
 ) -> None:
     """Test that open raises ModbusConnectionError when create_serial_connection fails."""
     monkeypatch.setattr(
-        "serial_asyncio_fast.create_serial_connection",
+        "serialx.create_serial_connection",
         AsyncMock(side_effect=RuntimeError("Serial error")),
     )
     t = AsyncRtuTransport("/dev/ttyUSB0", baudrate=9600)
@@ -861,13 +861,6 @@ async def test_pending_future_already_done(
     await response_task
 
     # If we get here without exceptions, the test passes
-
-
-async def test_timeout_not_none_in_pyserial_options() -> None:
-    """Test that explicit timeout in pyserial_options is used (line 153)."""
-    # This tests the branch where timeout is NOT None
-    t = AsyncRtuTransport("/dev/ttyUSB0", baudrate=9600, timeout=5.0)
-    assert t.timeout == 5.0
 
 
 async def test_send_and_receive_previous_request_timeout(

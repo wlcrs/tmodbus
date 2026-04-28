@@ -11,7 +11,7 @@ from .transport import (
     AsyncSmartTransport,
     AsyncTcpTransport,
 )
-from .transport.async_rtu import PySerialOptions
+from .transport.async_rtu import SerialXOptions
 
 if TYPE_CHECKING:
     from tenacity import AsyncRetrying
@@ -92,7 +92,7 @@ def create_async_rtu_client(  # noqa: PLR0913
     response_retry_strategy: "AsyncRetrying | None" = None,
     retry_on_device_busy: bool = True,
     retry_on_device_failure: bool = False,
-    **pyserial_options: Unpack[PySerialOptions],
+    **serialx_options: Unpack[SerialXOptions],
 ) -> AsyncModbusClient:
     """Create an asynchronous RTU Modbus client with automatic reconnect and request retry functionality.
 
@@ -111,7 +111,7 @@ def create_async_rtu_client(  # noqa: PLR0913
                               Can be a custom AsyncRetrying instance when more control is needed.
         retry_on_device_failure: Whether to retry on device failure errors (default: False).
                                  Can be a custom AsyncRetrying instance when more control is needed.
-        pyserial_options: Additional connection parameters passed to `pyserial` (e.g., SSL context)
+        serialx_options: Additional connection parameters passed to `serialx`
 
     Returns:
         An instance of AsyncModbusClient configured for TCP transport.
@@ -120,7 +120,7 @@ def create_async_rtu_client(  # noqa: PLR0913
     smart_transport = AsyncSmartTransport(
         AsyncRtuTransport(
             port,
-            **pyserial_options,
+            **serialx_options,
         ),
         wait_between_requests=wait_between_requests,
         wait_after_connect=wait_after_connect,
@@ -144,7 +144,7 @@ def create_async_ascii_client(  # noqa: PLR0913
     response_retry_strategy: "AsyncRetrying | None" = None,
     retry_on_device_busy: bool = True,
     retry_on_device_failure: bool = False,
-    **pyserial_options: Unpack[PySerialOptions],
+    **serialx_options: Unpack[SerialXOptions],
 ) -> AsyncModbusClient:
     """Create an asynchronous ASCII Modbus client with automatic reconnect and request retry functionality.
 
@@ -163,7 +163,7 @@ def create_async_ascii_client(  # noqa: PLR0913
                               Can be a custom AsyncRetrying instance when more control is needed.
         retry_on_device_failure: Whether to retry on device failure errors (default: False).
                                  Can be a custom AsyncRetrying instance when more control is needed.
-        pyserial_options: Additional connection parameters passed to `pyserial` (e.g., SSL context)
+        serialx_options: Additional connection parameters passed to `serialx`
 
     Returns:
         An instance of AsyncModbusClient configured for TCP transport.
@@ -172,7 +172,7 @@ def create_async_ascii_client(  # noqa: PLR0913
     smart_transport = AsyncSmartTransport(
         AsyncAsciiTransport(
             port,
-            **pyserial_options,
+            **serialx_options,
         ),
         wait_between_requests=wait_between_requests,
         wait_after_connect=wait_after_connect,

@@ -8,7 +8,7 @@ from typing import Any
 from unittest.mock import MagicMock, patch
 
 import pytest
-import serial_asyncio_fast
+import serialx
 from tmodbus.exceptions import (
     ASCIIFrameError,
     IllegalFunctionError,
@@ -211,7 +211,7 @@ def mock_serial_connection(
     mock_transport: MagicMock,
     monkeypatch: pytest.MonkeyPatch,
 ) -> tuple[MagicMock, Callable[[], ModbusAsciiProtocol | None]]:
-    """Fixture to mock serial_asyncio_fast.create_serial_connection."""
+    """Fixture to mock serialx.create_serial_connection."""
     created_protocol: ModbusAsciiProtocol | None = None
 
     async def fake_create_serial_connection(
@@ -223,7 +223,7 @@ def mock_serial_connection(
         return mock_transport, created_protocol
 
     monkeypatch.setattr(
-        serial_asyncio_fast,
+        serialx,
         "create_serial_connection",
         fake_create_serial_connection,
     )
@@ -246,7 +246,7 @@ async def test_open_already_open() -> None:
         protocol.connection_made(mock_transport)
         return mock_transport, protocol
 
-    with patch.object(serial_asyncio_fast, "create_serial_connection", fake_create_serial_connection):
+    with patch.object(serialx, "create_serial_connection", fake_create_serial_connection):
         await t.open()
         assert t.is_open()
 
@@ -280,7 +280,7 @@ async def test_open_timeout() -> None:
         msg = "Should not reach here"
         raise AssertionError(msg)  # pragma: no cover
 
-    with patch.object(serial_asyncio_fast, "create_serial_connection", timeout_connection):
+    with patch.object(serialx, "create_serial_connection", timeout_connection):
         t = AsyncAsciiTransport("/dev/ttyUSB0", baudrate=9600, timeout=0.01)
         with pytest.raises(TimeoutError):
             await t.open()
@@ -293,7 +293,7 @@ async def test_open_connection_error() -> None:
         msg = "Connection failed"
         raise OSError(msg)
 
-    with patch.object(serial_asyncio_fast, "create_serial_connection", error_connection):
+    with patch.object(serialx, "create_serial_connection", error_connection):
         t = AsyncAsciiTransport("/dev/ttyUSB0", baudrate=9600)
         with pytest.raises(ModbusConnectionError):
             await t.open()
