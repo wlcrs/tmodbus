@@ -83,7 +83,6 @@ async def test_create_async_rtu_client() -> None:
         retry_on_device_busy=True,
         retry_on_device_failure=False,
         baudrate=9600,
-        bytesize=8,
     )
     assert isinstance(client, _DummyClient)
     # Check transport chain
@@ -91,7 +90,6 @@ async def test_create_async_rtu_client() -> None:
     assert isinstance(client.transport.args[0], _DummyTransport)
     assert client.transport.args[0].args[0] == "/dev/ttyUSB0"
     assert client.transport.args[0].kwargs["baudrate"] == 9600
-    assert client.transport.args[0].kwargs["bytesize"] == 8
 
 
 async def test_create_async_ascii_client() -> None:
@@ -107,7 +105,6 @@ async def test_create_async_ascii_client() -> None:
         retry_on_device_busy=True,
         retry_on_device_failure=False,
         baudrate=9600,
-        bytesize=8,
     )
     assert isinstance(client, _DummyClient)
     # Check transport chain
@@ -115,7 +112,6 @@ async def test_create_async_ascii_client() -> None:
     assert isinstance(client.transport.args[0], _DummyTransport)
     assert client.transport.args[0].args[0] == "/dev/ttyUSB0"
     assert client.transport.args[0].kwargs["baudrate"] == 9600
-    assert client.transport.args[0].kwargs["bytesize"] == 8
 
 
 async def test_create_async_rtu_over_tcp_client() -> None:
