@@ -67,9 +67,9 @@ class AsyncSmartTransport(AsyncBaseTransport):
     and automatic reconnection on connection loss.
     """
 
-    _communication_lock: asyncio.Lock = asyncio.Lock()
-    _should_be_connected: bool = False
-    _must_reconnect: bool = False
+    _communication_lock: asyncio.Lock
+    _should_be_connected: bool
+    _must_reconnect: bool
 
     auto_reconnect: AsyncRetrying | None = None
     response_retry_strategy: AsyncRetrying
@@ -103,6 +103,10 @@ class AsyncSmartTransport(AsyncBaseTransport):
 
         """
         self.base_transport = base_transport
+        self._communication_lock = asyncio.Lock()
+        self._should_be_connected = False
+        self._must_reconnect = False
+
         if wait_between_requests < 0:
             msg = "wait_between_requests must be a positive value"
             raise ValueError(msg)

@@ -50,6 +50,14 @@ def test_on_reconnected_requires_auto_reconnect(base_transport_mock: AsyncBaseTr
         AsyncSmartTransport(base_transport_mock, auto_reconnect=False, on_reconnected=lambda: None)
 
 
+def test_init_creates_instance_communication_lock(base_transport_mock: AsyncBaseTransport) -> None:
+    """Test that each transport instance has its own communication lock."""
+    t1 = AsyncSmartTransport(base_transport_mock)
+    t2 = AsyncSmartTransport(base_transport_mock)
+
+    assert t1._communication_lock is not t2._communication_lock
+
+
 async def test_open_waits_after_connect(base_transport_mock: MagicMock) -> None:
     """Test that open waits after connecting if configured."""
     t = AsyncSmartTransport(base_transport_mock, wait_after_connect=0.05)
