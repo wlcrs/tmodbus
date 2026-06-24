@@ -50,12 +50,20 @@ def test_on_reconnected_requires_auto_reconnect(base_transport_mock: AsyncBaseTr
         AsyncSmartTransport(base_transport_mock, auto_reconnect=False, on_reconnected=lambda: None)
 
 
-def test_init_creates_instance_communication_lock(base_transport_mock: AsyncBaseTransport) -> None:
-    """Test that each transport instance has its own communication lock."""
+def test_init_creates_instance_communication_state(base_transport_mock: AsyncBaseTransport) -> None:
+    """Test that each transport instance has its own communication state."""
     t1 = AsyncSmartTransport(base_transport_mock)
     t2 = AsyncSmartTransport(base_transport_mock)
 
     assert t1._communication_lock is not t2._communication_lock
+    assert "_communication_lock" in t1.__dict__
+    assert "_should_be_connected" in t1.__dict__
+    assert "_must_reconnect" in t1.__dict__
+
+    t1._should_be_connected = True
+    t1._must_reconnect = True
+    assert not t2._should_be_connected
+    assert not t2._must_reconnect
 
 
 async def test_open_waits_after_connect(base_transport_mock: MagicMock) -> None:
