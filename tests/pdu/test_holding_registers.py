@@ -424,7 +424,15 @@ class TestRawWriteMultipleRegistersPDU:
 
     def test_rtu_response_data_length(self) -> None:
         """Test RTU response data length constant."""
-        assert RawWriteMultipleRegistersPDU.rtu_response_data_length == 5
+        # Response data part is start address (2) + quantity (2) = 4 bytes,
+        # matching the response format produced by encode_response.
+        assert RawWriteMultipleRegistersPDU.rtu_response_data_length == 4
+
+        # The constant must match the actual response length so the RTU transport
+        # frames the response correctly (everything after the function code, minus CRC).
+        pdu = RawWriteMultipleRegistersPDU(start_address=0x1000, content=b"\x12\x34\x56\x78")
+        response = pdu.encode_response(2)
+        assert pdu.get_expected_response_data_length(response[1:]) == len(response) - 1
 
 
 # ============================================================================

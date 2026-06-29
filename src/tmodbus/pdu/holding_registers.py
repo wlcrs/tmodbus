@@ -324,7 +324,7 @@ class RawWriteMultipleRegistersPDU(BasePDU[int]):
     """Write Multiple Registers PDU."""
 
     function_code = FunctionCode.WRITE_MULTIPLE_REGISTERS
-    rtu_response_data_length = 5
+    rtu_response_data_length = 4  # address (2) + quantity (2)
 
     def __init__(self, start_address: int, content: bytes) -> None:
         """Initialize Write Multiple Registers PDU.
