@@ -7,6 +7,32 @@ from tmodbus.exceptions import InvalidRequestError, InvalidResponseError
 from tmodbus.pdu import ReadCoilsPDU, WriteMultipleCoilsPDU, WriteSingleCoilPDU
 
 
+def _reference_unpack_bits(data: bytes) -> list[bool]:
+    """Independent per-bit reference (least significant bit first)."""
+    bits: list[bool] = []
+    for byte in data:
+        bits.extend(bool(byte & (1 << bit)) for bit in range(8))
+    return bits
+
+
+@pytest.mark.parametrize(
+    "payload",
+    [
+        b"\x00",
+        b"\xff",
+        b"\xcd\x6b\x05",  # classic Modbus spec example
+        bytes(range(200)),  # 1600 coils, low byte values
+        b"\xf0\xf5\xfa\xfb\xfc\xfd\xfe\xff",  # high byte values
+    ],
+)
+def test_read_coils_decode_matches_reference(payload: bytes) -> None:
+    """The table-driven coil unpacking must match a per-bit reference."""
+    quantity = len(payload) * 8
+    pdu = ReadCoilsPDU(start_address=0, quantity=quantity)
+    response = bytes([0x01, len(payload)]) + payload
+    assert pdu.decode_response(response) == _reference_unpack_bits(payload)
+
+
 class TestReadCoilsPDU:
     """Test class for ReadCoilsPDU decode_request and encode_response methods."""
 

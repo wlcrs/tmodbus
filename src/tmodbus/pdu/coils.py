@@ -8,6 +8,13 @@ from tmodbus.exceptions import InvalidRequestError, InvalidResponseError
 
 from .base import BasePDU
 
+# Precomputed bit expansion for every possible byte value. Each entry maps a
+# byte to its 8 coil states (least significant bit first), so unpacking a coil
+# response is a table lookup per byte instead of a per-bit loop.
+_BIT_TABLE: tuple[tuple[bool, ...], ...] = tuple(
+    tuple(bool((byte >> bit) & 1) for bit in range(8)) for byte in range(256)
+)
+
 
 class ReadCoilsPDU(BasePDU[list[bool]]):
     """Read Coils PDU."""
@@ -78,7 +85,7 @@ class ReadCoilsPDU(BasePDU[list[bool]]):
 
         coils: list[bool] = []
         for byte in response[2:]:
-            coils.extend([bool(byte & (1 << bit)) for bit in range(8)])
+            coils += _BIT_TABLE[byte]
 
         return coils[: self.quantity]  # Ensure we return only the requested quantity
 
@@ -340,7 +347,7 @@ class WriteMultipleCoilsPDU(BasePDU[int]):
         data = request[6:]
         values: list[bool] = []
         for byte in data:
-            values.extend([(byte >> bit) & 1 == 1 for bit in range(8)])
+            values += _BIT_TABLE[byte]
 
         return cls(start_address, values[:quantity])
 
