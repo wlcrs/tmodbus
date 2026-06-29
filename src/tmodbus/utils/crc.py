@@ -6,6 +6,24 @@ Uses polynomial 0xA001 (reverse of 0x8005).
 """
 
 
+def _build_crc16_table() -> tuple[int, ...]:
+    """Precompute the CRC16 lookup table for polynomial 0xA001.
+
+    Each entry holds the CRC contribution of a single input byte, so the main
+    loop can process a byte at a time instead of bit by bit.
+    """
+    table = []
+    for byte in range(256):
+        crc = byte
+        for _ in range(8):
+            crc = (crc >> 1) ^ 0xA001 if crc & 0x0001 else crc >> 1
+        table.append(crc)
+    return tuple(table)
+
+
+_CRC16_TABLE = _build_crc16_table()
+
+
 def calculate_crc16(data: bytes) -> bytes:
     r"""Calculate CRC16 Checksum.
 
@@ -21,16 +39,11 @@ def calculate_crc16(data: bytes) -> bytes:
         '840a'
 
     """
-    crc = 0xFFFF  #  Initial value is 0xFFFF
+    crc = 0xFFFF  # Initial value is 0xFFFF
 
     for byte in data:
-        crc ^= byte  #  XOR operation
-        for _ in range(8):  #  Process 8 bits
-            if crc & 0x0001:  #  Check lowest bit
-                crc >>= 1  #  Right shift by one bit
-                crc ^= 0xA001  #  XOR with polynomial
-            else:
-                crc >>= 1  #  Right shift by one bit
+        # Table-driven: fold one byte at a time using the precomputed table.
+        crc = (crc >> 8) ^ _CRC16_TABLE[(crc ^ byte) & 0xFF]
 
     # Return 2-byte CRC in little-endian format
     return crc.to_bytes(2, byteorder="little")
