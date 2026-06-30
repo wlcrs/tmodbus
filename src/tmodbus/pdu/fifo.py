@@ -37,6 +37,26 @@ class ReadFifoQueuePDU(BasePDU[list[int]]):
         return struct.pack(">BH", self.function_code, self.address)
 
     @classmethod
+    def get_expected_response_data_length(cls, data: bytes) -> int | None:
+        """Determine the response data length (after the function code) for RTU framing.
+
+        Unlike most PDUs, the FIFO response starts with a two-byte byte count that
+        covers the FIFO count field and the register values that follow it, so the
+        default single-byte length logic does not apply here.
+
+        Args:
+            data: Response PDU data following the function code.
+
+        Returns:
+            Expected length of the data part, or None if it cannot be determined yet.
+
+        """
+        if len(data) < 2:
+            return None  # need the full byte count field first
+        byte_count = int.from_bytes(data[:2], "big")
+        return 2 + byte_count
+
+    @classmethod
     def decode_request(cls, data: bytes) -> Self:
         """Decode Read FIFO Queue request PDU.
 
