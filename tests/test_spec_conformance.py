@@ -20,7 +20,9 @@ format is used instead and is marked as such.
 """
 
 import asyncio
+import struct
 import time
+from collections.abc import Callable
 from typing import Any
 from unittest.mock import MagicMock
 
@@ -59,7 +61,9 @@ from tmodbus.pdu import (
     WriteSingleRegisterPDU,
 )
 from tmodbus.pdu.base import BaseClientPDU, BasePDU
+from tmodbus.transport.async_ascii import ModbusAsciiProtocol, build_ascii_frame
 from tmodbus.transport.async_rtu import ModbusRtuProtocol
+from tmodbus.transport.async_tcp import ModbusTcpProtocol
 from tmodbus.utils.crc import calculate_crc16
 
 
@@ -399,61 +403,105 @@ def test_exception_code_mapping_matches_specification() -> None:
         assert exc_class.error_code == code
 
 
+def _mock_write_transport() -> MagicMock:
+    """Create a mock asyncio write transport that reports an open connection."""
+    transport = MagicMock(spec=asyncio.WriteTransport)
+    transport.is_closing.return_value = False
+    return transport
+
+
+# A transport driver returns a connected protocol and a function that frames a
+# response PDU (the bytes after the unit id) into a complete ADU for that
+# transport. The exception detection logic is duplicated across the three
+# transports, so these run the same vectors through each to keep them in step.
+
+ProtocolFramer = tuple[Any, Callable[[int, bytes], bytes]]
+
+
+def _rtu_driver() -> ProtocolFramer:
+    protocol = ModbusRtuProtocol(on_connection_lost=lambda _: None)
+    protocol.connection_made(_mock_write_transport())
+    protocol._last_frame_ended_at = time.monotonic() - 10
+
+    def frame(unit_id: int, response_pdu: bytes) -> bytes:
+        payload = bytes([unit_id]) + response_pdu
+        return payload + calculate_crc16(payload)
+
+    return protocol, frame
+
+
+def _ascii_driver() -> ProtocolFramer:
+    protocol = ModbusAsciiProtocol(on_connection_lost=lambda _: None)
+    protocol.connection_made(_mock_write_transport())
+    return protocol, build_ascii_frame
+
+
+def _tcp_driver() -> ProtocolFramer:
+    protocol = ModbusTcpProtocol(on_connection_lost=lambda _: None)
+    protocol.connection_made(_mock_write_transport())
+
+    def frame(unit_id: int, response_pdu: bytes) -> bytes:
+        # The first request on a fresh protocol uses transaction id 1.
+        return struct.pack(">HHHB", 1, 0x0000, len(response_pdu) + 1, unit_id) + response_pdu
+
+    return protocol, frame
+
+
+_TRANSPORT_DRIVERS: dict[str, Callable[[], ProtocolFramer]] = {
+    "rtu": _rtu_driver,
+    "ascii": _ascii_driver,
+    "tcp": _tcp_driver,
+}
+
+
+async def _send_and_capture_response_pdu(transport: str, response_pdu: bytes) -> Any:
+    """Run one request through a transport and deliver the given response PDU.
+
+    Returns the coroutine result, or raises whatever the transport raises.
+    """
+    protocol, frame = _TRANSPORT_DRIVERS[transport]()
+    pdu = ReadHoldingRegistersPDU(0x0000, 0x0001)
+    unit_id = 1
+    response_adu = frame(unit_id, response_pdu)
+
+    async def deliver() -> None:
+        await asyncio.sleep(0.01)
+        protocol.data_received(response_adu)
+
+    deliver_task = asyncio.create_task(deliver())
+    try:
+        return await protocol.send_and_receive(unit_id, pdu)
+    finally:
+        await deliver_task
+
+
+@pytest.mark.parametrize("transport", list(_TRANSPORT_DRIVERS))
 @pytest.mark.parametrize(
     ("exception_code", "exception_class"),
     _EXCEPTION_CODES,
     ids=[exc_class.__name__ for _code, exc_class in _EXCEPTION_CODES],
 )
-async def test_exception_response_over_rtu(exception_code: int, exception_class: type[ModbusResponseError]) -> None:
-    """An exception response frames as 5 bytes over RTU and raises the mapped exception."""
-    protocol = ModbusRtuProtocol(on_connection_lost=lambda _: None)
-    transport = MagicMock(spec=asyncio.WriteTransport)
-    transport.is_closing.return_value = False
-    protocol.connection_made(transport)
-
-    pdu = ReadHoldingRegistersPDU(0x0000, 0x0001)
-    unit_id = 1
-    # Exception response: function code with the high bit set, plus the exception code.
-    payload = bytes([unit_id, FunctionCode.READ_HOLDING_REGISTERS | 0x80, exception_code])
-    response_adu = payload + calculate_crc16(payload)
-
-    protocol._last_frame_ended_at = time.monotonic() - 10
-
-    async def deliver() -> None:
-        await asyncio.sleep(0.01)
-        protocol.data_received(response_adu)
-
-    deliver_task = asyncio.create_task(deliver())
+async def test_exception_response(
+    transport: str,
+    exception_code: int,
+    exception_class: type[ModbusResponseError],
+) -> None:
+    """Each transport raises the mapped exception and recovers the function code."""
+    response_pdu = bytes([FunctionCode.READ_HOLDING_REGISTERS | 0x80, exception_code])
     with pytest.raises(exception_class) as exc_info:
-        await protocol.send_and_receive(unit_id, pdu)
-    await deliver_task
+        await _send_and_capture_response_pdu(transport, response_pdu)
 
     assert exc_info.value.function_code == FunctionCode.READ_HOLDING_REGISTERS
     assert exc_info.value.error_code == exception_code
 
 
-async def test_unknown_exception_code_over_rtu() -> None:
+@pytest.mark.parametrize("transport", list(_TRANSPORT_DRIVERS))
+async def test_unknown_exception_code(transport: str) -> None:
     """An unmapped exception code raises UnknownModbusResponseError, keeping the code."""
-    protocol = ModbusRtuProtocol(on_connection_lost=lambda _: None)
-    transport = MagicMock(spec=asyncio.WriteTransport)
-    transport.is_closing.return_value = False
-    protocol.connection_made(transport)
-
-    pdu = ReadHoldingRegistersPDU(0x0000, 0x0001)
-    unit_id = 1
     unknown_code = 0x7F
-    payload = bytes([unit_id, FunctionCode.READ_HOLDING_REGISTERS | 0x80, unknown_code])
-    response_adu = payload + calculate_crc16(payload)
-    protocol._last_frame_ended_at = time.monotonic() - 10
-
-    async def deliver() -> None:
-        await asyncio.sleep(0.01)
-        protocol.data_received(response_adu)
-
-    deliver_task = asyncio.create_task(deliver())
+    response_pdu = bytes([FunctionCode.READ_HOLDING_REGISTERS | 0x80, unknown_code])
     with pytest.raises(UnknownModbusResponseError) as exc_info:
-        await protocol.send_and_receive(unit_id, pdu)
-    await deliver_task
+        await _send_and_capture_response_pdu(transport, response_pdu)
 
     assert exc_info.value.error_code == unknown_code
     assert exc_info.value.function_code == FunctionCode.READ_HOLDING_REGISTERS
