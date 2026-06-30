@@ -263,6 +263,39 @@ async def test_send_and_receive_crc_error(
     await response_task
 
 
+async def test_send_and_receive_unsupported_function_code(
+    mock_transport: MagicMock,
+) -> None:
+    """An unknown function code in a response must not crash the parser.
+
+    A bit flip on the line can turn the function code into one this library does
+    not know. The frame length cannot be determined, so the request should fail
+    with an RTUFrameError instead of letting a ValueError escape data_received.
+    """
+    protocol = ModbusRtuProtocol(on_connection_lost=lambda _: None)
+    protocol.connection_made(mock_transport)
+
+    pdu = _DummyPDU()  # function code 0x03
+    unit_id = 1
+    # Response carries an unsupported function code (0x65) for the pending unit.
+    payload = bytes([unit_id, 0x65, 0x00, 0x00])
+    response_adu = payload + calculate_crc16(payload)
+
+    protocol._last_frame_ended_at = time.monotonic() - 10
+
+    async def simulate_response() -> None:
+        await asyncio.sleep(0.01)
+        # This must not raise out of data_received.
+        protocol.data_received(response_adu)
+
+    result_task = asyncio.create_task(protocol.send_and_receive(unit_id, pdu))
+    response_task = asyncio.create_task(simulate_response())
+
+    with pytest.raises(RTUFrameError):
+        await result_task
+    await response_task
+
+
 async def test_send_and_receive_address_mismatch(
     mock_transport: MagicMock,
     monkeypatch: pytest.MonkeyPatch,
