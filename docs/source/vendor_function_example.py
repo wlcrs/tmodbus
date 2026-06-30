@@ -19,7 +19,6 @@ class LoginRequestChallengePDU(BaseSubFunctionClientPDU[LoginChallenge]):
 
     function_code = 0x41
     sub_function_code = 0x24
-    rtu_byte_count_pos = 3
 
     def encode_request(self) -> bytes:
         """Encode LoginRequestChallengePDU."""
@@ -43,15 +42,17 @@ class LoginRequestChallengePDU(BaseSubFunctionClientPDU[LoginChallenge]):
             )
             raise ValueError(msg)
 
-        expected_response_content_length = 17
-        if expected_response_content_length != response_content_length:
+        inverter_challenge_length = 16
+        # The content length byte counts the bytes that follow it, which is the
+        # challenge itself. This is also what the default sub-function RTU framing
+        # (1 sub-function byte + 1 length byte + length) relies on.
+        if response_content_length != inverter_challenge_length:
             msg = (
-                f"Invalid response content length length: expected {expected_response_content_length}, "
+                f"Invalid response content length: expected {inverter_challenge_length}, "
                 f"received {response_content_length}"
             )
             raise ValueError(msg)
 
-        inverter_challenge_length = 16
         return LoginChallenge(
             challenge=response[response_header_struct.size : response_header_struct.size + inverter_challenge_length]
         )
