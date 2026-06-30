@@ -24,7 +24,7 @@ jobs:
       - name: 🏗 Install dependencies
         run: uv sync --all-extras --frozen --no-default-groups --group test
       - name: 🚀 Run pytest
-        run: uv run pytest --cov tmodbus tests
+        run: uv run --no-sync pytest --cov tmodbus tests
       - name: ⬆️ Upload coverage artifact
         uses: actions/upload-artifact@v4.6.2
         with:
@@ -52,7 +52,7 @@ jobs:
         run: uv sync --all-extras --frozen --no-default-groups --group test
       - name: 🚀 Process coverage results
         run: |
-          uv run coverage combine coverage*/.coverage*
-          uv run coverage xml -i
+          uv run --no-sync coverage combine coverage*/.coverage*
+          uv run --no-sync coverage xml -i
       - name: 🚀 Upload coverage report
         uses: codecov/codecov-action@v5.5.1
