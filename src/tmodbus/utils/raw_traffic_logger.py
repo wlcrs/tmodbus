@@ -1,6 +1,6 @@
 """Raw traffic logger."""
 
-from logging import getLogger
+from logging import DEBUG, getLogger
 from typing import Literal
 
 raw_traffic_logger = getLogger("tmodbus.raw_traffic")
@@ -13,13 +13,17 @@ def log_raw_traffic(
     *,
     is_error: bool = False,
 ) -> None:
-    """Log raw Modbus TCP traffic."""
-    formatted_data = _format_bytes(data)
+    """Log raw Modbus traffic when debug logging is enabled."""
+    # This runs on every frame in both directions, and formatting the bytes to
+    # hex is not free. Skip the work entirely when nobody is listening.
+    if not raw_traffic_logger.isEnabledFor(DEBUG):
+        return
+
     raw_traffic_logger.debug(
         "%6s %s: %s %s",
         transport_name,
         direction,
-        formatted_data,
+        _format_bytes(data),
         "[!]" if is_error else "",
     )
 
