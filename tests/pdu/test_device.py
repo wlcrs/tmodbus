@@ -150,6 +150,14 @@ class TestReadDeviceIdentificationPDU:
         with pytest.raises(InvalidResponseError, match=r"Invalid 'more' value: 0x01"):
             pdu.decode_response(response)
 
+    def test_decode_response_invalid_conformity_level(self) -> None:
+        """An unknown conformity level raises InvalidResponseError, not a raw ValueError."""
+        pdu = ReadDeviceIdentificationPDU(read_device_id_code=0x01, object_id=0x00)
+        # Conformity level 0x04 is not a defined value.
+        response = struct.pack(">BBBBBBB", 0x2B, 0x0E, 0x01, 0x04, 0x00, 0x00, 0x00)
+        with pytest.raises(InvalidResponseError, match=r"Invalid conformity level: 0x04"):
+            pdu.decode_response(response)
+
     def test_decode_response_truncated_header(self) -> None:
         """A response shorter than the header raises InvalidResponseError, not struct.error."""
         pdu = ReadDeviceIdentificationPDU(read_device_id_code=0x01, object_id=0x00)

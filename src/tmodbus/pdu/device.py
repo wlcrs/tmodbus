@@ -119,6 +119,12 @@ class ReadDeviceIdentificationPDU(BaseSubFunctionClientPDU[ReadDeviceIdentificat
             msg = f"Invalid 'more' value: {more:#04x}"
             raise InvalidResponseError(msg, response_bytes=response)
 
+        try:
+            conformity = ConformityLevel(conformity_level)
+        except ValueError as e:
+            msg = f"Invalid conformity level: {conformity_level:#04x}"
+            raise InvalidResponseError(msg, response_bytes=response) from e
+
         objects: dict[int, bytes] = {}
         offset = response_header_struct.size
         while offset < len(response):
@@ -136,7 +142,7 @@ class ReadDeviceIdentificationPDU(BaseSubFunctionClientPDU[ReadDeviceIdentificat
 
         return ReadDeviceIdentificationResponse(
             device_id_code=device_id_code,
-            conformity_level=ConformityLevel(conformity_level),
+            conformity_level=conformity,
             more=bool(more),
             next_object_id=next_object_id,
             number_of_objects=number_of_objects,
