@@ -454,15 +454,22 @@ class ModbusRtuProtocol(asyncio.Protocol):
             expected_total_frame_length = 5  # address + exception FC + exception code + CRC
         else:
             # check if we can already determine the expected length with the available data
-            if not is_function_code_for_subfunction_pdu(function_code):
-                pdu_class = get_pdu_class(function_code)
-            else:
-                # It's a sub-function PDU, we need at least 6 bytes to determine the length
-                # 6 = address + function code + sub-function code + at least 1 byte of data + CRC
-                if len(self._buffer) < 6:
-                    return None  # Wait for more data
-                sub_function_code = self._buffer[2]
-                pdu_class = get_subfunction_pdu_class(function_code, sub_function_code)
+            try:
+                if not is_function_code_for_subfunction_pdu(function_code):
+                    pdu_class = get_pdu_class(function_code)
+                else:
+                    # It's a sub-function PDU, we need at least 6 bytes to determine the length
+                    # 6 = address + function code + sub-function code + at least 1 byte of data + CRC
+                    if len(self._buffer) < 6:
+                        return None  # Wait for more data
+                    sub_function_code = self._buffer[2]
+                    pdu_class = get_subfunction_pdu_class(function_code, sub_function_code)
+            except ValueError as e:
+                # Unknown or unsupported (sub-)function code, for example a bit flip on the
+                # line. We cannot determine where the frame ends, so fail the pending request
+                # with a frame error rather than letting the exception crash the protocol.
+                msg = f"Cannot frame response with unsupported function code {function_code:#04x}"
+                raise RTUFrameError(msg, response_bytes=bytes(self._buffer)) from e
 
             expected_response_data_length = pdu_class.get_expected_response_data_length(self._buffer[2:])
 
