@@ -212,6 +212,42 @@ async def test_send_and_receive_fifo_queue_framing(
     assert result == [0x01B8, 0x1234]
 
 
+async def test_send_and_receive_exception_status_framing(
+    mock_transport: MagicMock,
+) -> None:
+    """Regression: Read Exception Status frames as one status byte over RTU.
+
+    The status byte is not a byte count, so a nonzero status (0xFF) must not be
+    read as a length, which would otherwise frame the response far too long.
+    """
+    from tmodbus.pdu import ReadExceptionStatusPDU  # noqa: PLC0415
+
+    protocol = ModbusRtuProtocol(on_connection_lost=lambda _: None)
+    protocol.connection_made(mock_transport)
+
+    pdu = ReadExceptionStatusPDU()
+    unit_id = 1
+    # Response PDU: function code 0x07 followed by status 0xFF (the value that
+    # previously made framing wait for 256 extra bytes).
+    response_pdu = bytes([0x07, 0xFF])
+    payload = bytes([unit_id]) + response_pdu
+    response_adu = payload + calculate_crc16(payload)
+
+    protocol._last_frame_ended_at = time.monotonic() - 10
+
+    async def simulate_response() -> None:
+        await asyncio.sleep(0.01)
+        protocol.data_received(response_adu)
+
+    result_task = asyncio.create_task(protocol.send_and_receive(unit_id, pdu))
+    response_task = asyncio.create_task(simulate_response())
+
+    result = await result_task
+    await response_task
+
+    assert result == 0xFF
+
+
 async def test_send_and_receive_not_connected() -> None:
     """Test that send_and_receive raises ModbusConnectionError when not connected."""
     t = AsyncRtuTransport("/dev/ttyUSB0", baudrate=9600)
