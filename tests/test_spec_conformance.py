@@ -10,14 +10,35 @@ three things for every function code:
   transports use to frame a response. It must equal the length of the response
   data part (everything after the function code, before the CRC).
 
+It also covers two cross-cutting behaviours: server-side symmetry (a request or
+response survives an encode/decode round-trip unchanged) and the exception
+responses defined in section 7, decoded through the RTU transport.
+
 Where the specification example contains device specific content (Read Device
 Identification, Report Server ID), a representative example in the documented
 format is used instead and is marked as such.
 """
 
+import asyncio
+import time
 from typing import Any
+from unittest.mock import MagicMock
 
 import pytest
+from tmodbus.const import ExceptionCode, FunctionCode
+from tmodbus.exceptions import (
+    AcknowledgeError,
+    GatewayPathUnavailableError,
+    GatewayTargetDeviceFailedToRespondError,
+    IllegalDataAddressError,
+    IllegalDataValueError,
+    IllegalFunctionError,
+    MemoryParityError,
+    ModbusResponseError,
+    ServerDeviceBusyError,
+    ServerDeviceFailureError,
+    UnknownModbusResponseError,
+)
 from tmodbus.pdu import (
     FileRecord,
     FileRecordRequest,
@@ -37,7 +58,9 @@ from tmodbus.pdu import (
     WriteSingleCoilPDU,
     WriteSingleRegisterPDU,
 )
-from tmodbus.pdu.base import BaseClientPDU
+from tmodbus.pdu.base import BaseClientPDU, BasePDU
+from tmodbus.transport.async_rtu import ModbusRtuProtocol
+from tmodbus.utils.crc import calculate_crc16
 
 
 def _hex(value: str) -> bytes:
@@ -279,3 +302,158 @@ def test_rtu_response_framing_length(pdu_class: type[BaseClientPDU[Any]], respon
     data_after_function_code = response_pdu[1:]
     expected = len(data_after_function_code)
     assert pdu_class.get_expected_response_data_length(data_after_function_code) == expected
+
+
+# --- Server-side symmetry ----------------------------------------------------
+#
+# A request must survive decode_request -> encode_request unchanged, and a
+# response must survive encode_response -> decode_response unchanged.
+
+_REQUEST_ROUND_TRIPS: list[tuple[str, BasePDU[Any]]] = [
+    ("0x01 Read Coils", ReadCoilsPDU(0x0013, 0x0013)),
+    ("0x02 Read Discrete Inputs", ReadDiscreteInputsPDU(0x00C4, 0x0016)),
+    ("0x03 Read Holding Registers", ReadHoldingRegistersPDU(0x006B, 0x0003)),
+    ("0x04 Read Input Registers", ReadInputRegistersPDU(0x0008, 0x0001)),
+    ("0x05 Write Single Coil", WriteSingleCoilPDU(0x00AC, value=True)),
+    ("0x06 Write Single Register", WriteSingleRegisterPDU(0x0001, 0x0003)),
+    ("0x0F Write Multiple Coils", WriteMultipleCoilsPDU(0x0013, _bits(_hex("CD 01"), 10))),
+    ("0x10 Write Multiple Registers", WriteMultipleRegistersPDU(0x0001, [0x000A, 0x0102])),
+    ("0x16 Mask Write Register", MaskWriteRegisterPDU(0x0004, 0x00F2, 0x0025)),
+    ("0x18 Read FIFO Queue", ReadFifoQueuePDU(0x04DE)),
+    (
+        "0x14 Read File Record",
+        ReadFileRecordPDU([FileRecordRequest(0x0004, 0x0001, 0x0002), FileRecordRequest(0x0003, 0x0009, 0x0002)]),
+    ),
+    ("0x15 Write File Record", WriteFileRecordPDU([FileRecord(0x0004, 0x0007, _hex("06AF 04BE 100D"))])),
+    ("0x07 Read Exception Status", ReadExceptionStatusPDU()),
+]
+
+
+@pytest.mark.parametrize(
+    "pdu",
+    [pdu for _label, pdu in _REQUEST_ROUND_TRIPS],
+    ids=[label for label, _pdu in _REQUEST_ROUND_TRIPS],
+)
+def test_request_round_trip(pdu: BasePDU[Any]) -> None:
+    """decode_request(encode_request()) must reproduce the same request bytes."""
+    encoded = pdu.encode_request()
+    assert type(pdu).decode_request(encoded).encode_request() == encoded
+
+
+_RESPONSE_ROUND_TRIPS: list[tuple[str, BasePDU[Any], Any]] = [
+    ("0x01 Read Coils", ReadCoilsPDU(0x0013, 0x0013), _bits(_hex("CD 6B 05"), 19)),
+    ("0x03 Read Holding Registers", ReadHoldingRegistersPDU(0x006B, 0x0003), [0x022B, 0x0000, 0x0064]),
+    ("0x04 Read Input Registers", ReadInputRegistersPDU(0x0008, 0x0001), [0x000A]),
+    ("0x05 Write Single Coil", WriteSingleCoilPDU(0x00AC, value=True), True),
+    ("0x06 Write Single Register", WriteSingleRegisterPDU(0x0001, 0x0003), 0x0003),
+    ("0x0F Write Multiple Coils", WriteMultipleCoilsPDU(0x0013, _bits(_hex("CD 01"), 10)), 10),
+    ("0x10 Write Multiple Registers", WriteMultipleRegistersPDU(0x0001, [0x000A, 0x0102]), 2),
+    ("0x16 Mask Write Register", MaskWriteRegisterPDU(0x0004, 0x00F2, 0x0025), (0x00F2, 0x0025)),
+    (
+        "0x17 Read/Write Multiple Registers",
+        ReadWriteMultipleRegistersPDU(
+            read_start_address=0x0003, read_quantity=0x0006, write_start_address=0x000E, write_values=[0xFF, 0xFF, 0xFF]
+        ),
+        [0x00FE, 0x0ACD, 0x0001, 0x0003, 0x000D, 0x00FF],
+    ),
+    ("0x18 Read FIFO Queue", ReadFifoQueuePDU(0x04DE), [0x01B8, 0x1234]),
+    ("0x07 Read Exception Status", ReadExceptionStatusPDU(), 0x6D),
+]
+
+
+@pytest.mark.parametrize(
+    ("pdu", "value"),
+    [(pdu, value) for _label, pdu, value in _RESPONSE_ROUND_TRIPS],
+    ids=[label for label, _pdu, _value in _RESPONSE_ROUND_TRIPS],
+)
+def test_response_round_trip(pdu: BasePDU[Any], value: Any) -> None:
+    """decode_response(encode_response(value)) must reproduce the same value."""
+    assert pdu.decode_response(pdu.encode_response(value)) == value
+
+
+# --- Exception responses (specification section 7) ---------------------------
+#
+# An exception response sets the high bit of the function code and carries a
+# single exception code byte. The transport must raise the matching exception
+# and recover the original function code.
+
+_EXCEPTION_CODES: list[tuple[int, type[ModbusResponseError]]] = [
+    (ExceptionCode.ILLEGAL_FUNCTION, IllegalFunctionError),
+    (ExceptionCode.ILLEGAL_DATA_ADDRESS, IllegalDataAddressError),
+    (ExceptionCode.ILLEGAL_DATA_VALUE, IllegalDataValueError),
+    (ExceptionCode.SERVER_DEVICE_FAILURE, ServerDeviceFailureError),
+    (ExceptionCode.ACKNOWLEDGE, AcknowledgeError),
+    (ExceptionCode.SERVER_DEVICE_BUSY, ServerDeviceBusyError),
+    (ExceptionCode.MEMORY_PARITY_ERROR, MemoryParityError),
+    (ExceptionCode.GATEWAY_PATH_UNAVAILABLE, GatewayPathUnavailableError),
+    (ExceptionCode.GATEWAY_TARGET_DEVICE_FAILED_TO_RESPOND, GatewayTargetDeviceFailedToRespondError),
+]
+
+
+def test_exception_code_mapping_matches_specification() -> None:
+    """Every documented exception code maps to its exception class."""
+    from tmodbus.exceptions import error_code_to_exception_map  # noqa: PLC0415
+
+    for code, exc_class in _EXCEPTION_CODES:
+        assert error_code_to_exception_map[code] is exc_class
+        assert exc_class.error_code == code
+
+
+@pytest.mark.parametrize(
+    ("exception_code", "exception_class"),
+    _EXCEPTION_CODES,
+    ids=[exc_class.__name__ for _code, exc_class in _EXCEPTION_CODES],
+)
+async def test_exception_response_over_rtu(exception_code: int, exception_class: type[ModbusResponseError]) -> None:
+    """An exception response frames as 5 bytes over RTU and raises the mapped exception."""
+    protocol = ModbusRtuProtocol(on_connection_lost=lambda _: None)
+    transport = MagicMock(spec=asyncio.WriteTransport)
+    transport.is_closing.return_value = False
+    protocol.connection_made(transport)
+
+    pdu = ReadHoldingRegistersPDU(0x0000, 0x0001)
+    unit_id = 1
+    # Exception response: function code with the high bit set, plus the exception code.
+    payload = bytes([unit_id, FunctionCode.READ_HOLDING_REGISTERS | 0x80, exception_code])
+    response_adu = payload + calculate_crc16(payload)
+
+    protocol._last_frame_ended_at = time.monotonic() - 10
+
+    async def deliver() -> None:
+        await asyncio.sleep(0.01)
+        protocol.data_received(response_adu)
+
+    deliver_task = asyncio.create_task(deliver())
+    with pytest.raises(exception_class) as exc_info:
+        await protocol.send_and_receive(unit_id, pdu)
+    await deliver_task
+
+    assert exc_info.value.function_code == FunctionCode.READ_HOLDING_REGISTERS
+    assert exc_info.value.error_code == exception_code
+
+
+async def test_unknown_exception_code_over_rtu() -> None:
+    """An unmapped exception code raises UnknownModbusResponseError, keeping the code."""
+    protocol = ModbusRtuProtocol(on_connection_lost=lambda _: None)
+    transport = MagicMock(spec=asyncio.WriteTransport)
+    transport.is_closing.return_value = False
+    protocol.connection_made(transport)
+
+    pdu = ReadHoldingRegistersPDU(0x0000, 0x0001)
+    unit_id = 1
+    unknown_code = 0x7F
+    payload = bytes([unit_id, FunctionCode.READ_HOLDING_REGISTERS | 0x80, unknown_code])
+    response_adu = payload + calculate_crc16(payload)
+    protocol._last_frame_ended_at = time.monotonic() - 10
+
+    async def deliver() -> None:
+        await asyncio.sleep(0.01)
+        protocol.data_received(response_adu)
+
+    deliver_task = asyncio.create_task(deliver())
+    with pytest.raises(UnknownModbusResponseError) as exc_info:
+        await protocol.send_and_receive(unit_id, pdu)
+    await deliver_task
+
+    assert exc_info.value.error_code == unknown_code
+    assert exc_info.value.function_code == FunctionCode.READ_HOLDING_REGISTERS
