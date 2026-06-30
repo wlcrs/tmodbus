@@ -217,7 +217,11 @@ class OrderAwareStruct(struct.Struct):
 
     def unpack_from(self, buffer: "ReadableBuffer", offset: int = 0) -> tuple[Any, ...]:
         """Unpack from buffer with word order consideration."""
-        return super().unpack_from(self._swap_word_order(buffer), offset)
+        # Reorder only the struct-sized region at `offset`. Transforming the whole
+        # buffer first and unpacking at `offset` afterwards would reorder the wrong
+        # bytes (the region starting at 0) for any nonzero offset.
+        region = memoryview(buffer)[offset : offset + self.size]
+        return super().unpack(self._swap_word_order(region))
 
     def pack(self, *args: Any) -> bytes:
         """Pack values into bytes with word order consideration."""

@@ -143,6 +143,23 @@ def test_unpack_from() -> None:
     assert result == (0x0A0B0C0D,)
 
 
+@pytest.mark.parametrize(
+    ("word_order", "byte_order"),
+    [("big", "big"), ("little", "big"), ("big", "little"), ("little", "little")],
+)
+@pytest.mark.parametrize("offset", [0, 1, 2, 5])
+def test_unpack_from_with_offset_and_order(
+    word_order: Literal["big", "little"],
+    byte_order: Literal["big", "little"],
+    offset: int,
+) -> None:
+    """unpack_from must reorder the region at the offset, not the start of the buffer."""
+    value = 0x0A0B0C0D
+    s = OrderAwareStruct(">I", word_order=word_order, byte_order=byte_order)
+    buffer = b"\xaa" * offset + s.pack(value) + b"\xbb" * 4
+    assert s.unpack_from(buffer, offset) == (value,)
+
+
 def test_pack_into() -> None:
     """Test pack_into with buffer and offset."""
     s = OrderAwareStruct(">I", word_order="little")
