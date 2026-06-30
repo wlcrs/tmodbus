@@ -342,6 +342,35 @@ def test_byte_order_16bit_no_effect() -> None:
             assert s.pack(value) == b"\x01\x02"
 
 
+@pytest.mark.parametrize(
+    ("format_str", "word_order", "byte_order", "values", "expected_bytes"),
+    [
+        # Two int8 values form one register, followed by a 32-bit value (two registers).
+        # The leading register must be left untouched and the 32-bit value reordered in
+        # place. Regression test for start_idx tracking when a register is built from
+        # sub-register tokens.
+        (">bbI", "little", "big", (1, 2, 0x0A0B0C0D), b"\x01\x02\x0c\x0d\x0a\x0b"),
+        (">bbI", "big", "little", (1, 2, 0x0A0B0C0D), b"\x01\x02\x0b\x0a\x0d\x0c"),
+        (">bbI", "little", "little", (1, 2, 0x0A0B0C0D), b"\x01\x02\x0d\x0c\x0b\x0a"),
+        # Two unsigned bytes forming a register before a 16-bit register: nothing to swap.
+        (">BBH", "little", "big", (0x12, 0x34, 0x0506), b"\x12\x34\x05\x06"),
+    ],
+)
+def test_byte_order_sub_register_tokens(
+    format_str: str,
+    word_order: Literal["big", "little"],
+    byte_order: Literal["big", "little"],
+    values: tuple[Any, ...],
+    expected_bytes: bytes,
+) -> None:
+    """Test reordering when a register is composed of multiple sub-register tokens."""
+    s = OrderAwareStruct(format_str, word_order=word_order, byte_order=byte_order)
+    packed = s.pack(*values)
+    assert packed == expected_bytes
+    # Roundtrip must hold as well.
+    assert s.unpack(packed) == values
+
+
 def test_byte_order_backwards_compatibility_with_word_order() -> None:
     """Test that word_order parameter still works for backwards compatibility."""
     # word_order="little", byte_order="big" produces CDAB

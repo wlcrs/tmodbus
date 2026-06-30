@@ -146,7 +146,7 @@ class OrderAwareStruct(struct.Struct):
 
             if current_length == BYTES_PER_REGISTER:
                 # nothing to swap for single-register values
-                start_idx += length
+                start_idx += current_length
                 current_length = 0
                 continue
 
