@@ -12,7 +12,7 @@ jobs:
     runs-on: ubuntu-latest
     strategy:
       matrix:
-        python: ["3.12", "3.13", "3.14"]
+        python: ["3.12", "3.13", "3.14", "3.15"]
     steps:
       - name: ⤵️ Check out code from GitHub
         uses: actions/checkout@v5.0.0
@@ -22,9 +22,9 @@ jobs:
           enable-cache: true
           python-version: ${{ matrix.python }}
       - name: 🏗 Install dependencies
-        run: uv sync --all-extras --frozen --dev
+        run: uv sync --all-extras --frozen --no-default-groups --group test
       - name: 🚀 Run pytest
-        run: uv run pytest --cov tmodbus tests
+        run: uv run --no-sync pytest --cov tmodbus tests
       - name: ⬆️ Upload coverage artifact
         uses: actions/upload-artifact@v4.6.2
         with:
@@ -49,10 +49,10 @@ jobs:
           enable-cache: true
           python-version: ${{ env.DEFAULT_PYTHON }}
       - name: 🏗 Install dependencies
-        run: uv sync --all-extras --frozen --dev
+        run: uv sync --all-extras --frozen --no-default-groups --group test
       - name: 🚀 Process coverage results
         run: |
-          uv run coverage combine coverage*/.coverage*
-          uv run coverage xml -i
+          uv run --no-sync coverage combine coverage*/.coverage*
+          uv run --no-sync coverage xml -i
       - name: 🚀 Upload coverage report
         uses: codecov/codecov-action@v5.5.1

@@ -1064,6 +1064,13 @@ docs = [
     { name = "sphinx-rtd-theme" },
     { name = "sphinxcontrib-mermaid" },
 ]
+test = [
+    { name = "covdefaults" },
+    { name = "coverage" },
+    { name = "pytest" },
+    { name = "pytest-asyncio" },
+    { name = "pytest-cov" },
+]
 
 [package.metadata]
 requires-dist = [
@@ -1092,6 +1099,13 @@ docs = [
     { name = "sphinx-autobuild" },
     { name = "sphinx-rtd-theme", specifier = ">=3.0.2" },
     { name = "sphinxcontrib-mermaid" },
+]
+test = [
+    { name = "covdefaults", specifier = "==2.3.0" },
+    { name = "coverage", extras = ["toml"], specifier = "==7.10.7" },
+    { name = "pytest", specifier = "==8.4.2" },
+    { name = "pytest-asyncio", specifier = "==1.2.0" },
+    { name = "pytest-cov", specifier = "==7.0.0" },
 ]
 
 [[package]]
