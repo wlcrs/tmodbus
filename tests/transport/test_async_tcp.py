@@ -122,8 +122,8 @@ async def test_protocol_transaction_id_wraparound() -> None:
     protocol = ModbusTcpProtocol(on_connection_lost=lambda _: None, timeout=10.0)
 
     protocol._next_transaction_id = 0xFFFF
-    tid1 = await protocol._get_next_transaction_id()
-    tid2 = await protocol._get_next_transaction_id()
+    tid1 = protocol._get_next_transaction_id()
+    tid2 = protocol._get_next_transaction_id()
     assert tid1 == 0xFFFF
     assert tid2 == 0
 
