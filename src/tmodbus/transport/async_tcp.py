@@ -169,7 +169,6 @@ class ModbusTcpProtocol(asyncio.Protocol):
     on_connection_lost: Callable[[Exception | None], None]
     timeout: float
 
-    _on_con_lost: asyncio.Future[Exception | None]
     _buffer: bytearray
     _next_transaction_id: int
     _transaction_id_lock: asyncio.Lock
@@ -188,7 +187,6 @@ class ModbusTcpProtocol(asyncio.Protocol):
         self.on_connection_lost = on_connection_lost
         self.timeout = timeout
 
-        self._on_con_lost = asyncio.get_event_loop().create_future()
         self._buffer = bytearray()
         self._next_transaction_id = 1
         self._transaction_id_lock = asyncio.Lock()
