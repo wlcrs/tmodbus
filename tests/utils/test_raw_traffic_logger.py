@@ -7,8 +7,12 @@ from tmodbus.utils.raw_traffic_logger import _format_bytes, log_raw_traffic
 
 
 class _DummyLogger:
-    def __init__(self) -> None:
+    def __init__(self, *, enabled: bool = True) -> None:
         self.records: list[tuple[Any, dict[str, Any]]] = []
+        self._enabled = enabled
+
+    def isEnabledFor(self, _level: int) -> bool:  # noqa: N802 - matches logging.Logger
+        return self._enabled
 
     def debug(self, *args: Any, **kwargs: Any) -> None:
         self.records.append((args, kwargs))
@@ -45,3 +49,11 @@ def test_log_raw_traffic_recv_error() -> None:
     assert args[2] == "recv"
     assert args[3] == "FF"
     assert args[4] == "[!]"
+
+
+def test_log_raw_traffic_skipped_when_disabled() -> None:
+    """Nothing is logged (and no formatting happens) when debug logging is off."""
+    dummy = _DummyLogger(enabled=False)
+    with patch("tmodbus.utils.raw_traffic_logger.raw_traffic_logger", dummy):
+        log_raw_traffic("rtu", "sent", b"\x01\x02")
+    assert dummy.records == []
