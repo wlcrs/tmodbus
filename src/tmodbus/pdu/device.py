@@ -74,7 +74,7 @@ class ReadDeviceIdentificationPDU(BaseSubFunctionClientPDU[ReadDeviceIdentificat
 
     def __post_init__(self) -> None:
         """Validate ReadDeviceIdentificationPDU."""
-        if not (0x00 <= self.object_id < 0xFF):
+        if not (0x00 <= self.object_id <= 0xFF):
             msg = "Object ID must be between 0x00 and 0xFF."
             raise ValueError(msg)
 

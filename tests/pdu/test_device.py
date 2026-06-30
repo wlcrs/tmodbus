@@ -26,9 +26,16 @@ class TestReadDeviceIdentificationPDU:
             ReadDeviceIdentificationPDU(read_device_id_code=0x01, object_id=-1)
 
     def test_init_invalid_object_id_too_high(self) -> None:
-        """Test creating ReadDeviceIdentificationPDU with object_id >= 0xFF."""
+        """Test creating ReadDeviceIdentificationPDU with object_id above 0xFF."""
         with pytest.raises(ValueError, match=r"Object ID must be between 0x00 and 0xFF\."):
-            ReadDeviceIdentificationPDU(read_device_id_code=0x01, object_id=0xFF)
+            ReadDeviceIdentificationPDU(read_device_id_code=0x01, object_id=0x100)
+
+    def test_init_object_id_max_value(self) -> None:
+        """Object ID 0xFF is valid (the top of the extended object range)."""
+        pdu = ReadDeviceIdentificationPDU(read_device_id_code=0x01, object_id=0xFF)
+        assert pdu.object_id == 0xFF
+        # And it encodes into the request unchanged.
+        assert pdu.encode_request()[-1] == 0xFF
 
     def test_encode_request(self) -> None:
         """Test encoding request."""
