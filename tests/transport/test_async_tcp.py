@@ -45,6 +45,22 @@ async def test_open_connection_error(monkeypatch: pytest.MonkeyPatch) -> None:
         await t.open()
 
 
+async def test_open_respects_connect_timeout(monkeypatch: pytest.MonkeyPatch) -> None:
+    """open() must give up after connect_timeout when the connection never completes."""
+
+    async def never_connects(*_args: object, **_kwargs: object) -> tuple[None, None]:
+        await asyncio.sleep(10)
+        return None, None
+
+    loop = asyncio.get_running_loop()
+    monkeypatch.setattr(loop, "create_connection", never_connects)
+
+    t = AsyncTcpTransport("host", port=1234, connect_timeout=0.05)
+    with pytest.raises(TimeoutError):
+        await t.open()
+    assert not t.is_open()
+
+
 async def test_is_open_false_when_not_connected() -> None:
     """Test is_open returns False when not connected."""
     t = AsyncTcpTransport("host", port=1234)
