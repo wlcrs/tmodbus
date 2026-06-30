@@ -15,8 +15,9 @@ Byte Order Combinations (for a 32-bit value 0x0A0B0C0D):
     - word_order="little", byte_order="big":   CDAB order → 0x0C 0x0D 0x0A 0x0B (word-swapped)
     - word_order="little", byte_order="little": DCBA order → 0x0D 0x0C 0x0B 0x0A (full little-endian)
 
-Note: For single-register values (16-bit), only the byte_order parameter affects the result.
-      The word_order parameter only applies to multi-register values (32-bit and above).
+Note: Single-register values (16-bit) are never reordered. A register is the smallest unit,
+      so neither word_order nor byte_order has any effect on them. Both parameters only apply
+      to values spanning multiple registers (32-bit and above).
 
 This module provides a struct-like class that is aware of both word order and byte order when
 packing and unpacking.
