@@ -1,6 +1,31 @@
 """Tests for tmodbus/utils/lrc.py."""
 
+import pytest
 from tmodbus.utils.lrc import calculate_lrc, validate_lrc
+
+
+def _reference_lrc(data: bytes) -> int:
+    """Independent accumulator-based LRC reference."""
+    lrc = 0
+    for byte in data:
+        lrc = (lrc + byte) & 0xFF
+    return ((lrc ^ 0xFF) + 1) & 0xFF
+
+
+@pytest.mark.parametrize(
+    "data",
+    [
+        b"",
+        b"\x00",
+        b"\xff",
+        b"\x01\x03\x00\x00\x00\x64",
+        bytes(range(256)),
+        b"\xff" * 256,
+    ],
+)
+def test_calculate_lrc_matches_reference(data: bytes) -> None:
+    """The optimized implementation must match an accumulator-based reference."""
+    assert calculate_lrc(data) == _reference_lrc(data)
 
 
 def test_calculate_lrc_simple() -> None:

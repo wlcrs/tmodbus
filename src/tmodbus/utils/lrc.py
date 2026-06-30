@@ -3,11 +3,9 @@
 
 def calculate_lrc(data: bytes) -> int:
     """Use to compute the longitudinal redundancy check against a string."""
-    lrc = 0
-    for byte in data:
-        lrc = (lrc + byte) & 0xFF
-
-    return ((lrc ^ 0xFF) + 1) & 0xFF
+    # The LRC is the two's complement of the 8-bit sum of all bytes. Letting the
+    # C-level sum() add everything up first is a lot faster than a Python loop.
+    return (-sum(data)) & 0xFF
 
 
 def validate_lrc(data: bytes, check: int) -> bool:
