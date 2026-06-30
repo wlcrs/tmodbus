@@ -171,6 +171,31 @@ async def test_protocol_data_received_complete_frame() -> None:
     assert result.transaction_id == 1
 
 
+async def test_protocol_data_received_out_of_range_length_resyncs() -> None:
+    """A frame with an out-of-range length must not stall the parser.
+
+    Modbus TCP caps the MBAP length field at 254. A larger value means the buffer
+    is misaligned; the parser must discard it and recover instead of waiting
+    forever for bytes that never arrive, which would desync the connection.
+    """
+    protocol = ModbusTcpProtocol(on_connection_lost=lambda _: None, timeout=10.0)
+    protocol.connection_made(MagicMock(spec=asyncio.WriteTransport))
+
+    future: asyncio.Future[_ModbusMessage] = asyncio.get_event_loop().create_future()
+    protocol._pending_requests[1] = future
+
+    # Header with protocol id 0 but an absurd length (5000), followed by some bytes.
+    protocol.data_received(struct.pack(">HHHB", 1, 0x0000, 5000, 1) + b"\x03\x02\x00\x0a")
+    assert not future.done()  # bogus frame is not delivered
+
+    # A real response for the same transaction id must still be parsed.
+    protocol.data_received(struct.pack(">HHHB", 1, 0x0000, 3, 1) + b"\x03\x99")
+    await asyncio.sleep(0.01)
+
+    assert future.done()
+    assert future.result().pdu_bytes == b"\x03\x99"
+
+
 async def test_protocol_data_received_unexpected_transaction_id() -> None:
     """Test protocol handles unexpected transaction ID gracefully."""
     protocol = ModbusTcpProtocol(on_connection_lost=lambda _: None, timeout=10.0)
