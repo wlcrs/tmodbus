@@ -314,3 +314,17 @@ class TestReadFifoQueuePDU:
         decoded_response = original_pdu.decode_response(response)
 
         assert decoded_response == values
+
+    def test_expected_response_data_length(self) -> None:
+        """The RTU response length must account for the two-byte byte count."""
+        # Spec V1.1b3 example response: byte count 0x0006, FIFO count, two values.
+        response_pdu = bytes.fromhex("1800060002 01B8 1234".replace(" ", ""))
+        data_after_function_code = response_pdu[1:]
+        # Expected: everything after the function code (byte count + FIFO count + values).
+        assert ReadFifoQueuePDU.get_expected_response_data_length(data_after_function_code) == len(
+            data_after_function_code
+        )
+
+    def test_expected_response_data_length_needs_byte_count(self) -> None:
+        """Returns None until the full two-byte byte count is available."""
+        assert ReadFifoQueuePDU.get_expected_response_data_length(b"\x00") is None

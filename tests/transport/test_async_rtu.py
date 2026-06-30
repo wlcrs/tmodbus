@@ -176,6 +176,42 @@ async def test_send_and_receive_success(
     assert result[0] == "decoded"
 
 
+async def test_send_and_receive_fifo_queue_framing(
+    mock_transport: MagicMock,
+) -> None:
+    """Regression: FIFO responses use a two-byte byte count for RTU framing.
+
+    The FIFO response (function code 0x18) does not carry its length in a single
+    byte, so the transport must use the PDU's own length logic. With the wrong
+    length the frame would be cut short and fail its CRC check.
+    """
+    from tmodbus.pdu import ReadFifoQueuePDU  # noqa: PLC0415
+
+    protocol = ModbusRtuProtocol(on_connection_lost=lambda _: None)
+    protocol.connection_made(mock_transport)
+
+    pdu = ReadFifoQueuePDU(address=0x04DE)
+    unit_id = 1
+    # Spec V1.1b3 example response: byte count 0x0006, FIFO count 0x0002, values 0x01B8, 0x1234.
+    response_pdu = bytes.fromhex("1800060002 01B8 1234".replace(" ", ""))
+    payload = bytes([unit_id]) + response_pdu
+    response_adu = payload + calculate_crc16(payload)
+
+    protocol._last_frame_ended_at = time.monotonic() - 10
+
+    async def simulate_response() -> None:
+        await asyncio.sleep(0.01)
+        protocol.data_received(response_adu)
+
+    result_task = asyncio.create_task(protocol.send_and_receive(unit_id, pdu))
+    response_task = asyncio.create_task(simulate_response())
+
+    result = await result_task
+    await response_task
+
+    assert result == [0x01B8, 0x1234]
+
+
 async def test_send_and_receive_not_connected() -> None:
     """Test that send_and_receive raises ModbusConnectionError when not connected."""
     t = AsyncRtuTransport("/dev/ttyUSB0", baudrate=9600)
