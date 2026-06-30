@@ -69,6 +69,7 @@ class AsyncBaseTransport(ABC):
             ConnectionError: Connection error
             TimeoutError:  Operation timeout
             CRCError: CRC verification failed (RTU only)
+            LRCError: LRC verification failed (ASCII only)
             InvalidResponseError: Invalid response format
 
         """
