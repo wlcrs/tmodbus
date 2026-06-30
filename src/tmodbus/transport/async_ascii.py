@@ -412,10 +412,19 @@ class AsyncAsciiTransport(AsyncBaseTransport):
 
         except TimeoutError:
             logger.warning("Async Serial connection timeout: %s", self.port, exc_info=True)
+            self._abort_failed_open()
             raise
         except Exception as e:
             logger.exception("Async Serial connection error: %s", self.port)
+            self._abort_failed_open()
             raise ModbusConnectionError from e
+
+    def _abort_failed_open(self) -> None:
+        """Close and clear a partially opened transport after a failed open."""
+        if self._transport is not None:
+            self._transport.close()
+        self._transport = None
+        self._protocol = None
 
     async def close(self) -> None:
         """Close Serial connection."""
