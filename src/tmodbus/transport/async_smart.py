@@ -47,14 +47,46 @@ logger = logging.getLogger(__name__)
 RT = TypeVar("RT")
 
 
+def _format_retry_cause(retry_state: RetryCallState) -> str:
+    """Format the failure that triggered a retry."""
+    if retry_state.outcome and retry_state.outcome.failed:
+        exception = retry_state.outcome.exception()
+        if exception is not None:
+            return f"{type(exception).__name__}: {exception}"
+
+    return "unknown"
+
+
+def _log_response_retry(retry_state: RetryCallState) -> None:
+    """Log when a response retry is about to happen."""
+    if logger.isEnabledFor(logging.DEBUG):
+        logger.debug(
+            "Retrying request after attempt %d due to %s",
+            retry_state.attempt_number,
+            _format_retry_cause(retry_state),
+        )
+
+
+def _log_auto_reconnect_retry(retry_state: RetryCallState) -> None:
+    """Log when auto-reconnect is about to retry."""
+    if logger.isEnabledFor(logging.DEBUG):
+        logger.debug(
+            "Retrying connection after attempt %d due to %s",
+            retry_state.attempt_number,
+            _format_retry_cause(retry_state),
+        )
+
+
 DEFAULT_RECONNECT_RETRY_STRATEGY = AsyncRetrying(
     stop=stop_after_delay(60),
     wait=wait_exponential(min=0.1, max=10),
+    before_sleep=_log_auto_reconnect_retry,
 )
 
 DEFAULT_RESPONSE_RETRY_STRATEGY = AsyncRetrying(
     stop=stop_after_delay(60),
     wait=wait_exponential(min=0.1, max=10),
+    before_sleep=_log_response_retry,
 )
 
 
@@ -282,6 +314,10 @@ class AsyncSmartTransport(AsyncBaseTransport):
         if retry_state.outcome and retry_state.outcome.failed:
             exception = retry_state.outcome.exception()
             if isinstance(exception, ModbusConnectionError):
+                logger.debug(
+                    "Retrying request with a new connection after %s",
+                    f"{type(exception).__name__}: {exception}",
+                )
                 logger.warning(
                     "Received an %s error. Closing the connection to force a reconnect.", type(exception).__name__
                 )
