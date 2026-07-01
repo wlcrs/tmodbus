@@ -140,3 +140,22 @@ async def test_create_async_rtu_over_tcp_client() -> None:
     assert client.transport.args[0].kwargs["timeout"] == 5.0
     assert client.transport.args[0].kwargs["connect_timeout"] == 2.0
     assert client.transport.args[0].kwargs["extra"] == 456
+
+
+def test_public_transports_and_factories_are_exported() -> None:
+    """Every public transport and client factory must be in __all__ and importable."""
+    expected = {
+        "AsyncAsciiTransport",
+        "AsyncModbusClient",
+        "AsyncRtuOverTcpTransport",
+        "AsyncRtuTransport",
+        "AsyncSmartTransport",
+        "AsyncTcpTransport",
+        "create_async_ascii_client",
+        "create_async_rtu_client",
+        "create_async_rtu_over_tcp_client",
+        "create_async_tcp_client",
+    }
+    assert expected <= set(tmodbus.__all__)
+    for name in tmodbus.__all__:
+        assert hasattr(tmodbus, name), name

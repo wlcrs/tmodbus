@@ -245,10 +245,14 @@ def create_async_rtu_over_tcp_client(  # noqa: PLR0913
 
 
 __all__ = [
+    "AsyncAsciiTransport",
     "AsyncModbusClient",
+    "AsyncRtuOverTcpTransport",
     "AsyncRtuTransport",
     "AsyncSmartTransport",
     "AsyncTcpTransport",
+    "create_async_ascii_client",
     "create_async_rtu_client",
+    "create_async_rtu_over_tcp_client",
     "create_async_tcp_client",
 ]
