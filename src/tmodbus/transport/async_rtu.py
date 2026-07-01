@@ -546,6 +546,15 @@ class ModbusRtuProtocol(asyncio.Protocol):
                     )
                 )
             else:
+                # The unit id is also part of the raw frame, so in theory it is possible that the CRC is caused by
+                # a bit flip on the unit id.
+
+                # However, in most cases this corrupt unit id would not correspond with a pending request,
+                # and the frame would have been discarded already anyway.
+
+                # As we're trying to recover from a bad frame, we prefer to fail fast instead of letting pending
+                # requests wait for a timeout. Therefore, we set an exception on the pending future and continue.
+
                 pending_future.set_exception(CRCError(response_bytes=frame))
 
     def connection_lost(self, exc: Exception | None) -> None:

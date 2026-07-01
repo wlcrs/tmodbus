@@ -91,6 +91,10 @@ def decode_ascii_frame(frame: bytes) -> bytes:
 
 def validate_ascii_frame(raw: bytes) -> bool:
     """Validate Modbus ASCII frame for correct LRC."""
+    # We assume that the provided raw bytes were decoded by the `decode_ascii_frame` function,
+    # which already checks for frame structure and minimum length.
+    # Therefore, we only need to validate the LRC here.
+
     return validate_lrc(raw[:-1], raw[-1])
 
 
@@ -314,6 +318,15 @@ class ModbusAsciiProtocol(asyncio.Protocol):
                 continue
 
             if not validate_ascii_frame(raw):
+                # The unit id is also part of the raw frame, so in theory it is possible that the LRC is caused by
+                # a bit flip on the unit id.
+
+                # However, in most cases this corrupt unit id would not correspond with a pending request,
+                # and the frame would have been discarded already anyway.
+
+                # As we're trying to recover from a bad frame, we prefer to fail fast instead of letting pending
+                # requests wait for a timeout. Therefore, we set an exception on the pending future and continue.
+
                 pending_future.set_exception(LRCError(response_bytes=frame))
                 continue
 
