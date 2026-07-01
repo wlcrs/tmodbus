@@ -197,7 +197,13 @@ async def test_send_and_receive_retry_strategy_raises_request_retry_failed(
         response_retry_strategy=AsyncRetrying(stop=stop_after_attempt(1), reraise=False),
     )
     with patch.object(t, "_reconnect_send_and_receive", AsyncMock(side_effect=ModbusConnectionError("fail"))):
-        with pytest.raises(RequestRetryFailedError):
+        with pytest.raises(
+            RequestRetryFailedError,
+            match=(
+                r"Failed to get a valid response after 1 attempts.+"
+                r"Last error: ModbusConnectionError: fail"
+            ),
+        ):
             await t.send_and_receive(1, DummyPDU())
         assert t._last_request_finished_at is not None
 

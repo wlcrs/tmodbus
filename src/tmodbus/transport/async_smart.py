@@ -55,7 +55,6 @@ DEFAULT_RECONNECT_RETRY_STRATEGY = AsyncRetrying(
 DEFAULT_RESPONSE_RETRY_STRATEGY = AsyncRetrying(
     stop=stop_after_delay(60),
     wait=wait_exponential(min=0.1, max=10),
-    reraise=True,  # Reraise the last exception if all retries are exhausted
 )
 
 
@@ -260,10 +259,18 @@ class AsyncSmartTransport(AsyncBaseTransport):
                     if attempt.retry_state.outcome and not attempt.retry_state.outcome.failed:
                         attempt.retry_state.set_result(response)
             except RetryError as e:
-                msg = (
-                    f"Failed to get a valid response after {attempt.retry_state.attempt_number} attempts "
-                    f"over {attempt.retry_state.seconds_since_start} seconds"
+                underlying_error = e.last_attempt.exception() if e.last_attempt is not None else None
+                underlying_error_text = (
+                    f"{type(underlying_error).__name__}: {underlying_error}"
+                    if underlying_error is not None
+                    else "unknown"
                 )
+
+                msg = (
+                    f"Failed to get a valid response after {attempt.retry_state.attempt_number} attempts"
+                    f"over {attempt.retry_state.seconds_since_start} seconds. Last error: {underlying_error_text}"
+                )
+
                 raise RequestRetryFailedError(msg) from e
             else:
                 return response
