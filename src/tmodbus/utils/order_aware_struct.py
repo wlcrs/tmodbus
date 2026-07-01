@@ -217,6 +217,19 @@ class OrderAwareStruct(struct.Struct):
 
     def unpack_from(self, buffer: "ReadableBuffer", offset: int = 0) -> tuple[Any, ...]:
         """Unpack from buffer with word order consideration."""
+        # Handle negative offsets correctly
+        if offset < 0:
+            buf_len = len(memoryview(buffer))
+            if offset + self.size > 0:
+                msg = f"not enough data to unpack {self.size} bytes at offset {offset}"
+                raise struct.error(msg)
+
+            if offset + buf_len < 0:
+                msg = f"offset {offset} out of range for {buf_len}-byte buffer"
+                raise struct.error(msg)
+
+            offset += buf_len
+
         # Reorder only the struct-sized region at `offset`. Transforming the whole
         # buffer first and unpacking at `offset` afterwards would reorder the wrong
         # bytes (the region starting at 0) for any nonzero offset.

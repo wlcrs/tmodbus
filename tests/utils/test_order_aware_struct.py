@@ -143,6 +143,30 @@ def test_unpack_from() -> None:
     assert result == (0x0A0B0C0D,)
 
 
+def test_unpack_from_negative_offset_success() -> None:
+    """Test unpack_from resolves valid negative offsets from buffer end."""
+    s = OrderAwareStruct(">I", word_order="big")
+    data = b"\xaa\xbb" + s.pack(0x0A0B0C0D)
+    result = s.unpack_from(data, offset=-4)
+    assert result == (0x0A0B0C0D,)
+
+
+def test_unpack_from_negative_offset_not_enough_data() -> None:
+    """Test unpack_from raises when negative offset points into trailing partial value."""
+    s = OrderAwareStruct(">I", word_order="big")
+    data = b"\x00\x01\x02\x03"
+    with pytest.raises(struct.error, match="not enough data to unpack 4 bytes at offset -2"):
+        s.unpack_from(data, offset=-2)
+
+
+def test_unpack_from_negative_offset_out_of_range() -> None:
+    """Test unpack_from raises when negative offset exceeds buffer start."""
+    s = OrderAwareStruct(">I", word_order="big")
+    data = b"\x00\x01\x02\x03"
+    with pytest.raises(struct.error, match="offset -5 out of range for 4-byte buffer"):
+        s.unpack_from(data, offset=-5)
+
+
 @pytest.mark.parametrize(
     ("word_order", "byte_order"),
     [("big", "big"), ("little", "big"), ("big", "little"), ("little", "little")],
