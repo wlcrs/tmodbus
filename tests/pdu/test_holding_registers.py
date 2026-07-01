@@ -613,6 +613,14 @@ class TestMaskWriteRegisterPDU:
         with pytest.raises(InvalidResponseError, match=r"Invalid address: expected 4, received 5"):
             pdu.decode_response(response)
 
+    def test_decode_response_mask_mismatch(self) -> None:
+        """A response echoing different masks than requested raises InvalidResponseError."""
+        pdu = MaskWriteRegisterPDU(address=0x0004, and_mask=0xF2F2, or_mask=0x2525)
+        # Correct function code and address, but the OR mask differs from the request.
+        response = b"\x16\x00\x04\xf2\xf2\x99\x99"
+        with pytest.raises(InvalidResponseError, match=r"Mask mismatch"):
+            pdu.decode_response(response)
+
     def test_decode_response_too_short(self) -> None:
         """Test decoding response that is too short."""
         pdu = MaskWriteRegisterPDU(address=0x0004, and_mask=0xF2F2, or_mask=0x2525)

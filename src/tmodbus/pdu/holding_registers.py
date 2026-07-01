@@ -609,6 +609,13 @@ class MaskWriteRegisterPDU(BasePDU[tuple[int, int]]):
             msg = f"Invalid address: expected {self.address}, received {address}"
             raise InvalidResponseError(msg, response_bytes=response)
 
+        if and_mask != self.and_mask or or_mask != self.or_mask:
+            msg = (
+                f"Mask mismatch: expected AND {self.and_mask:#06x} OR {self.or_mask:#06x}, "
+                f"received AND {and_mask:#06x} OR {or_mask:#06x}"
+            )
+            raise InvalidResponseError(msg, response_bytes=response)
+
         return and_mask, or_mask
 
     @classmethod
