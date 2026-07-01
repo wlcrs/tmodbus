@@ -91,11 +91,14 @@ class AsyncRtuOverTcpTransport(AsyncBaseTransport):
             return
 
         try:
-            self._transport, self._protocol = await loop.create_connection(
-                lambda: ModbusRtuProtocol(on_connection_lost=self._on_connection_lost, timeout=self.timeout),
-                host=self.host,
-                port=self.port,
-                **self.connection_kwargs,
+            self._transport, self._protocol = await asyncio.wait_for(
+                loop.create_connection(
+                    lambda: ModbusRtuProtocol(on_connection_lost=self._on_connection_lost, timeout=self.timeout),
+                    host=self.host,
+                    port=self.port,
+                    **self.connection_kwargs,
+                ),
+                timeout=self.connect_timeout,
             )
 
             logger.info("Async RTU/TCP connection established: %s:%d", self.host, self.port)
