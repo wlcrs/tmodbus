@@ -366,6 +366,36 @@ async def test_read_device_identification_warns_on_number_of_objects_change(
     assert any("Number of objects changed between requests" in r for r in caplog.text.splitlines())
 
 
+async def test_read_device_identification_stops_on_non_advancing_object_id(
+    monkeypatch: pytest.MonkeyPatch,
+    dummy_client: AsyncModbusClient,
+    caplog: pytest.LogCaptureFixture,
+) -> None:
+    """A device that keeps saying 'more' without advancing must not loop forever."""
+    call_count = {"count": 0}
+
+    async def fake_execute(_self: None, _pdu: ReadDeviceIdentificationPDU) -> ReadDeviceIdentificationResponse:
+        call_count["count"] += 1
+        # Always claims more, always points back at object id 0.
+        return ReadDeviceIdentificationResponse(
+            device_id_code=1,
+            conformity_level=ConformityLevel.BASIC,
+            objects={0: b"vendor"},
+            more=True,
+            next_object_id=0,
+            number_of_objects=1,
+        )
+
+    monkeypatch.setattr(AsyncModbusClient, "execute", fake_execute)
+    with caplog.at_level("WARNING"):
+        result = await dummy_client.read_device_identification(1, 0)
+
+    # It requested object 0 once, then detected the repeat and stopped.
+    assert call_count["count"] == 1
+    assert result == {0: b"vendor"}
+    assert any("repeated object id" in line for line in caplog.text.splitlines())
+
+
 def test_for_unit_id_creates_new_instance_with_different_unit_id() -> None:
     """Test that for_unit_id creates a new client instance with the specified unit_id."""
     transport = DummyAsyncTransport()

@@ -419,7 +419,20 @@ class AsyncModbusClient(HoldingRegisterReadMixin, HoldingRegisterWriteMixin):
         result: dict[int, bytes] = {}
         more = True
         number_of_objects: int | None = None
+        requested_object_ids: set[int] = set()
         while more:
+            if object_id in requested_object_ids:
+                # The device says there is more to read but points back at an object we
+                # already requested. Stop here instead of looping forever on a device that
+                # never advances its next object id.
+                logger.warning(
+                    "Device repeated object id %#04x while streaming device identification; "
+                    "stopping with the objects collected so far.",
+                    object_id,
+                )
+                break
+            requested_object_ids.add(object_id)
+
             response = await self.execute(ReadDeviceIdentificationPDU(device_code, object_id))
             result.update(response.objects)
             more = response.more
