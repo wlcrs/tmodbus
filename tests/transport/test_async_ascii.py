@@ -27,7 +27,8 @@ from tmodbus.transport.async_ascii import (
     ascii_decode,
     ascii_encode,
     build_ascii_frame,
-    parse_ascii_frame,
+    decode_ascii_frame,
+    validate_ascii_frame,
 )
 from tmodbus.utils.lrc import calculate_lrc
 
@@ -142,49 +143,50 @@ def test_build_ascii_frame_broadcast() -> None:
     assert raw[0] == 0
 
 
-def test_parse_ascii_frame_valid() -> None:
-    """Test parsing valid ASCII frame."""
+def test_decode_ascii_frame_valid() -> None:
+    """Test decoding valid ASCII frame."""
     # Build a valid frame
     message = b"\x01\x03"
     lrc = calculate_lrc(message)
     hex_data = ascii_encode(message + bytes([lrc]))
     frame = b":" + hex_data + b"\r\n"
 
-    raw = parse_ascii_frame(frame)
+    raw = decode_ascii_frame(frame)
     assert raw[0] == 0x01  # address
     assert raw[1] == 0x03  # function code
     assert raw[-1] == lrc  # LRC
+    assert validate_ascii_frame(raw)
 
 
-def test_parse_ascii_frame_missing_start() -> None:
-    """Test parsing frame without start marker."""
+def test_decode_ascii_frame_missing_start() -> None:
+    """Test decoding frame without start marker."""
     with pytest.raises(ASCIIFrameError, match="does not start with ':'"):
-        parse_ascii_frame(b"0103FC\r\n")
+        decode_ascii_frame(b"0103FC\r\n")
 
 
-def test_parse_ascii_frame_missing_end() -> None:
-    """Test parsing frame without end marker."""
+def test_decode_ascii_frame_missing_end() -> None:
+    """Test decoding frame without end marker."""
     with pytest.raises(ASCIIFrameError, match="does not start with ':' and end with"):
-        parse_ascii_frame(b":0103FC")
+        decode_ascii_frame(b":0103FC")
 
 
-def test_parse_ascii_frame_invalid_hex() -> None:
-    """Test parsing frame with invalid hex."""
+def test_decode_ascii_frame_invalid_hex() -> None:
+    """Test decoding frame with invalid hex."""
     with pytest.raises(ASCIIFrameError, match="Invalid hex"):
-        parse_ascii_frame(b":GGZZ\r\n")
+        decode_ascii_frame(b":GGZZ\r\n")
 
 
-def test_parse_ascii_frame_too_short() -> None:
-    """Test parsing frame that's too short."""
+def test_decode_ascii_frame_too_short() -> None:
+    """Test decoding frame that's too short."""
     with pytest.raises(ASCIIFrameError, match="too short"):
-        parse_ascii_frame(b":01\r\n")
+        decode_ascii_frame(b":01\r\n")
 
 
-def test_parse_ascii_frame_invalid_lrc() -> None:
-    """Test parsing frame with invalid LRC."""
-    # Valid structure but wrong LRC
-    with pytest.raises(LRCError):
-        parse_ascii_frame(b":0103FF\r\n")  # FF is wrong LRC
+def test_decode_ascii_frame_invalid_lrc_is_detectable() -> None:
+    """Test that decode-only path keeps invalid LRC detectable."""
+    # Valid structure but wrong LRC.
+    raw = decode_ascii_frame(b":0103FF\r\n")
+    assert not validate_ascii_frame(raw)
 
 
 # Fixtures
@@ -613,7 +615,7 @@ async def test_protocol_partial_frame(mock_transport: MagicMock) -> None:
 
 
 async def test_protocol_invalid_frame(mock_transport: MagicMock) -> None:
-    """Test handling invalid frame (bad LRC)."""
+    """Test handling invalid frame (bad LRC) for pending request."""
     protocol = ModbusAsciiProtocol(
         on_connection_lost=lambda _exc: None,
         timeout=0.1,
@@ -628,7 +630,49 @@ async def test_protocol_invalid_frame(mock_transport: MagicMock) -> None:
     # Send frame with bad LRC
     protocol.data_received(b":0103FF\r\n")  # Invalid LRC
 
-    # Should timeout because frame was discarded
+    # Should fail fast because bad checksum matches pending unit_id.
+    with pytest.raises(LRCError):
+        await task
+
+
+async def test_protocol_invalid_frame_wrong_unit_id_is_discarded(mock_transport: MagicMock) -> None:
+    """Test bad-LRC frame for another unit does not fail the pending request."""
+    protocol = ModbusAsciiProtocol(
+        on_connection_lost=lambda _exc: None,
+        timeout=0.1,
+    )
+    protocol.connection_made(mock_transport)
+
+    pdu = _DummyPDU()
+
+    task = asyncio.create_task(protocol.send_and_receive(1, pdu))
+    await asyncio.sleep(0.01)
+
+    # Bad LRC frame for unit 2 while unit 1 is pending.
+    protocol.data_received(b":0203FF\r\n")
+
+    # Request for unit 1 should still timeout because frame is not attributable.
+    with pytest.raises(TimeoutError):
+        await task
+
+
+async def test_protocol_invalid_hex_frame_is_discarded(mock_transport: MagicMock) -> None:
+    """Test malformed ASCII frame (invalid hex) is logged and discarded."""
+    protocol = ModbusAsciiProtocol(
+        on_connection_lost=lambda _exc: None,
+        timeout=0.1,
+    )
+    protocol.connection_made(mock_transport)
+
+    pdu = _DummyPDU()
+
+    task = asyncio.create_task(protocol.send_and_receive(1, pdu))
+    await asyncio.sleep(0.01)
+
+    # Starts/ends like a frame but has invalid hex payload, exercising ASCIIFrameError path.
+    protocol.data_received(b":GGZZ\r\n")
+
+    # Request should still timeout because malformed frame is discarded.
     with pytest.raises(TimeoutError):
         await task
 

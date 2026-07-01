@@ -79,6 +79,7 @@ subclass of :class:`~tmodbus.exceptions.InvalidResponseError`:
 
 - RTU Frame Error: :class:`~tmodbus.exceptions.RTUFrameError`
 - Invalid CRC: :class:`~tmodbus.exceptions.CRCError`
+- Invalid LRC: :class:`~tmodbus.exceptions.LRCError`
 - Header mismatch: :class:`~tmodbus.exceptions.HeaderMismatchError`
 - Function code mismatch: :class:`~tmodbus.exceptions.FunctionCodeError`
 
