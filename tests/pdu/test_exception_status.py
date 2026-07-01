@@ -230,3 +230,16 @@ class TestReadExceptionStatusPDU:
         pdu = ReadExceptionStatusPDU()
         encoded = pdu.encode_request()
         assert len(encoded) == 1
+
+    def test_rtu_response_data_length(self) -> None:
+        """The RTU response data part is a single status byte for any status value.
+
+        Without a fixed length the transport would read the status byte as a byte
+        count, framing a nonzero status (for example 0xFF) far too long.
+        """
+        assert ReadExceptionStatusPDU.rtu_response_data_length == 1
+
+        pdu = ReadExceptionStatusPDU()
+        for status in (0x00, 0x01, 0xFF):
+            response = pdu.encode_response(status)
+            assert pdu.get_expected_response_data_length(response[1:]) == len(response) - 1
