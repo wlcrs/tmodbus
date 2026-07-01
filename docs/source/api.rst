@@ -6,9 +6,9 @@ functions provided in the :mod:`tmodbus` module and use the functions of the ret
 :class:`~tmodbus.client.AsyncModbusClient` instance to interact with a Modbus server.
 
 If your Modbus device uses non-standard function codes or requires special handling, you
-can create a custom PDU class by inheriting from
-:class:`~tmodbus.pdu.pdu_modbus.ModbusClientPDU` and implementing the necessary methods.
-cfr. :doc:`Vendor functions <vendor_functions>` for more details.
+can create a custom PDU class by inheriting from :class:`~tmodbus.pdu.BaseClientPDU` and
+implementing the necessary methods. cfr. :doc:`Vendor functions <vendor_functions>` for
+more details.
 
 General
 -------
@@ -62,9 +62,9 @@ When the server responds with an error, tModbus will raise the corresponding sub
 - 0x01 Illegal function: :class:`~tmodbus.exceptions.IllegalFunctionError`
 - 0x02 Illegal data address: :class:`~tmodbus.exceptions.IllegalDataAddressError`
 - 0x03 Illegal data value: :class:`~tmodbus.exceptions.IllegalDataValueError`
-- 0x04 Slave device failure: :class:`~tmodbus.exceptions.SlaveDeviceFailureError`
+- 0x04 Server device failure: :class:`~tmodbus.exceptions.ServerDeviceFailureError`
 - 0x05 Acknowledge: :class:`~tmodbus.exceptions.AcknowledgeError`
-- 0x06 Slave device busy: :class:`~tmodbus.exceptions.SlaveDeviceBusyError`
+- 0x06 Server device busy: :class:`~tmodbus.exceptions.ServerDeviceBusyError`
 - 0x08 Memory parity error: :class:`~tmodbus.exceptions.MemoryParityError`
 - 0x0A Gateway path unavailable:
   :class:`~tmodbus.exceptions.GatewayPathUnavailableError`
@@ -75,7 +75,7 @@ If an unknown exception code is returned, a generic
 :class:`~tmodbus.exceptions.ModbusResponseError` will be raised.
 
 When the server responds with an invalid response, tModbus will raise the corresponding
-subclass of :class:`~tmodbus.exceptions.ModbusInvalidResponseError`:
+subclass of :class:`~tmodbus.exceptions.InvalidResponseError`:
 
 - RTU Frame Error: :class:`~tmodbus.exceptions.RTUFrameError`
 - Invalid CRC: :class:`~tmodbus.exceptions.CRCError`

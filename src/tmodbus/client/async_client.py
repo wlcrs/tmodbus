@@ -139,7 +139,7 @@ class AsyncModbusClient(HoldingRegisterReadMixin, HoldingRegisterWriteMixin):
             InvalidResponseError: If response is invalid or does not match request
 
         Example:
-            >>> coils = await client.read_coils(1, 0, 8)
+            >>> coils = await client.read_coils(0, 8)
             [True, False, True, False, False, False, True, False]
 
         """
@@ -160,7 +160,7 @@ class AsyncModbusClient(HoldingRegisterReadMixin, HoldingRegisterWriteMixin):
             List of coil status, True for ON, False for OFF
 
         Example:
-            >>> coils = await client.read_coils(1, 0, 8)
+            >>> inputs = await client.read_discrete_inputs(0, 8)
             [True, False, True, False, False, False, True, False]
 
         """
@@ -406,11 +406,14 @@ class AsyncModbusClient(HoldingRegisterReadMixin, HoldingRegisterWriteMixin):
 
 
         Returns:
-            A dictionary mapping object IDs to their corresponding string values.
+            A dictionary mapping object IDs to their raw byte values. Decode them
+            with the encoding the device documents (commonly ASCII).
 
         Example:
             >>> device_info = await client.read_device_identification(1, 0)
-            {0: 'VendorName', 1: 'ProductCode', ...}
+            {0: b'VendorName', 1: b'ProductCode', ...}
+            >>> device_info[0].decode("ascii")
+            'VendorName'
 
         """
         result: dict[int, bytes] = {}

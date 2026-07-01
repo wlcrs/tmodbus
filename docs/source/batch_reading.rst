@@ -14,7 +14,7 @@ to define the data structure of the registers we want to read. You can pass any
 :meth:`~tmodbus.pdu.holding_registers_struct.HoldingRegisterReadMixin.read_struct_format`
 method.
 
-For example, if we want to read 10 consecutive holding registers starting from address
+For example, if we want to read 6 consecutive holding registers starting from address
 100, and interpret them as two 32-bit integers followed by a 32-bit float, we can do the
 following:
 
