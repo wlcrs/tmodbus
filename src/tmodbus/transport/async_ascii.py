@@ -364,6 +364,7 @@ class AsyncAsciiTransport(AsyncBaseTransport):
         port: str,
         *,
         timeout: float | None = None,
+        on_connection_lost: Callable[[Exception | None], None] | None = None,
         **serialx_options: Unpack[SerialXOptions],
     ) -> None:
         """Initialize async Serial transport layer for ASCII.
@@ -371,6 +372,8 @@ class AsyncAsciiTransport(AsyncBaseTransport):
         Args:
             port: Target serial port (e.g., '/dev/ttyUSB0')
             timeout: Optional timeout for connection and response operations (in seconds)
+            on_connection_lost: Optional callback invoked the moment the connection is lost.
+                                Receives the causing exception, or None on a clean close.
             serialx_options: Additional SerialX options like baudrate, parity, stopbits, etc.
 
         """
@@ -378,6 +381,7 @@ class AsyncAsciiTransport(AsyncBaseTransport):
         if timeout is None:
             timeout = DEFAULT_TIMEOUT
         self.timeout = timeout
+        self.on_connection_lost = on_connection_lost
         self.serialx_options = serialx_options
 
     async def open(self) -> None:
@@ -466,6 +470,8 @@ class AsyncAsciiTransport(AsyncBaseTransport):
 
         self._transport = None
         self._protocol = None
+
+        self._notify_connection_lost(exc)
 
     async def send_and_receive(self, unit_id: int, pdu: BaseClientPDU[RT]) -> RT:
         """Async send PDU and receive response.

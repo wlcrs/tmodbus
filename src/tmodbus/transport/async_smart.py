@@ -113,6 +113,7 @@ class AsyncSmartTransport(AsyncBaseTransport):
         wait_after_connect: float = 0.0,
         auto_reconnect: bool | AsyncRetrying = True,
         on_reconnected: Callable[[], Awaitable[None] | None] | None = None,
+        on_connection_lost: Callable[[Exception | None], None] | None = None,
         response_retry_strategy: AsyncRetrying | None = None,
         retry_on_device_busy: bool = True,
         retry_on_device_failure: bool = False,
@@ -126,6 +127,12 @@ class AsyncSmartTransport(AsyncBaseTransport):
             auto_reconnect: Whether to automatically reconnect on connection loss (default: True).
                             Can be a custom AsyncRetrying instance when more control is needed.
             on_reconnected: Callback to be called after a successful reconnection.
+                            Requires auto_reconnect to be enabled.
+            on_connection_lost: Callback invoked the moment the underlying connection is lost, receiving
+                                the causing exception (or None on a clean close). Unlike on_reconnected,
+                                this works even when auto_reconnect is disabled: it is forwarded to the
+                                base transport and fires straight from its protocol's connection_lost,
+                                so it is the earliest notification that the socket dropped.
             response_retry_strategy: Retry strategy for handling failed requests (default: None).
             retry_on_device_busy: Whether to retry on device busy errors (default: True).
                                   Can be a custom AsyncRetrying instance when more control is needed.
@@ -134,6 +141,12 @@ class AsyncSmartTransport(AsyncBaseTransport):
 
         """
         self.base_transport = base_transport
+
+        # Forward the connection-lost callback to the base transport, which is where the socket
+        # actually lives and where connection_lost originates. Only override when a callback was
+        # provided, so a callback set directly on the base transport is not silently cleared.
+        if on_connection_lost is not None:
+            self.base_transport.on_connection_lost = on_connection_lost
         self._communication_lock = asyncio.Lock()
         self._should_be_connected = False
         self._must_reconnect = False

@@ -53,3 +53,38 @@ async def test_async_base_transport_context_manager() -> None:
 
     assert not transport.is_open()
     assert "close" in transport.performed_actions
+
+
+def test_notify_connection_lost_no_callback() -> None:
+    """_notify_connection_lost is a no-op when no callback is registered."""
+    transport = DummyAsyncTransport()
+    assert transport.on_connection_lost is None
+
+    # Should not raise.
+    transport._notify_connection_lost(None)
+
+
+def test_notify_connection_lost_invokes_callback() -> None:
+    """_notify_connection_lost forwards the causing exception to the callback."""
+    calls: list[Exception | None] = []
+    transport = DummyAsyncTransport()
+    transport.on_connection_lost = calls.append
+
+    error = RuntimeError("dropped")
+    transport._notify_connection_lost(error)
+
+    assert calls == [error]
+
+
+def test_notify_connection_lost_swallows_callback_error() -> None:
+    """A raising callback must not propagate out of _notify_connection_lost."""
+
+    def boom(_exc: Exception | None) -> None:
+        msg = "callback failed"
+        raise ValueError(msg)
+
+    transport = DummyAsyncTransport()
+    transport.on_connection_lost = boom
+
+    # Should not raise.
+    transport._notify_connection_lost(None)

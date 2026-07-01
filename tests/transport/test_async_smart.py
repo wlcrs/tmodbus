@@ -51,6 +51,41 @@ def test_on_reconnected_requires_auto_reconnect(base_transport_mock: AsyncBaseTr
         AsyncSmartTransport(base_transport_mock, auto_reconnect=False, on_reconnected=lambda: None)
 
 
+def test_on_connection_lost_forwarded_to_base_transport(base_transport_mock: AsyncBaseTransport) -> None:
+    """on_connection_lost is forwarded to the base transport, where the socket lives."""
+
+    def callback(_exc: Exception | None) -> None:
+        pass
+
+    AsyncSmartTransport(base_transport_mock, on_connection_lost=callback)
+
+    assert base_transport_mock.on_connection_lost is callback
+
+
+def test_on_connection_lost_works_without_auto_reconnect(base_transport_mock: AsyncBaseTransport) -> None:
+    """Unlike on_reconnected, on_connection_lost is allowed when auto_reconnect is disabled."""
+
+    def callback(_exc: Exception | None) -> None:
+        pass
+
+    # Must not raise.
+    AsyncSmartTransport(base_transport_mock, auto_reconnect=False, on_connection_lost=callback)
+
+    assert base_transport_mock.on_connection_lost is callback
+
+
+def test_on_connection_lost_not_provided_keeps_base_callback(base_transport_mock: AsyncBaseTransport) -> None:
+    """When no callback is passed, a callback set directly on the base transport is preserved."""
+
+    def existing(_exc: Exception | None) -> None:
+        pass
+
+    base_transport_mock.on_connection_lost = existing
+    AsyncSmartTransport(base_transport_mock)
+
+    assert base_transport_mock.on_connection_lost is existing
+
+
 def test_init_creates_instance_communication_state(base_transport_mock: AsyncBaseTransport) -> None:
     """Test that each transport instance has its own communication state."""
     t1 = AsyncSmartTransport(base_transport_mock)

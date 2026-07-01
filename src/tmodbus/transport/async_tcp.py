@@ -52,6 +52,7 @@ class AsyncTcpTransport(AsyncBaseTransport):
         *,
         timeout: float = 10.0,
         connect_timeout: float = 10.0,
+        on_connection_lost: Callable[[Exception | None], None] | None = None,
         **connection_kwargs: Any,
     ) -> None:
         """Initialize async TCP transport layer.
@@ -61,6 +62,8 @@ class AsyncTcpTransport(AsyncBaseTransport):
             port: Target port, default 502 (Modbus TCP standard port)
             timeout: Timeout in seconds, default 10.0s
             connect_timeout: Timeout for establishing connection, default 10.0s
+            on_connection_lost: Optional callback invoked the moment the connection is lost.
+                                Receives the causing exception, or None on a clean close.
             connection_kwargs: Additional connection parameters passed to `asyncio.create_connection`
                                (e.g., SSL context)
 
@@ -83,6 +86,7 @@ class AsyncTcpTransport(AsyncBaseTransport):
         self.port = port
         self.timeout = timeout
         self.connect_timeout = connect_timeout
+        self.on_connection_lost = on_connection_lost
         self.connection_kwargs = connection_kwargs
 
     async def open(self) -> None:
@@ -135,6 +139,8 @@ class AsyncTcpTransport(AsyncBaseTransport):
 
         self._transport = None
         self._protocol = None
+
+        self._notify_connection_lost(exc)
 
     async def send_and_receive(self, unit_id: int, pdu: BaseClientPDU[RT]) -> RT:
         """Async send PDU and receive response.
