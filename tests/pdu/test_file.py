@@ -109,6 +109,19 @@ class TestReadFileRecordPDU:
         with pytest.raises(InvalidRequestError, match="Record length must be between 1 and 65535"):
             ReadFileRecordPDU([FileRecordRequest(file_number=0, record_number=0, record_length=0x10000)])
 
+    def test_validation_empty_requests(self) -> None:
+        """An empty request list is rejected."""
+        with pytest.raises(InvalidRequestError, match="At least one file record request"):
+            ReadFileRecordPDU([])
+
+    def test_validation_too_many_requests(self) -> None:
+        """More sub-requests than fit in the one-byte byte count are rejected."""
+        # 36 requests is 252 bytes, over the 0xF5 (245) maximum; 35 is the limit.
+        requests = [FileRecordRequest(file_number=0, record_number=0, record_length=1)] * 36
+        with pytest.raises(InvalidRequestError, match="exceeds the maximum"):
+            ReadFileRecordPDU(requests)
+        ReadFileRecordPDU(requests[:35])  # the maximum is accepted
+
     def test_decode_response_valid_single_record(self) -> None:
         """Test decoding a valid response with a single record."""
         requests = [FileRecordRequest(file_number=4, record_number=1, record_length=2)]
@@ -407,6 +420,19 @@ class TestWriteFileRecordPDU:
         # Data length must not exceed 65535 bytes
         with pytest.raises(InvalidRequestError, match="Record data length must be between 0 and 65535 bytes"):
             WriteFileRecordPDU(file_records=[FileRecord(file_number=0, record_number=0, data=b"\x00" * 65536)])
+
+    def test_validation_empty_records(self) -> None:
+        """An empty record list is rejected."""
+        with pytest.raises(InvalidRequestError, match="At least one file record"):
+            WriteFileRecordPDU(file_records=[])
+
+    def test_validation_byte_count_too_large(self) -> None:
+        """A record whose total byte count exceeds the one-byte field is rejected."""
+        # 7-byte header + 246 data bytes = 253, over the 0xFB (251) maximum.
+        with pytest.raises(InvalidRequestError, match="exceeds the maximum"):
+            WriteFileRecordPDU(file_records=[FileRecord(file_number=0, record_number=0, data=b"\x00" * 246)])
+        # 244 data bytes (7 + 244 = 251) is the limit and is accepted.
+        WriteFileRecordPDU(file_records=[FileRecord(file_number=0, record_number=0, data=b"\x00" * 244)])
 
     def test_decode_response_valid_single_record(self) -> None:
         """Test decoding a valid response with a single record."""

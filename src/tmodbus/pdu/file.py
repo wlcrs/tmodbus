@@ -10,6 +10,12 @@ from .base import BasePDU
 
 FILE_RECORD_REFERENCE_TYPE = 0x06  # reference type for file records
 
+# Modbus caps the request byte count of these function codes at a single byte. The
+# specification limits Read File Record (0x14) to 0xF5 and Write File Record (0x15)
+# to 0xFB bytes.
+MAX_READ_FILE_RECORD_BYTE_COUNT = 0xF5
+MAX_WRITE_FILE_RECORD_BYTE_COUNT = 0xFB
+
 
 @dataclass(frozen=True)
 class FileRecordRequest:
@@ -51,6 +57,18 @@ class ReadFileRecordPDU(BasePDU[list[bytes]]):
             if not (1 <= request.record_length <= 0xFFFF):
                 msg = "Record length must be between 1 and 65535."
                 raise InvalidRequestError(msg)
+
+        if not requests:
+            msg = "At least one file record request is required."
+            raise InvalidRequestError(msg)
+
+        byte_count = len(requests) * SUB_REQUEST_STRUCT.size
+        if byte_count > MAX_READ_FILE_RECORD_BYTE_COUNT:
+            msg = (
+                f"Read File Record request byte count {byte_count} exceeds the "
+                f"maximum of {MAX_READ_FILE_RECORD_BYTE_COUNT}."
+            )
+            raise InvalidRequestError(msg)
 
         self.requests = requests
 
@@ -231,6 +249,21 @@ class WriteFileRecordPDU(BasePDU[list[FileRecord]]):
             if not (0 <= len(record.data) <= 0xFFFF):
                 msg = "Record data length must be between 0 and 65535 bytes."
                 raise InvalidRequestError(msg)
+
+        if not self.file_records:
+            msg = "At least one file record is required."
+            raise InvalidRequestError(msg)
+
+        # Each record is a 7-byte header plus its data, padded up to an even length.
+        byte_count = sum(
+            SUB_REQUEST_STRUCT.size + len(record.data) + (len(record.data) % 2) for record in self.file_records
+        )
+        if byte_count > MAX_WRITE_FILE_RECORD_BYTE_COUNT:
+            msg = (
+                f"Write File Record request byte count {byte_count} exceeds the "
+                f"maximum of {MAX_WRITE_FILE_RECORD_BYTE_COUNT}."
+            )
+            raise InvalidRequestError(msg)
 
     @classmethod
     def _encode(cls, file_records: list[FileRecord]) -> bytes:
