@@ -120,6 +120,27 @@ async def test_open_timeout(monkeypatch: pytest.MonkeyPatch) -> None:
         await t.open()
 
 
+async def test_open_timeout_waiting_for_connection_made(monkeypatch: pytest.MonkeyPatch) -> None:
+    """If connection_made never fires, open() times out and leaves no half-open transport."""
+    mock_transport = MagicMock(spec=asyncio.WriteTransport)
+    mock_transport.is_closing.return_value = False
+
+    async def fake_create_serial_connection(
+        _loop: Any, protocol_factory: Callable[[], ModbusRtuProtocol], **_kwargs: Any
+    ) -> tuple[asyncio.Transport, asyncio.Protocol]:
+        # Return a transport/protocol but never call connection_made.
+        return mock_transport, protocol_factory()
+
+    monkeypatch.setattr(serialx, "create_serial_connection", fake_create_serial_connection)
+
+    t = AsyncRtuTransport("/dev/ttyUSB0", baudrate=9600, timeout=0.05)
+    with pytest.raises(TimeoutError):
+        await t.open()
+
+    assert not t.is_open()
+    mock_transport.close.assert_called_once()
+
+
 @pytest.mark.usefixtures("mock_serial_connection")
 async def test_open_close_is_open() -> None:
     """Test open, close, and is_open functionality."""
