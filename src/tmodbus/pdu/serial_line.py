@@ -67,8 +67,8 @@ class ReportServerIdPDU(BasePDU[ServerIdResponse]):
             msg = f"Invalid function code: expected {self.function_code:#04x}, received {function_code:#04x}"
             raise InvalidResponseError(msg, response_bytes=response)
 
-        if len(response) < 2 + byte_count:
-            msg = f"Response length {len(response)} is less than expected {2 + byte_count}"
+        if len(response) != 2 + byte_count:
+            msg = f"Response length {len(response)} does not match expected {2 + byte_count}"
             raise InvalidResponseError(msg, response_bytes=response)
 
         # we can the data after the byte count for the status indicator byte to know

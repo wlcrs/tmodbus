@@ -57,6 +57,14 @@ def test_decode_response_invalid_function_code() -> None:
         pdu.decode_response(response)
 
 
+def test_decode_response_trailing_bytes() -> None:
+    """Trailing bytes beyond the declared byte count are rejected."""
+    pdu = ReportServerIdPDU()
+    response = make_response(pdu.function_code, b"abc", ID_ON, b"xyz") + b"\x00\x00"
+    with pytest.raises(InvalidResponseError, match="Response length"):
+        pdu.decode_response(response)
+
+
 def test_decode_response_invalid_length() -> None:
     """Test decode_response raises InvalidResponseError if the response is too short for the byte count."""
     pdu = ReportServerIdPDU()
