@@ -175,7 +175,6 @@ class ModbusTcpProtocol(asyncio.Protocol):
 
     _buffer: bytearray
     _next_transaction_id: int
-    _transaction_id_lock: asyncio.Lock
     _last_request_finished_at: float = 0.0
     _pending_requests: dict[int, asyncio.Future[_ModbusMessage]]
 
@@ -193,14 +192,14 @@ class ModbusTcpProtocol(asyncio.Protocol):
 
         self._buffer = bytearray()
         self._next_transaction_id = 1
-        self._transaction_id_lock = asyncio.Lock()
         self._pending_requests = {}
 
-    async def _get_next_transaction_id(self) -> int:
-        async with self._transaction_id_lock:
-            current_id = self._next_transaction_id
-            self._next_transaction_id = (self._next_transaction_id + 1) % 0x10000  # 16-bit wraparound
-            return current_id
+    def _get_next_transaction_id(self) -> int:
+        # No lock needed: this runs to completion without an await, so concurrent
+        # callers on the single-threaded event loop cannot interleave here.
+        current_id = self._next_transaction_id
+        self._next_transaction_id = (self._next_transaction_id + 1) % 0x10000  # 16-bit wraparound
+        return current_id
 
     def connection_made(self, transport: asyncio.BaseTransport) -> None:
         """Handle connection made event."""
@@ -227,7 +226,7 @@ class ModbusTcpProtocol(asyncio.Protocol):
             raise ModbusConnectionError(msg)
 
         # 1. Generate transaction ID and build MBAP header
-        current_transaction_id = await self._get_next_transaction_id()
+        current_transaction_id = self._get_next_transaction_id()
 
         request_pdu_bytes = pdu.encode_request()  # Convert PDU to bytes
 
