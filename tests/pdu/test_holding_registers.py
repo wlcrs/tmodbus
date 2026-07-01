@@ -136,6 +136,14 @@ class TestRawReadHoldingRegistersPDU:
         with pytest.raises(InvalidResponseError, match="Invalid register count"):
             pdu.decode_response(response)
 
+    def test_decode_response_odd_byte_count(self) -> None:
+        """An odd byte count raises InvalidResponseError instead of leaking struct.error."""
+        pdu = RawReadHoldingRegistersPDU(start_address=100, quantity=2)
+        # byte_count 5 is odd; with floor division it would have matched quantity 2.
+        response = b"\x03\x05\x00\x01\x00\x02\x03"
+        with pytest.raises(InvalidResponseError, match="Invalid register count"):
+            pdu.decode_response(response)
+
     def test_decode_response_too_short(self) -> None:
         """Test decoding response that is too short."""
         pdu = RawReadHoldingRegistersPDU(start_address=100, quantity=3)

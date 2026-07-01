@@ -74,7 +74,7 @@ class RawReadHoldingRegistersPDU(BasePDU[bytes]):
             msg = f"Invalid response PDU length: expected {2 + byte_count}, got {len(response)}"
             raise InvalidResponseError(msg, response_bytes=response)
 
-        if byte_count // 2 != self.quantity:
+        if byte_count % 2 != 0 or byte_count // 2 != self.quantity:
             msg = f"Invalid register count: expected {self.quantity}, got {byte_count // 2}"
             raise InvalidResponseError(msg, response_bytes=response)
 
