@@ -2,6 +2,7 @@
 
 import pytest
 from tmodbus.const import FunctionCode
+from tmodbus.exceptions import InvalidRequestError, InvalidResponseError
 from tmodbus.pdu.exception_status import ReadExceptionStatusPDU
 
 
@@ -31,19 +32,23 @@ class TestReadExceptionStatusPDU:
     def test_decode_request_invalid_length_too_short(self) -> None:
         """Test decoding fails when request is too short."""
         data = bytes([])
-        with pytest.raises(ValueError, match=r"Invalid Read Exception Status request length: 0\. Expected 1\."):
+        with pytest.raises(
+            InvalidRequestError, match=r"Invalid Read Exception Status request length: 0\. Expected 1\."
+        ):
             ReadExceptionStatusPDU.decode_request(data)
 
     def test_decode_request_invalid_length_too_long(self) -> None:
         """Test decoding fails when request is too long."""
         data = bytes([0x07, 0x00])
-        with pytest.raises(ValueError, match=r"Invalid Read Exception Status request length: 2\. Expected 1\."):
+        with pytest.raises(
+            InvalidRequestError, match=r"Invalid Read Exception Status request length: 2\. Expected 1\."
+        ):
             ReadExceptionStatusPDU.decode_request(data)
 
     def test_decode_request_invalid_function_code(self) -> None:
         """Test decoding fails when function code is incorrect."""
         data = bytes([0x03])
-        with pytest.raises(ValueError, match=r"Invalid function code: 0x03\. Expected 0x07\."):
+        with pytest.raises(InvalidRequestError, match=r"Invalid function code: 0x03\. Expected 0x07\."):
             ReadExceptionStatusPDU.decode_request(data)
 
     def test_encode_response_valid_min(self) -> None:
@@ -128,28 +133,34 @@ class TestReadExceptionStatusPDU:
         """Test decoding fails when response is too short."""
         pdu = ReadExceptionStatusPDU()
         data = bytes([0x07])
-        with pytest.raises(ValueError, match=r"Invalid Read Exception Status response length: 1\. Expected 2\."):
+        with pytest.raises(
+            InvalidResponseError, match=r"Invalid Read Exception Status response length: 1\. Expected 2\."
+        ):
             pdu.decode_response(data)
 
     def test_decode_response_invalid_length_empty(self) -> None:
         """Test decoding fails when response is empty."""
         pdu = ReadExceptionStatusPDU()
         data = bytes([])
-        with pytest.raises(ValueError, match=r"Invalid Read Exception Status response length: 0\. Expected 2\."):
+        with pytest.raises(
+            InvalidResponseError, match=r"Invalid Read Exception Status response length: 0\. Expected 2\."
+        ):
             pdu.decode_response(data)
 
     def test_decode_response_invalid_length_too_long(self) -> None:
         """Test decoding fails when response is too long."""
         pdu = ReadExceptionStatusPDU()
         data = bytes([0x07, 0x55, 0x00])
-        with pytest.raises(ValueError, match=r"Invalid Read Exception Status response length: 3\. Expected 2\."):
+        with pytest.raises(
+            InvalidResponseError, match=r"Invalid Read Exception Status response length: 3\. Expected 2\."
+        ):
             pdu.decode_response(data)
 
     def test_decode_response_invalid_function_code(self) -> None:
         """Test decoding fails when function code is incorrect."""
         pdu = ReadExceptionStatusPDU()
         data = bytes([0x03, 0x55])
-        with pytest.raises(ValueError, match=r"Invalid function code: 0x03\. Expected 0x07\."):
+        with pytest.raises(InvalidResponseError, match=r"Invalid function code: 0x03\. Expected 0x07\."):
             pdu.decode_response(data)
 
     def test_round_trip_encode_decode_request(self) -> None:

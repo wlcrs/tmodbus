@@ -3,6 +3,7 @@
 import struct
 
 import pytest
+from tmodbus.exceptions import InvalidRequestError, InvalidResponseError
 from tmodbus.pdu.fifo import ReadFifoQueuePDU
 
 
@@ -68,19 +69,19 @@ class TestReadFifoQueuePDU:
     def test_decode_request_invalid_length_too_short(self) -> None:
         """Test decoding request with invalid length (too short)."""
         request = b"\x18\x04"
-        with pytest.raises(ValueError, match=r"Invalid Read FIFO Queue request length: 2. Expected 3"):
+        with pytest.raises(InvalidRequestError, match=r"Invalid Read FIFO Queue request length: 2. Expected 3"):
             ReadFifoQueuePDU.decode_request(request)
 
     def test_decode_request_invalid_length_too_long(self) -> None:
         """Test decoding request with invalid length (too long)."""
         request = b"\x18\x04\xde\x00"
-        with pytest.raises(ValueError, match=r"Invalid Read FIFO Queue request length: 4. Expected 3"):
+        with pytest.raises(InvalidRequestError, match=r"Invalid Read FIFO Queue request length: 4. Expected 3"):
             ReadFifoQueuePDU.decode_request(request)
 
     def test_decode_request_invalid_function_code(self) -> None:
         """Test decoding request with invalid function code."""
         request = b"\x03\x04\xde"
-        with pytest.raises(ValueError, match=r"Invalid function code: 0x03. Expected 0x18"):
+        with pytest.raises(InvalidRequestError, match=r"Invalid function code: 0x03. Expected 0x18"):
             ReadFifoQueuePDU.decode_request(request)
 
     def test_encode_response_valid(self) -> None:
@@ -187,14 +188,16 @@ class TestReadFifoQueuePDU:
         """Test decoding response that is too short."""
         pdu = ReadFifoQueuePDU(address=0x1000)
         response_data = b"\x18\x00"
-        with pytest.raises(ValueError, match=r"Invalid Read FIFO Queue response length: 2. Minimum expected is 5"):
+        with pytest.raises(
+            InvalidResponseError, match=r"Invalid Read FIFO Queue response length: 2. Minimum expected is 5"
+        ):
             pdu.decode_response(response_data)
 
     def test_decode_response_invalid_function_code(self) -> None:
         """Test decoding response with invalid function code."""
         pdu = ReadFifoQueuePDU(address=0x04DE)
         response_data = b"\x03\x00\x06\x00\x02\x01\xb8\x12\x84"
-        with pytest.raises(ValueError, match=r"Invalid function code: 0x03. Expected 0x18"):
+        with pytest.raises(InvalidResponseError, match=r"Invalid function code: 0x03. Expected 0x18"):
             pdu.decode_response(response_data)
 
     def test_decode_response_invalid_byte_count(self) -> None:
@@ -202,7 +205,7 @@ class TestReadFifoQueuePDU:
         pdu = ReadFifoQueuePDU(address=0x04DE)
         # Byte count says 8 but actual data is only 6 bytes (9 total - 3 header = 6)
         response_data = b"\x18\x00\x08\x00\x02\x01\xb8\x12\x84"
-        with pytest.raises(ValueError, match=r"Byte count 8 does not match actual data length 6"):
+        with pytest.raises(InvalidResponseError, match=r"Byte count 8 does not match actual data length 6"):
             pdu.decode_response(response_data)
 
     def test_decode_response_count_mismatch(self) -> None:
@@ -211,7 +214,7 @@ class TestReadFifoQueuePDU:
         # FIFO count says 3 but we only have 2 values
         # Byte count = 2 + 2*2 = 6, FIFO count = 3, but only 2 values follow
         response_data = b"\x18\x00\x06\x00\x03\x01\xb8\x12\x84"
-        with pytest.raises(ValueError, match=r"FIFO count 3 does not match number of values 2"):
+        with pytest.raises(InvalidResponseError, match=r"FIFO count 3 does not match number of values 2"):
             pdu.decode_response(response_data)
 
     def test_round_trip_encode_decode_request(self) -> None:

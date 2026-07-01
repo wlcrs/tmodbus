@@ -1,6 +1,7 @@
 """Exception status PDU Module (serial line only)."""
 
 from tmodbus.const import FunctionCode
+from tmodbus.exceptions import InvalidRequestError, InvalidResponseError
 from tmodbus.pdu.base import BasePDU
 
 
@@ -29,18 +30,18 @@ class ReadExceptionStatusPDU(BasePDU[int]):
             Decoded ReadExceptionStatus instance
 
         Raises:
-            ValueError: If data length is incorrect
+            InvalidRequestError: If data length or function code is incorrect
 
         """
         if len(data) != 1:
             msg = f"Invalid Read Exception Status request length: {len(data)}. Expected 1."
-            raise ValueError(msg)
+            raise InvalidRequestError(msg, request_bytes=data)
 
         function_code = data[0]
 
         if function_code != cls.function_code:
             msg = f"Invalid function code: {function_code:#04x}. Expected {cls.function_code:#04x}."
-            raise ValueError(msg)
+            raise InvalidRequestError(msg, request_bytes=data)
 
         return cls()
 
@@ -73,17 +74,17 @@ class ReadExceptionStatusPDU(BasePDU[int]):
             Decoded exception status (0-255)
 
         Raises:
-            ValueError: If data length is incorrect
+            InvalidResponseError: If data length or function code is incorrect
 
         """
         if len(data) != 2:
             msg = f"Invalid Read Exception Status response length: {len(data)}. Expected 2."
-            raise ValueError(msg)
+            raise InvalidResponseError(msg, response_bytes=data)
 
         function_code, status = data
 
         if function_code != self.function_code:
             msg = f"Invalid function code: {function_code:#04x}. Expected {self.function_code:#04x}."
-            raise ValueError(msg)
+            raise InvalidResponseError(msg, response_bytes=data)
 
         return status
