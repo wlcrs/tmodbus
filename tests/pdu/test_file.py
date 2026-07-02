@@ -389,15 +389,11 @@ class TestWriteFileRecordPDU:
         assert encoded[1] == 20  # byte count
 
     def test_encode_request_odd_length_data(self) -> None:
-        """Test encoding with odd-length data (should be padded)."""
+        """Odd-length payloads are rejected because registers are 2 bytes."""
         records = [FileRecord(file_number=1, record_number=0, data=b"\x00\x01\x02")]
         pdu = WriteFileRecordPDU(file_records=records)
-        encoded = pdu.encode_request()
-
-        # Odd length (3 bytes) should be padded to 4 bytes (2 registers)
-        # Header: 7 bytes, Data: 4 bytes (3 + 1 padding)
-        assert encoded[1] == 11  # byte count
-        assert struct.unpack(">H", encoded[7:9])[0] == 2  # record length is 2 registers
+        with pytest.raises(ValueError, match="Record data length cannot be odd"):
+            pdu.encode_request()
 
     def test_validation_file_number_invalid(self) -> None:
         """Test that invalid file numbers raise InvalidRequestError."""

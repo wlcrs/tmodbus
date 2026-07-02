@@ -277,7 +277,8 @@ class WriteFileRecordPDU(BasePDU[list[FileRecord]]):
         for record in file_records:
             record_data = record.data
             if len(record_data) % 2 != 0:
-                record_data += b"\x00"  # pad with zero byte if odd length
+                msg = "Record data length cannot be odd; each register is 2 bytes."
+                raise ValueError(msg)
 
             records_bytes += SUB_REQUEST_STRUCT.pack(
                 FILE_RECORD_REFERENCE_TYPE,
