@@ -341,11 +341,11 @@ class TestRawWriteMultipleRegistersPDU:
         assert pdu.start_address == 100
         assert pdu.content == content
 
-    def test_initialization_pads_odd_length(self) -> None:
-        """Test that odd-length content is padded."""
+    def test_initialization_rejects_odd_length(self) -> None:
+        """Odd-length content is rejected because registers are 2 bytes."""
         content = b"\x12\x34\x56"
-        pdu = RawWriteMultipleRegistersPDU(start_address=100, content=content)
-        assert pdu.content == b"\x12\x34\x56\x00"
+        with pytest.raises(ValueError, match="Content length cannot be odd"):
+            RawWriteMultipleRegistersPDU(start_address=100, content=content)
 
     @pytest.mark.parametrize(
         ("start_address", "content", "expected_error"),
