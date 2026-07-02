@@ -324,7 +324,7 @@ class AsyncModbusClient(HoldingRegisterReadMixin, HoldingRegisterWriteMixin):
         """
         return await self.execute(ReportServerIdPDU())
 
-    async def read_file_record(
+    async def read_file_records(
         self,
         requests: list[FileRecordRequest],
     ) -> list[bytes]:
@@ -338,14 +338,38 @@ class AsyncModbusClient(HoldingRegisterReadMixin, HoldingRegisterWriteMixin):
 
         Example:
             >>> from tmodbus.pdu import FileRecordRequest
-            >>> payloads = await client.read_file_record([
+            >>> payloads = await client.read_file_records([
             ...     FileRecordRequest(file_number=4, record_number=0, record_length=2),
             ... ])
 
         """
         return await self.execute(ReadFileRecordPDU(requests=requests))
 
-    async def write_file_record(
+    async def read_file_record(self, file_number: int, record_number: int, record_length: int) -> bytes:
+        """Read a single File Record (Function Code 0x14).
+
+        Args:
+            file_number: File number to read from
+            record_number: Record number to read from
+            record_length: Length of the record to read (in 16-bit words)
+
+        Example:
+            >>> from tmodbus.pdu import FileRecordRequest
+            >>> payloads = await client.read_file_record(4, 0, 2)
+
+        """
+        payloads = await self.read_file_records(
+            [
+                FileRecordRequest(
+                    file_number=file_number,
+                    record_number=record_number,
+                    record_length=record_length,
+                )
+            ]
+        )
+        return payloads[0]
+
+    async def write_file_records(
         self,
         file_records: list[FileRecord],
     ) -> list[FileRecord]:
@@ -359,12 +383,44 @@ class AsyncModbusClient(HoldingRegisterReadMixin, HoldingRegisterWriteMixin):
 
         Example:
             >>> from tmodbus.pdu import FileRecord
-            >>> written = await client.write_file_record([
+            >>> written = await client.write_file_records([
             ...     FileRecord(file_number=4, record_number=0, data=b"\x12\x34"),
             ... ])
 
         """
         return await self.execute(WriteFileRecordPDU(file_records=file_records))
+
+    async def write_file_record(
+        self,
+        file_number: int,
+        record_number: int,
+        data: bytes,
+    ) -> FileRecord:
+        r"""Write a single File Record (Function Code 0x15).
+
+        Args:
+            file_number: File number to write to
+            record_number: Record number to write to
+            data: Raw bytes to write (length must be even, as each register is 2 bytes)
+
+        Returns:
+            Echoed file record from the server.
+
+        Example:
+            >>> from tmodbus.pdu import FileRecord
+            >>> written = await client.write_file_record(4, 0, b"\x12\x34")
+
+        """
+        records = await self.write_file_records(
+            [
+                FileRecord(
+                    file_number=file_number,
+                    record_number=record_number,
+                    data=data,
+                )
+            ]
+        )
+        return records[0]
 
     async def mask_write_register(
         self,
