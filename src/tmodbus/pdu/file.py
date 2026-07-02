@@ -44,23 +44,23 @@ class ReadFileRecordPDU(BasePDU[list[bytes]]):
             requests: List of FileRecordRequest instances to request.
 
         Raises:
-            InvalidRequestError: If any record is invalid.
+            ValueError: If any record is invalid.
 
         """
         for request in requests:
             if not (0 <= request.file_number <= 0xFFFF):
                 msg = "File number must be between 0 and 65535."
-                raise InvalidRequestError(msg)
+                raise ValueError(msg)
             if not (0 <= request.record_number <= 9999):
                 msg = "Record number must be between 0 and 9999."
-                raise InvalidRequestError(msg)
+                raise ValueError(msg)
             if not (1 <= request.record_length <= 0xFFFF):
                 msg = "Record length must be between 1 and 65535."
-                raise InvalidRequestError(msg)
+                raise ValueError(msg)
 
         if not requests:
             msg = "At least one file record request is required."
-            raise InvalidRequestError(msg)
+            raise ValueError(msg)
 
         byte_count = len(requests) * SUB_REQUEST_STRUCT.size
         if byte_count > MAX_READ_FILE_RECORD_BYTE_COUNT:
@@ -68,7 +68,7 @@ class ReadFileRecordPDU(BasePDU[list[bytes]]):
                 f"Read File Record request byte count {byte_count} exceeds the "
                 f"maximum of {MAX_READ_FILE_RECORD_BYTE_COUNT}."
             )
-            raise InvalidRequestError(msg)
+            raise ValueError(msg)
 
         self.requests = requests
 
@@ -217,7 +217,10 @@ class ReadFileRecordPDU(BasePDU[list[bytes]]):
 
             offset += SUB_REQUEST_STRUCT.size
 
-        return cls(requests)
+        try:
+            return cls(requests)
+        except ValueError as e:
+            raise InvalidRequestError(str(e), request_bytes=request) from e
 
 
 @dataclass(frozen=True)
@@ -242,17 +245,17 @@ class WriteFileRecordPDU(BasePDU[list[FileRecord]]):
         for record in self.file_records:
             if not (0 <= record.file_number <= 0xFFFF):
                 msg = "File number must be between 0 and 65535."
-                raise InvalidRequestError(msg)
+                raise ValueError(msg)
             if not (0 <= record.record_number <= 9999):
                 msg = "Record number must be between 0 and 9999."
-                raise InvalidRequestError(msg)
+                raise ValueError(msg)
             if not (0 <= len(record.data) <= 0xFFFF):
                 msg = "Record data length must be between 0 and 65535 bytes."
-                raise InvalidRequestError(msg)
+                raise ValueError(msg)
 
         if not self.file_records:
             msg = "At least one file record is required."
-            raise InvalidRequestError(msg)
+            raise ValueError(msg)
 
         # Each record is a 7-byte header plus its data, padded up to an even length.
         byte_count = sum(
@@ -263,7 +266,7 @@ class WriteFileRecordPDU(BasePDU[list[FileRecord]]):
                 f"Write File Record request byte count {byte_count} exceeds the "
                 f"maximum of {MAX_WRITE_FILE_RECORD_BYTE_COUNT}."
             )
-            raise InvalidRequestError(msg)
+            raise ValueError(msg)
 
     @classmethod
     def _encode(cls, file_records: list[FileRecord]) -> bytes:
@@ -403,4 +406,52 @@ class WriteFileRecordPDU(BasePDU[list[FileRecord]]):
             InvalidRequestError: If the request is invalid.
 
         """
-        return cls(WriteFileRecordPDU._decode(request))
+        try:
+            function_code, byte_count = struct.unpack_from(">BB", request, 0)
+        except struct.error as e:
+            msg = "Expected request to start with function code and byte count"
+            raise InvalidRequestError(msg, request_bytes=request) from e
+
+        if function_code != cls.function_code:
+            msg = f"Invalid function code: expected {cls.function_code:#04x}, received {function_code:#04x}"
+            raise InvalidRequestError(msg, request_bytes=request)
+
+        if len(request) - 2 != byte_count:
+            msg = f"Request length {len(request)} is not equal to expected {2 + byte_count}"
+            raise InvalidRequestError(msg, request_bytes=request)
+
+        records: list[FileRecord] = []
+        offset = 2
+        end_offset = 2 + byte_count
+
+        while offset < end_offset:
+            try:
+                reference_type, file_number, record_number, record_length = SUB_REQUEST_STRUCT.unpack_from(
+                    request, offset
+                )
+            except struct.error as e:
+                msg = "Failed to unpack file record header"
+                raise InvalidRequestError(msg, request_bytes=request) from e
+
+            if reference_type != FILE_RECORD_REFERENCE_TYPE:
+                msg = (
+                    f"Invalid reference type: expected {FILE_RECORD_REFERENCE_TYPE:#04x}, "
+                    f"received {reference_type:#04x}"
+                )
+                raise InvalidRequestError(msg, request_bytes=request)
+
+            data_start = offset + SUB_REQUEST_STRUCT.size
+            data_end = data_start + record_length * 2
+
+            if data_end > len(request):
+                msg = "Not enough data for the specified record length"
+                raise InvalidRequestError(msg, request_bytes=request)
+
+            record_data = request[data_start:data_end]
+            records.append(FileRecord(file_number, record_number, record_data))
+            offset = data_end
+
+        try:
+            return cls(records)
+        except ValueError as e:
+            raise InvalidRequestError(str(e), request_bytes=request) from e

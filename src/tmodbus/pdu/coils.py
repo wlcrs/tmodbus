@@ -110,7 +110,10 @@ class ReadCoilsPDU(BasePDU[list[bool]]):
             msg = f"Invalid function code: expected {cls.function_code:#04x}, received {function_code:#04x}"
             raise InvalidRequestError(msg, request_bytes=request)
 
-        return cls(address, quantity)
+        try:
+            return cls(address, quantity)
+        except ValueError as e:
+            raise InvalidRequestError(str(e), request_bytes=request) from e
 
     def encode_response(self, value: list[bool]) -> bytes:
         """Convert PDU to bytes.
@@ -160,6 +163,9 @@ class WriteSingleCoilPDU(BasePDU[bool]):
 
         """
         super().__init__()
+        if not (0 <= address < 65536):
+            msg = "Address must be between 0 and 65535."
+            raise ValueError(msg)
         self.address = address
         self.value = value
 
@@ -213,7 +219,10 @@ class WriteSingleCoilPDU(BasePDU[bool]):
             msg = f"Invalid coil value: {coil_value:#06x}"
             raise InvalidRequestError(msg, request_bytes=request)
 
-        return cls(address, coil_value == 0xFF00)
+        try:
+            return cls(address, coil_value == 0xFF00)
+        except ValueError as e:
+            raise InvalidRequestError(str(e), request_bytes=request) from e
 
     def encode_response(self, value: bool) -> bytes:  # noqa: FBT001
         """Encode the response PDU.
@@ -349,7 +358,10 @@ class WriteMultipleCoilsPDU(BasePDU[int]):
         for byte in data:
             values += _BIT_TABLE[byte]
 
-        return cls(start_address, values[:quantity])
+        try:
+            return cls(start_address, values[:quantity])
+        except ValueError as e:
+            raise InvalidRequestError(str(e), request_bytes=request) from e
 
     def encode_response(self, value: int) -> bytes:
         """Encode the response PDU.
