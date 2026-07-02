@@ -40,7 +40,7 @@ Changelog = "https://github.com/wlcrs/tmodbus/releases"
 [project.optional-dependencies]
 
 async-serial = ["serialx"]
-smart = ["tenacity>=9.1.4"]
+smart = ["tenacity>=8.2.0,!=8.4.0"]
 
 [build-system]
 requires = ["hatchling", "hatch-vcs"]

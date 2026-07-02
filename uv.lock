@@ -1075,7 +1075,7 @@ test = [
 [package.metadata]
 requires-dist = [
     { name = "serialx", marker = "extra == 'async-serial'" },
-    { name = "tenacity", marker = "extra == 'smart'", specifier = ">=9.1.4" },
+    { name = "tenacity", marker = "extra == 'smart'", specifier = ">=8.2.0,!=8.4.0" },
 ]
 provides-extras = ["async-serial", "smart"]
 
