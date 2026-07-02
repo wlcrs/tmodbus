@@ -86,41 +86,55 @@ class TestReadFileRecordPDU:
         assert encoded[1] == 21  # byte count
 
     def test_validation_file_number_invalid(self) -> None:
-        """Test that invalid file numbers raise InvalidRequestError."""
-        with pytest.raises(InvalidRequestError, match="File number must be between 0 and 65535"):
+        """Test that invalid file numbers raise ValueError."""
+        with pytest.raises(ValueError, match="File number must be between 0 and 65535"):
             ReadFileRecordPDU([FileRecordRequest(file_number=-1, record_number=0, record_length=1)])
 
-        with pytest.raises(InvalidRequestError, match="File number must be between 0 and 65535"):
+        with pytest.raises(ValueError, match="File number must be between 0 and 65535"):
             ReadFileRecordPDU([FileRecordRequest(file_number=0x10000, record_number=0, record_length=1)])
 
     def test_validation_record_number_invalid(self) -> None:
-        """Test that invalid record numbers raise InvalidRequestError."""
-        with pytest.raises(InvalidRequestError, match="Record number must be between 0 and 9999"):
+        """Test that invalid record numbers raise ValueError."""
+        with pytest.raises(ValueError, match="Record number must be between 0 and 9999"):
             ReadFileRecordPDU([FileRecordRequest(file_number=0, record_number=-1, record_length=1)])
 
-        with pytest.raises(InvalidRequestError, match="Record number must be between 0 and 9999"):
+        with pytest.raises(ValueError, match="Record number must be between 0 and 9999"):
             ReadFileRecordPDU([FileRecordRequest(file_number=0, record_number=10000, record_length=1)])
 
     def test_validation_record_length_invalid(self) -> None:
-        """Test that invalid record lengths raise InvalidRequestError."""
-        with pytest.raises(InvalidRequestError, match="Record length must be between 1 and 65535"):
+        """Test that invalid record lengths raise ValueError."""
+        with pytest.raises(ValueError, match="Record length must be between 1 and 65535"):
             ReadFileRecordPDU([FileRecordRequest(file_number=0, record_number=0, record_length=0)])
 
-        with pytest.raises(InvalidRequestError, match="Record length must be between 1 and 65535"):
+        with pytest.raises(ValueError, match="Record length must be between 1 and 65535"):
             ReadFileRecordPDU([FileRecordRequest(file_number=0, record_number=0, record_length=0x10000)])
 
     def test_validation_empty_requests(self) -> None:
         """An empty request list is rejected."""
-        with pytest.raises(InvalidRequestError, match="At least one file record request"):
+        with pytest.raises(ValueError, match="At least one file record request"):
             ReadFileRecordPDU([])
 
     def test_validation_too_many_requests(self) -> None:
         """More sub-requests than fit in the one-byte byte count are rejected."""
         # 36 requests is 252 bytes, over the 0xF5 (245) maximum; 35 is the limit.
         requests = [FileRecordRequest(file_number=0, record_number=0, record_length=1)] * 36
-        with pytest.raises(InvalidRequestError, match="exceeds the maximum"):
+        with pytest.raises(ValueError, match="exceeds the maximum"):
             ReadFileRecordPDU(requests)
         ReadFileRecordPDU(requests[:35])  # the maximum is accepted
+
+    def test_decode_request_invalid_record_number(self) -> None:
+        """A malformed request is rejected with InvalidRequestError, even when constructor validation fails."""
+        # Server-side request: record_number=10000 is outside the allowed range.
+        request = b"\x14\x07\x06\x00\x04\x27\x10\x00\x02"
+        with pytest.raises(InvalidRequestError, match="Record number must be between 0 and 9999"):
+            ReadFileRecordPDU.decode_request(request)
+
+    def test_decode_request_invalid_record_length(self) -> None:
+        """A malformed request is rejected with InvalidRequestError, even when constructor validation fails."""
+        # Server-side request: record_length=0 is invalid for Read File Record.
+        request = b"\x14\x07\x06\x00\x04\x00\x01\x00\x00"
+        with pytest.raises(InvalidRequestError, match="Record length must be between 1 and 65535"):
+            ReadFileRecordPDU.decode_request(request)
 
     def test_decode_response_valid_single_record(self) -> None:
         """Test decoding a valid response with a single record."""
@@ -396,36 +410,36 @@ class TestWriteFileRecordPDU:
             pdu.encode_request()
 
     def test_validation_file_number_invalid(self) -> None:
-        """Test that invalid file numbers raise InvalidRequestError."""
-        with pytest.raises(InvalidRequestError, match="File number must be between 0 and 65535"):
+        """Test that invalid file numbers raise ValueError."""
+        with pytest.raises(ValueError, match="File number must be between 0 and 65535"):
             WriteFileRecordPDU(file_records=[FileRecord(file_number=-1, record_number=0, data=b"\x00\x01")])
 
-        with pytest.raises(InvalidRequestError, match="File number must be between 0 and 65535"):
+        with pytest.raises(ValueError, match="File number must be between 0 and 65535"):
             WriteFileRecordPDU(file_records=[FileRecord(file_number=0x10000, record_number=0, data=b"\x00\x01")])
 
     def test_validation_record_number_invalid(self) -> None:
-        """Test that invalid record numbers raise InvalidRequestError."""
-        with pytest.raises(InvalidRequestError, match="Record number must be between 0 and 9999"):
+        """Test that invalid record numbers raise ValueError."""
+        with pytest.raises(ValueError, match="Record number must be between 0 and 9999"):
             WriteFileRecordPDU(file_records=[FileRecord(file_number=0, record_number=-1, data=b"\x00\x01")])
 
-        with pytest.raises(InvalidRequestError, match="Record number must be between 0 and 9999"):
+        with pytest.raises(ValueError, match="Record number must be between 0 and 9999"):
             WriteFileRecordPDU(file_records=[FileRecord(file_number=0, record_number=10000, data=b"\x00\x01")])
 
     def test_validation_data_length_invalid(self) -> None:
-        """Test that invalid data lengths raise InvalidRequestError."""
+        """Test that invalid data lengths raise ValueError."""
         # Data length must not exceed 65535 bytes
-        with pytest.raises(InvalidRequestError, match="Record data length must be between 0 and 65535 bytes"):
+        with pytest.raises(ValueError, match="Record data length must be between 0 and 65535 bytes"):
             WriteFileRecordPDU(file_records=[FileRecord(file_number=0, record_number=0, data=b"\x00" * 65536)])
 
     def test_validation_empty_records(self) -> None:
         """An empty record list is rejected."""
-        with pytest.raises(InvalidRequestError, match="At least one file record"):
+        with pytest.raises(ValueError, match="At least one file record"):
             WriteFileRecordPDU(file_records=[])
 
     def test_validation_byte_count_too_large(self) -> None:
         """A record whose total byte count exceeds the one-byte field is rejected."""
         # 7-byte header + 246 data bytes = 253, over the 0xFB (251) maximum.
-        with pytest.raises(InvalidRequestError, match="exceeds the maximum"):
+        with pytest.raises(ValueError, match="exceeds the maximum"):
             WriteFileRecordPDU(file_records=[FileRecord(file_number=0, record_number=0, data=b"\x00" * 246)])
         # 244 data bytes (7 + 244 = 251) is the limit and is accepted.
         WriteFileRecordPDU(file_records=[FileRecord(file_number=0, record_number=0, data=b"\x00" * 244)])
@@ -562,3 +576,45 @@ class TestWriteFileRecordPDU:
         assert pdu.file_records[0].file_number == 4
         assert pdu.file_records[0].record_number == 7
         assert pdu.file_records[0].data == b"\x06\xaf\x04\xbe"
+
+    def test_decode_request_invalid_record_number(self) -> None:
+        """A server-side request with an out-of-range record number raises InvalidRequestError."""
+        # record_number=10000 is outside the allowed range and should be rejected on decode.
+        request = b"\x15\x0b\x06\x00\x04\x27\x10\x00\x02\x06\xaf\x04\xbe"
+        with pytest.raises(InvalidRequestError, match="Record number must be between 0 and 9999"):
+            WriteFileRecordPDU.decode_request(request)
+
+    def test_decode_request_too_short(self) -> None:
+        """A truncated server-side request raises InvalidRequestError."""
+        with pytest.raises(InvalidRequestError, match="Expected request to start with function code and byte count"):
+            WriteFileRecordPDU.decode_request(b"\x15")
+
+    def test_decode_request_invalid_function_code(self) -> None:
+        """A server-side request with the wrong function code raises InvalidRequestError."""
+        request = b"\x14\x0b\x06\x00\x04\x00\x07\x00\x02\x06\xaf\x04\xbe"
+        with pytest.raises(InvalidRequestError, match="Invalid function code"):
+            WriteFileRecordPDU.decode_request(request)
+
+    def test_decode_request_invalid_byte_count(self) -> None:
+        """A server-side request with a mismatched byte count raises InvalidRequestError."""
+        request = b"\x15\x0c\x06\x00\x04\x00\x07\x00\x02\x06\xaf\x04\xbe"
+        with pytest.raises(InvalidRequestError, match="Request length"):
+            WriteFileRecordPDU.decode_request(request)
+
+    def test_decode_request_truncated_subrequest_header(self) -> None:
+        """A truncated sub-request header raises InvalidRequestError."""
+        request = b"\x15\x01\x06"
+        with pytest.raises(InvalidRequestError, match="Failed to unpack file record header"):
+            WriteFileRecordPDU.decode_request(request)
+
+    def test_decode_request_invalid_reference_type(self) -> None:
+        """A wrong reference type in a server-side request raises InvalidRequestError."""
+        request = b"\x15\x0b\x07\x00\x04\x00\x07\x00\x02\x06\xaf\x04\xbe"
+        with pytest.raises(InvalidRequestError, match="Invalid reference type"):
+            WriteFileRecordPDU.decode_request(request)
+
+    def test_decode_request_not_enough_data(self) -> None:
+        """A server-side request with a truncated record payload raises InvalidRequestError."""
+        request = b"\x15\x09\x06\x00\x04\x00\x07\x00\x02\x06\xaf"
+        with pytest.raises(InvalidRequestError, match="Not enough data for the specified record length"):
+            WriteFileRecordPDU.decode_request(request)

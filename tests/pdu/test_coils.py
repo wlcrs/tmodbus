@@ -107,6 +107,12 @@ class TestReadCoilsPDU:
         with pytest.raises(InvalidRequestError, match=r"Invalid function code: expected 0x01, received 0x02"):
             ReadCoilsPDU.decode_request(request)
 
+    def test_decode_request_invalid_quantity(self) -> None:
+        """A server-side request with an invalid quantity raises InvalidRequestError."""
+        request = struct.pack(">BHH", 0x01, 100, 0)
+        with pytest.raises(InvalidRequestError, match=r"Quantity must be between 1 and 2000\."):
+            ReadCoilsPDU.decode_request(request)
+
     def test_encode_response_single_byte(self) -> None:
         """Test encoding response with single byte of coils."""
         pdu = ReadCoilsPDU(start_address=0, quantity=5)
@@ -134,6 +140,24 @@ class TestReadCoilsPDU:
 
 class TestWriteSingleCoilPDU:
     """Test class for WriteSingleCoilPDU decode_request and encode_response methods."""
+
+    def test_write_single_coil_address_validation(self) -> None:
+        """Client-side validation raises ValueError for an invalid coil address."""
+        with pytest.raises(ValueError, match=r"Address must be between 0 and 65535\."):
+            WriteSingleCoilPDU(address=-1, value=True)
+
+    def test_decode_request_value_error_is_converted(self, monkeypatch: pytest.MonkeyPatch) -> None:
+        """A constructor ValueError is converted to InvalidRequestError for server-side decoding."""
+
+        def fake_init(_self: WriteSingleCoilPDU, _address: int, _value: bool) -> None:  # noqa: FBT001
+            msg = "boom"
+            raise ValueError(msg)
+
+        monkeypatch.setattr(WriteSingleCoilPDU, "__init__", fake_init)
+
+        request = struct.pack(">BHH", 0x05, 100, 0xFF00)
+        with pytest.raises(InvalidRequestError, match="boom"):
+            WriteSingleCoilPDU.decode_request(request)
 
     def test_write_single_coil_pdu(self) -> None:
         """Test Write Single Coil PDU."""
@@ -314,6 +338,19 @@ class TestWriteMultipleCoilsPDU:
         """Test decode_request with invalid byte count."""
         request = struct.pack(">BHHB", 0x0F, 100, 5, 2) + b"\x15\x00"  # Wrong byte count
         with pytest.raises(InvalidRequestError, match=r"Invalid byte count: expected 1, got 2"):
+            WriteMultipleCoilsPDU.decode_request(request)
+
+    def test_decode_request_value_error_is_converted(self, monkeypatch: pytest.MonkeyPatch) -> None:
+        """A constructor ValueError is converted to InvalidRequestError for server-side decoding."""
+
+        def fake_init(_self: WriteMultipleCoilsPDU, _start_address: int, _values: list[bool]) -> None:
+            msg = "boom"
+            raise ValueError(msg)
+
+        monkeypatch.setattr(WriteMultipleCoilsPDU, "__init__", fake_init)
+
+        request = struct.pack(">BHHB", 0x0F, 100, 1, 1) + b"\x01"
+        with pytest.raises(InvalidRequestError, match="boom"):
             WriteMultipleCoilsPDU.decode_request(request)
 
     def test_encode_response(self) -> None:

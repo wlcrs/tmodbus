@@ -73,6 +73,19 @@ class TestReadHoldingRegistersPDU:
         with pytest.raises(InvalidRequestError, match=r"Invalid function code"):
             ReadHoldingRegistersPDU.decode_request(request)
 
+    def test_decode_request_value_error_is_converted(self, monkeypatch: pytest.MonkeyPatch) -> None:
+        """A constructor ValueError is converted to InvalidRequestError for server-side decoding."""
+
+        def fake_init(_self: ReadHoldingRegistersPDU, _start_address: int, _quantity: int) -> None:
+            msg = "boom"
+            raise ValueError(msg)
+
+        monkeypatch.setattr(ReadHoldingRegistersPDU, "__init__", fake_init)
+
+        request = b"\x03\x12\x34\x00\x0a"
+        with pytest.raises(InvalidRequestError, match="boom"):
+            ReadHoldingRegistersPDU.decode_request(request)
+
 
 # ============================================================================
 # RawReadHoldingRegistersPDU Tests
@@ -172,6 +185,25 @@ class TestRawReadHoldingRegistersPDU:
         ):
             RawReadHoldingRegistersPDU.decode_request(request)
 
+    def test_decode_request_invalid_quantity(self) -> None:
+        """A server-side request with an invalid quantity raises InvalidRequestError."""
+        request = b"\x03\x12\x34\x00\x00"
+        with pytest.raises(InvalidRequestError, match="Quantity must be between 1 and 125"):
+            RawReadHoldingRegistersPDU.decode_request(request)
+
+    def test_decode_request_value_error_is_converted(self, monkeypatch: pytest.MonkeyPatch) -> None:
+        """A constructor ValueError is converted to InvalidRequestError for server-side decoding."""
+
+        def fake_init(_self: RawReadHoldingRegistersPDU, _start_address: int, _quantity: int) -> None:
+            msg = "boom"
+            raise ValueError(msg)
+
+        monkeypatch.setattr(RawReadHoldingRegistersPDU, "__init__", fake_init)
+
+        request = b"\x03\x12\x34\x00\x0a"
+        with pytest.raises(InvalidRequestError, match="boom"):
+            RawReadHoldingRegistersPDU.decode_request(request)
+
     def test_encode_response(self) -> None:
         """Test encoding response."""
         pdu = RawReadHoldingRegistersPDU(start_address=100, quantity=3)
@@ -206,6 +238,12 @@ class TestRawReadInputRegistersPDU:
         assert pdu.start_address == 0x1234
         assert pdu.quantity == 10
 
+    def test_decode_request_invalid_quantity(self) -> None:
+        """A server-side request with an invalid quantity raises InvalidRequestError."""
+        request = b"\x04\x12\x34\x00\x00"
+        with pytest.raises(InvalidRequestError, match="Quantity must be between 1 and 125"):
+            RawReadInputRegistersPDU.decode_request(request)
+
 
 # ============================================================================
 # ReadInputRegistersPDU Tests
@@ -239,6 +277,12 @@ class TestReadInputRegistersPDU:
         pdu = ReadInputRegistersPDU.decode_request(request)
         assert pdu.raw_pdu.start_address == 0x1234
         assert pdu.raw_pdu.quantity == 10
+
+    def test_decode_request_invalid_quantity(self) -> None:
+        """A server-side request with an invalid quantity raises InvalidRequestError."""
+        request = b"\x04\x12\x34\x00\x00"
+        with pytest.raises(InvalidRequestError, match="Quantity must be between 1 and 125"):
+            ReadInputRegistersPDU.decode_request(request)
 
     def test_encode_response(self) -> None:
         """Test encoding response."""
@@ -280,6 +324,19 @@ class TestWriteSingleRegisterPDU:
         """Test decoding request with invalid function code."""
         request = b"\x03\x12\x34\x56\x78"
         with pytest.raises(InvalidRequestError, match="Invalid function code"):
+            WriteSingleRegisterPDU.decode_request(request)
+
+    def test_decode_request_value_error_is_converted(self, monkeypatch: pytest.MonkeyPatch) -> None:
+        """A constructor ValueError is converted to InvalidRequestError for server-side decoding."""
+
+        def fake_init(_self: WriteSingleRegisterPDU, _address: int, _value: int) -> None:
+            msg = "boom"
+            raise ValueError(msg)
+
+        monkeypatch.setattr(WriteSingleRegisterPDU, "__init__", fake_init)
+
+        request = b"\x06\x12\x34\x56\x78"
+        with pytest.raises(InvalidRequestError, match="boom"):
             WriteSingleRegisterPDU.decode_request(request)
 
     def test_decode_request_too_short(self) -> None:
@@ -423,6 +480,19 @@ class TestRawWriteMultipleRegistersPDU:
         with pytest.raises(InvalidRequestError, match="Invalid data length"):
             RawWriteMultipleRegistersPDU.decode_request(request)
 
+    def test_decode_request_value_error_is_converted(self, monkeypatch: pytest.MonkeyPatch) -> None:
+        """A constructor ValueError is converted to InvalidRequestError for server-side decoding."""
+
+        def fake_init(_self: RawWriteMultipleRegistersPDU, _start_address: int, _content: bytes) -> None:
+            msg = "boom"
+            raise ValueError(msg)
+
+        monkeypatch.setattr(RawWriteMultipleRegistersPDU, "__init__", fake_init)
+
+        request = b"\x10\x10\x00\x00\x02\x04\x12\x34\x56\x78"
+        with pytest.raises(InvalidRequestError, match="boom"):
+            RawWriteMultipleRegistersPDU.decode_request(request)
+
     def test_encode_response(self) -> None:
         """Test encoding response."""
         content = b"\x12\x34\x56\x78"
@@ -514,6 +584,31 @@ class TestWriteMultipleRegistersPDU:
         pdu = WriteMultipleRegistersPDU.decode_request(request)
         assert pdu.raw_pdu.start_address == 0x1000
         assert pdu.values == [0x1234, 0x5678]
+
+    def test_decode_request_value_error_is_converted(self, monkeypatch: pytest.MonkeyPatch) -> None:
+        """A constructor ValueError is converted to InvalidRequestError for server-side decoding."""
+
+        def fake_raw_decode_request(
+            _cls: type[RawWriteMultipleRegistersPDU], _request: bytes
+        ) -> RawWriteMultipleRegistersPDU:
+            return RawWriteMultipleRegistersPDU(start_address=0x1000, content=b"\x12\x34")
+
+        def fake_init(_self: WriteMultipleRegistersPDU, _start_address: int, _values: list[int]) -> None:
+            msg = "boom"
+            raise ValueError(msg)
+
+        monkeypatch.setattr(RawWriteMultipleRegistersPDU, "decode_request", classmethod(fake_raw_decode_request))
+        monkeypatch.setattr(WriteMultipleRegistersPDU, "__init__", fake_init)
+
+        request = b"\x10\x10\x00\x00\x01\x02\x12\x34"
+        with pytest.raises(InvalidRequestError, match="boom"):
+            WriteMultipleRegistersPDU.decode_request(request)
+
+    def test_decode_request_invalid_quantity(self) -> None:
+        """A server-side request with an invalid quantity raises InvalidRequestError."""
+        request = b"\x10\x10\x00\x00\x00\x00"
+        with pytest.raises(InvalidRequestError, match="Content must not be empty"):
+            WriteMultipleRegistersPDU.decode_request(request)
 
     def test_encode_response(self) -> None:
         """Test encoding response."""
@@ -674,6 +769,19 @@ class TestMaskWriteRegisterPDU:
         with pytest.raises(
             InvalidRequestError, match=r"Expected request to start with function code, address, AND mask, and OR mask"
         ):
+            MaskWriteRegisterPDU.decode_request(request)
+
+    def test_decode_request_value_error_is_converted(self, monkeypatch: pytest.MonkeyPatch) -> None:
+        """A constructor ValueError is converted to InvalidRequestError for server-side decoding."""
+
+        def fake_init(_self: MaskWriteRegisterPDU, _address: int, _and_mask: int, _or_mask: int) -> None:
+            msg = "boom"
+            raise ValueError(msg)
+
+        monkeypatch.setattr(MaskWriteRegisterPDU, "__init__", fake_init)
+
+        request = b"\x16\x00\x04\xf2\xf2\x25\x25"
+        with pytest.raises(InvalidRequestError, match="boom"):
             MaskWriteRegisterPDU.decode_request(request)
 
     def test_encode_response(self) -> None:
@@ -893,6 +1001,12 @@ class TestReadWriteMultipleRegistersPDU:
         assert pdu.read_quantity == 1
         assert pdu.write_start_address == 0
         assert pdu.write_values == [0x1234]
+
+    def test_decode_request_invalid_empty_write_values(self) -> None:
+        """A server-side request with zero write registers raises InvalidRequestError."""
+        request = b"\x17\x00\x10\x00\x01\x00\x20\x00\x00\x00"
+        with pytest.raises(InvalidRequestError, match="Number of registers to write must be between 1 and 121"):
+            ReadWriteMultipleRegistersPDU.decode_request(request)
 
     def test_decode_request_too_short(self) -> None:
         """Test decode_request raises on request too short."""
