@@ -33,6 +33,7 @@ def create_async_tcp_client(  # noqa: PLR0913
     wait_after_connect: float = 0.0,
     auto_reconnect: "bool | AsyncRetrying" = True,
     on_reconnected: Callable[[], Awaitable[None] | None] | None = None,
+    on_connection_lost: Callable[[Exception | None], None] | None = None,
     response_retry_strategy: "AsyncRetrying | None" = None,
     retry_on_device_busy: bool = True,
     retry_on_device_failure: bool = False,
@@ -51,6 +52,8 @@ def create_async_tcp_client(  # noqa: PLR0913
         auto_reconnect: Whether to automatically reconnect on connection loss (default: True).
                         Can be a custom AsyncRetrying instance when more control is needed.
         on_reconnected: Callback to be called after a successful reconnection.
+        on_connection_lost: Callback invoked the moment the connection is lost, receiving the causing
+                            exception (or None on a clean close). Fires even when auto_reconnect is disabled.
         response_retry_strategy: Retry strategy for handling failed requests (default: None).
         retry_on_device_busy: Whether to retry on device busy errors (default: True).
                               Can be a custom AsyncRetrying instance when more control is needed.
@@ -74,6 +77,7 @@ def create_async_tcp_client(  # noqa: PLR0913
         wait_after_connect=wait_after_connect,
         auto_reconnect=auto_reconnect,
         on_reconnected=on_reconnected,
+        on_connection_lost=on_connection_lost,
         response_retry_strategy=response_retry_strategy,
         retry_on_device_busy=retry_on_device_busy,
         retry_on_device_failure=retry_on_device_failure,
@@ -89,6 +93,7 @@ def create_async_rtu_client(  # noqa: PLR0913
     wait_after_connect: float = 0.0,
     auto_reconnect: "bool | AsyncRetrying" = True,
     on_reconnected: Callable[[], Awaitable[None] | None] | None = None,
+    on_connection_lost: Callable[[Exception | None], None] | None = None,
     response_retry_strategy: "AsyncRetrying | None" = None,
     retry_on_device_busy: bool = True,
     retry_on_device_failure: bool = False,
@@ -106,6 +111,8 @@ def create_async_rtu_client(  # noqa: PLR0913
         auto_reconnect: Whether to automatically reconnect on connection loss (default: True).
                         Can be a custom AsyncRetrying instance when more control is needed.
         on_reconnected: Callback to be called after a successful reconnection.
+        on_connection_lost: Callback invoked the moment the connection is lost, receiving the causing
+                            exception (or None on a clean close). Fires even when auto_reconnect is disabled.
         response_retry_strategy: Retry strategy for handling failed requests (default: None).
         retry_on_device_busy: Whether to retry on device busy errors (default: True).
                               Can be a custom AsyncRetrying instance when more control is needed.
@@ -126,6 +133,7 @@ def create_async_rtu_client(  # noqa: PLR0913
         wait_after_connect=wait_after_connect,
         auto_reconnect=auto_reconnect,
         on_reconnected=on_reconnected,
+        on_connection_lost=on_connection_lost,
         response_retry_strategy=response_retry_strategy,
         retry_on_device_busy=retry_on_device_busy,
         retry_on_device_failure=retry_on_device_failure,
@@ -141,6 +149,7 @@ def create_async_ascii_client(  # noqa: PLR0913
     wait_after_connect: float = 0.0,
     auto_reconnect: "bool | AsyncRetrying" = True,
     on_reconnected: Callable[[], Awaitable[None] | None] | None = None,
+    on_connection_lost: Callable[[Exception | None], None] | None = None,
     response_retry_strategy: "AsyncRetrying | None" = None,
     retry_on_device_busy: bool = True,
     retry_on_device_failure: bool = False,
@@ -158,6 +167,8 @@ def create_async_ascii_client(  # noqa: PLR0913
         auto_reconnect: Whether to automatically reconnect on connection loss (default: True).
                         Can be a custom AsyncRetrying instance when more control is needed.
         on_reconnected: Callback to be called after a successful reconnection.
+        on_connection_lost: Callback invoked the moment the connection is lost, receiving the causing
+                            exception (or None on a clean close). Fires even when auto_reconnect is disabled.
         response_retry_strategy: Retry strategy for handling failed requests (default: None).
         retry_on_device_busy: Whether to retry on device busy errors (default: True).
                               Can be a custom AsyncRetrying instance when more control is needed.
@@ -178,6 +189,7 @@ def create_async_ascii_client(  # noqa: PLR0913
         wait_after_connect=wait_after_connect,
         auto_reconnect=auto_reconnect,
         on_reconnected=on_reconnected,
+        on_connection_lost=on_connection_lost,
         response_retry_strategy=response_retry_strategy,
         retry_on_device_busy=retry_on_device_busy,
         retry_on_device_failure=retry_on_device_failure,
@@ -196,6 +208,7 @@ def create_async_rtu_over_tcp_client(  # noqa: PLR0913
     wait_after_connect: float = 0.0,
     auto_reconnect: "bool | AsyncRetrying" = True,
     on_reconnected: Callable[[], Awaitable[None] | None] | None = None,
+    on_connection_lost: Callable[[Exception | None], None] | None = None,
     response_retry_strategy: "AsyncRetrying | None" = None,
     retry_on_device_busy: bool = True,
     retry_on_device_failure: bool = False,
@@ -214,6 +227,8 @@ def create_async_rtu_over_tcp_client(  # noqa: PLR0913
         auto_reconnect: Whether to automatically reconnect on connection loss (default: True).
                         Can be a custom AsyncRetrying instance when more control is needed.
         on_reconnected: Callback to be called after a successful reconnection.
+        on_connection_lost: Callback invoked the moment the connection is lost, receiving the causing
+                            exception (or None on a clean close). Fires even when auto_reconnect is disabled.
         response_retry_strategy: Retry strategy for handling failed requests (default: None).
         retry_on_device_busy: Whether to retry on device busy errors (default: True).
                               Can be a custom AsyncRetrying instance when more control is needed.
@@ -237,6 +252,7 @@ def create_async_rtu_over_tcp_client(  # noqa: PLR0913
         wait_after_connect=wait_after_connect,
         auto_reconnect=auto_reconnect,
         on_reconnected=on_reconnected,
+        on_connection_lost=on_connection_lost,
         response_retry_strategy=response_retry_strategy,
         retry_on_device_busy=retry_on_device_busy,
         retry_on_device_failure=retry_on_device_failure,
