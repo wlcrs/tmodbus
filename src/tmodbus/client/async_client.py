@@ -9,14 +9,18 @@ from typing import Literal, Self, TypeVar
 
 from tmodbus.pdu import (
     BaseClientPDU,
+    FileRecord,
+    FileRecordRequest,
     MaskWriteRegisterPDU,
     ReadCoilsPDU,
     ReadDeviceIdentificationPDU,
     ReadDiscreteInputsPDU,
     ReadExceptionStatusPDU,
+    ReadFileRecordPDU,
     ReadHoldingRegistersPDU,
     ReadInputRegistersPDU,
     ReadWriteMultipleRegistersPDU,
+    WriteFileRecordPDU,
     WriteMultipleCoilsPDU,
     WriteMultipleRegistersPDU,
     WriteSingleCoilPDU,
@@ -319,6 +323,48 @@ class AsyncModbusClient(HoldingRegisterReadMixin, HoldingRegisterWriteMixin):
 
         """
         return await self.execute(ReportServerIdPDU())
+
+    async def read_file_record(
+        self,
+        requests: list[FileRecordRequest],
+    ) -> list[bytes]:
+        """Read File Record (Function Code 0x14).
+
+        Args:
+            requests: List of file record requests to read.
+
+        Returns:
+            List of raw record payloads in the same order as the input requests.
+
+        Example:
+            >>> from tmodbus.pdu import FileRecordRequest
+            >>> payloads = await client.read_file_record([
+            ...     FileRecordRequest(file_number=4, record_number=0, record_length=2),
+            ... ])
+
+        """
+        return await self.execute(ReadFileRecordPDU(requests=requests))
+
+    async def write_file_record(
+        self,
+        file_records: list[FileRecord],
+    ) -> list[FileRecord]:
+        r"""Write File Record (Function Code 0x15).
+
+        Args:
+            file_records: List of file records to write.
+
+        Returns:
+            Echoed file records from the server.
+
+        Example:
+            >>> from tmodbus.pdu import FileRecord
+            >>> written = await client.write_file_record([
+            ...     FileRecord(file_number=4, record_number=0, data=b"\x12\x34"),
+            ... ])
+
+        """
+        return await self.execute(WriteFileRecordPDU(file_records=file_records))
 
     async def mask_write_register(
         self,

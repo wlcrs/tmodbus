@@ -5,7 +5,14 @@ from unittest.mock import MagicMock
 
 import pytest
 from tmodbus.client.async_client import AsyncModbusClient
-from tmodbus.pdu import BasePDU, ReadCoilsPDU, ReadDeviceIdentificationPDU, ReadDeviceIdentificationResponse
+from tmodbus.pdu import (
+    BasePDU,
+    FileRecord,
+    FileRecordRequest,
+    ReadCoilsPDU,
+    ReadDeviceIdentificationPDU,
+    ReadDeviceIdentificationResponse,
+)
 from tmodbus.pdu.device import ConformityLevel
 from tmodbus.transport.async_base import AsyncBaseTransport
 
@@ -500,3 +507,29 @@ async def test_read_exception_status(dummy_client: AsyncModbusClient) -> None:
 
     # Verify that send_and_receive was called with the correct PDU type
     assert ["send_and_receive", 1, "ReadExceptionStatusPDU"] in dummy_client.transport.performed_actions
+
+
+async def test_read_file_record(dummy_client: AsyncModbusClient) -> None:
+    """Test read_file_record method."""
+    assert isinstance(dummy_client.transport, DummyAsyncTransport)
+
+    requests = [
+        FileRecordRequest(file_number=1, record_number=0, record_length=2),
+        FileRecordRequest(file_number=2, record_number=1, record_length=4),
+    ]
+    result = await dummy_client.read_file_record(requests)
+    assert result == DUMMY_RESPONSE
+    assert ["send_and_receive", 1, "ReadFileRecordPDU"] in dummy_client.transport.performed_actions
+
+
+async def test_write_file_record(dummy_client: AsyncModbusClient) -> None:
+    """Test write_file_record method."""
+    assert isinstance(dummy_client.transport, DummyAsyncTransport)
+
+    file_records = [
+        FileRecord(file_number=1, record_number=0, data=b"\x12\x34"),
+        FileRecord(file_number=2, record_number=1, data=b"\xab\xcd\xef\x01"),
+    ]
+    result = await dummy_client.write_file_record(file_records)
+    assert result == DUMMY_RESPONSE
+    assert ["send_and_receive", 1, "WriteFileRecordPDU"] in dummy_client.transport.performed_actions
