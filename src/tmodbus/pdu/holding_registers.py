@@ -351,7 +351,8 @@ class RawWriteMultipleRegistersPDU(BasePDU[int]):
             raise ValueError(msg)
 
         if len(content) % 2 != 0:
-            content += b"\x00"  # Pad with zero if odd length
+            msg = "Content length cannot be odd; each register is 2 bytes."
+            raise ValueError(msg)
 
         self.content = content
 
