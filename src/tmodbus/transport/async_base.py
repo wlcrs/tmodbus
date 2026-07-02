@@ -3,13 +3,17 @@
 Defines the unified interface that all transport layer implementations must follow.
 """
 
+import logging
 from abc import ABC, abstractmethod
+from collections.abc import Callable
 from types import TracebackType
 from typing import Self, TypeVar
 
 from tmodbus.pdu import BaseClientPDU
 
 RT = TypeVar("RT")
+
+logger = logging.getLogger(__name__)
 
 
 class AsyncBaseTransport(ABC):
@@ -20,6 +24,29 @@ class AsyncBaseTransport(ABC):
     such as CRC verification and MBAP header processing within the transport layer,
     providing a unified and concise interface for clients.
     """
+
+    #: Optional callback invoked the moment the connection is lost.
+    #:
+    #: It is called with the exception that caused the loss (or ``None`` when the
+    #: connection was closed cleanly, e.g. by the remote host or via :meth:`close`).
+    #: This fires straight from the underlying protocol's ``connection_lost``, so it
+    #: is the earliest possible notification that the socket dropped, independent of
+    #: whether any request is in flight.
+    on_connection_lost: Callable[[Exception | None], None] | None = None
+
+    def _notify_connection_lost(self, exc: Exception | None) -> None:
+        """Invoke the ``on_connection_lost`` callback, swallowing any error it raises.
+
+        A misbehaving user callback must never break the transport teardown that runs
+        inside the event loop's ``connection_lost`` handling.
+        """
+        callback = self.on_connection_lost
+        if callback is None:
+            return
+        try:
+            callback(exc)
+        except Exception:
+            logger.exception("Unhandled error in on_connection_lost callback")
 
     @abstractmethod
     async def open(self) -> None:

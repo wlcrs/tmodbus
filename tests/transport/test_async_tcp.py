@@ -419,6 +419,40 @@ async def test_on_connection_lost_with_error() -> None:
         log.error.assert_called()
 
 
+async def test_on_connection_lost_user_callback_invoked() -> None:
+    """The user-supplied on_connection_lost callback fires with the causing exception."""
+    calls: list[Exception | None] = []
+    t = AsyncTcpTransport("host", port=1234, on_connection_lost=calls.append)
+    t._transport = MagicMock()
+    t._protocol = MagicMock()
+
+    test_error = RuntimeError("boom")
+    t._on_connection_lost(test_error)
+
+    # Callback receives the exception, and it is called after the transport is torn down,
+    # so the transport already reports itself as closed.
+    assert calls == [test_error]
+    assert not t.is_open()
+
+
+async def test_on_connection_lost_user_callback_error_swallowed() -> None:
+    """A raising on_connection_lost callback must not break protocol teardown."""
+
+    def boom(_exc: Exception | None) -> None:
+        msg = "callback failed"
+        raise ValueError(msg)
+
+    t = AsyncTcpTransport("host", port=1234, on_connection_lost=boom)
+    t._transport = MagicMock()
+    t._protocol = MagicMock()
+
+    # Should not raise despite the callback blowing up.
+    t._on_connection_lost(None)
+
+    assert t._transport is None
+    assert t._protocol is None
+
+
 async def test_close_closes_transport() -> None:
     """Test close actually closes the transport."""
     t = AsyncTcpTransport("host", port=1234)
