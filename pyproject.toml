@@ -140,7 +140,7 @@ test = [
 ]
 dev = [
   { include-group = "test" },
-  "codespell==2.4.1",
+  "codespell==2.4.2",
   "docstrfmt>=1.11.1",
   "mypy==1.18.2",
   "pre-commit==4.3.0",
