@@ -60,31 +60,31 @@ class TestReadCoilsPDU:
     def test_read_coils_decode_response(self) -> None:
         """Test decoding of Read Coils PDU."""
         pdu = ReadCoilsPDU(start_address=1, quantity=1)
-        response_bytes = bytearray.fromhex("01 01 01")
+        response_bytes = bytes.fromhex("01 01 01")
         assert pdu.decode_response(response_bytes) == [True]
 
         pdu = ReadCoilsPDU(start_address=2, quantity=3)
-        assert pdu.decode_response(bytearray.fromhex("01 01 04")) == [False, False, True]
-        assert pdu.decode_response(bytearray.fromhex("01 01 05")) == [True, False, True]
+        assert pdu.decode_response(bytes.fromhex("01 01 04")) == [False, False, True]
+        assert pdu.decode_response(bytes.fromhex("01 01 05")) == [True, False, True]
 
     def test_read_coils_invalid_response(self) -> None:
         """Test invalid response handling in Read Coils PDU."""
         pdu = ReadCoilsPDU(start_address=1, quantity=5)
 
         with pytest.raises(InvalidResponseError, match="Expected response to start with function code and byte count"):
-            pdu.decode_response(bytearray.fromhex("FF"))
+            pdu.decode_response(bytes.fromhex("FF"))
 
         # Invalid function code
         with pytest.raises(InvalidResponseError, match="Invalid function code: expected 0x01, received 0x02"):
-            pdu.decode_response(bytearray.fromhex("02 01 05"))
+            pdu.decode_response(bytes.fromhex("02 01 05"))
 
         # Invalid length
         with pytest.raises(InvalidResponseError, match="Invalid response PDU length: expected 10, got 5"):
-            pdu.decode_response(bytearray.fromhex("01 08 02 03 04"))
+            pdu.decode_response(bytes.fromhex("01 08 02 03 04"))
 
         # Invalid byte count
         with pytest.raises(InvalidResponseError, match="Invalid byte count: expected 1, got 8"):
-            pdu.decode_response(bytearray.fromhex("01 08 02 03 04 05 FF FF FF FF"))
+            pdu.decode_response(bytes.fromhex("01 08 02 03 04 05 FF FF FF FF"))
 
     def test_decode_request_valid(self) -> None:
         """Test decoding a valid Read Coils request."""
@@ -162,29 +162,29 @@ class TestWriteSingleCoilPDU:
     def test_write_single_coil_pdu(self) -> None:
         """Test Write Single Coil PDU."""
         pdu = WriteSingleCoilPDU(address=1, value=True)
-        assert pdu.encode_request() == bytearray.fromhex("05 00 01 FF 00")
+        assert pdu.encode_request() == bytes.fromhex("05 00 01 FF 00")
 
         pdu = WriteSingleCoilPDU(address=12345, value=False)
-        assert pdu.encode_request() == bytearray.fromhex("05 30 39 00 00")
+        assert pdu.encode_request() == bytes.fromhex("05 30 39 00 00")
 
     def test_write_single_coil_decode_response(self) -> None:
         """Test decoding of Write Single Coil PDU."""
         pdu = WriteSingleCoilPDU(address=1, value=True)
-        response_bytes = bytearray.fromhex("05 00 01 FF 00")
+        response_bytes = bytes.fromhex("05 00 01 FF 00")
         assert pdu.decode_response(response_bytes) is True
 
         with pytest.raises(InvalidResponseError, match="Expected response to match request"):
-            pdu.decode_response(bytearray.fromhex("06 00 01 FF 00"))
+            pdu.decode_response(bytes.fromhex("06 00 01 FF 00"))
 
         pdu = WriteSingleCoilPDU(address=12345, value=False)
-        response_bytes = bytearray.fromhex("05 30 39 00 00")
+        response_bytes = bytes.fromhex("05 30 39 00 00")
         assert pdu.decode_response(response_bytes) is False
 
         with pytest.raises(InvalidResponseError, match="Expected response to match request"):
-            pdu.decode_response(bytearray.fromhex("06 30 39 00 00"))
+            pdu.decode_response(bytes.fromhex("06 30 39 00 00"))
 
         with pytest.raises(InvalidResponseError, match="Expected response to match request"):
-            pdu.decode_response(bytearray.fromhex("05 30 40 00 00"))
+            pdu.decode_response(bytes.fromhex("05 30 40 00 00"))
 
     def test_decode_request_valid_on(self) -> None:
         """Test decoding a valid Write Single Coil request (ON)."""
@@ -248,18 +248,18 @@ class TestWriteMultipleCoilsPDU:
     @pytest.mark.parametrize(
         ("start_address", "values", "expected_bytes"),
         [
-            (10, [True, False, True], bytearray.fromhex("0F 00 0A 00 03 01 05")),
-            (12345, [False] * 16, bytearray.fromhex("0F 30 39 00 10 02 00 00")),
-            (12345, [True] * 19, bytearray.fromhex("0F 30 39 00 13 03 FF FF 07")),
-            (1, [True] * 5, bytearray.fromhex("0F 00 01 00 05 01 1F")),
-            (1, [True], bytearray.fromhex("0F 00 01 00 01 01 01")),
+            (10, [True, False, True], bytes.fromhex("0F 00 0A 00 03 01 05")),
+            (12345, [False] * 16, bytes.fromhex("0F 30 39 00 10 02 00 00")),
+            (12345, [True] * 19, bytes.fromhex("0F 30 39 00 13 03 FF FF 07")),
+            (1, [True] * 5, bytes.fromhex("0F 00 01 00 05 01 1F")),
+            (1, [True], bytes.fromhex("0F 00 01 00 01 01 01")),
         ],
     )
     def test_write_multiple_coils_encode_request(
         self,
         start_address: int,
         values: list[bool],
-        expected_bytes: bytearray,
+        expected_bytes: bytes,
     ) -> None:
         """Test encoding of Write Multiple Coils PDU."""
         pdu = WriteMultipleCoilsPDU(start_address=start_address, values=values)
@@ -268,14 +268,14 @@ class TestWriteMultipleCoilsPDU:
     @pytest.mark.parametrize(
         ("response", "address", "value_count"),
         [
-            (bytearray.fromhex("0F 00 0A 00 07"), 10, 7),
-            (bytearray.fromhex("0F 30 39 00 10"), 12345, 16),
-            (bytearray.fromhex("0F 30 39 00 13"), 12345, 19),
-            (bytearray.fromhex("0F 00 01 00 05"), 1, 5),
-            (bytearray.fromhex("0F 00 01 00 01"), 1, 1),
+            (bytes.fromhex("0F 00 0A 00 07"), 10, 7),
+            (bytes.fromhex("0F 30 39 00 10"), 12345, 16),
+            (bytes.fromhex("0F 30 39 00 13"), 12345, 19),
+            (bytes.fromhex("0F 00 01 00 05"), 1, 5),
+            (bytes.fromhex("0F 00 01 00 01"), 1, 1),
         ],
     )
-    def test_write_multiple_coils_decode_response(self, response: bytearray, address: int, value_count: int) -> None:
+    def test_write_multiple_coils_decode_response(self, response: bytes, address: int, value_count: int) -> None:
         """Test decoding of Write Multiple Coils PDU."""
         pdu = WriteMultipleCoilsPDU(start_address=address, values=[True] * value_count)
         assert pdu.decode_response(response) == value_count

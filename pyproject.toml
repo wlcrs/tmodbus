@@ -123,6 +123,9 @@ show_missing = true
 fail_under = 100
 
 
+[tool.pylint]
+format.max-line-length=120
+
 [tool.uv]
 prerelease = "if-necessary"
 
@@ -142,7 +145,7 @@ dev = [
   { include-group = "test" },
   "codespell==2.4.2",
   "docstrfmt>=1.11.1",
-  "mypy==1.18.2",
+  "mypy==2.2.0",
   "pre-commit==4.3.0",
   "pre-commit-hooks==6.0.0",
   "ruff==0.15.20",

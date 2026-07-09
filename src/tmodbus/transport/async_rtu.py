@@ -487,7 +487,7 @@ class ModbusRtuProtocol(asyncio.Protocol):
                 msg = f"Cannot frame response with unsupported function code {function_code:#04x}"
                 raise RTUFrameError(msg, response_bytes=bytes(self._buffer)) from e
 
-            expected_response_data_length = pdu_class.get_expected_response_data_length(self._buffer[2:])
+            expected_response_data_length = pdu_class.get_expected_response_data_length(bytes(self._buffer[2:]))
 
             if expected_response_data_length is None:
                 # the PDU class reported that it cannot yet determine the length of this response
