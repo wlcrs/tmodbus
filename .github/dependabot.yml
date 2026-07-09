@@ -1,0 +1,16 @@
+version: 2
+updates:
+  - package-ecosystem: github-actions
+    directory: /
+    schedule:
+      interval: daily
+
+  - package-ecosystem: cargo
+    directory: /integration_tests/rmodbus
+    schedule:
+      interval: daily
+
+  - package-ecosystem: cargo
+    directory: /integration_tests/tokio
+    schedule:
+      interval: daily
