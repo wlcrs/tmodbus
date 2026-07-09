@@ -10,5 +10,5 @@ path = "server.rs"
 
 [dependencies]
 tokio = {version = "1.35.1", default-features = false, features = ["io-util"] }
-tokio-modbus = { version = "0.16.1", features = ["tcp-server", "rtu-server", "rtu-over-tcp-server"] }
+tokio-modbus = { version = "0.17.0", features = ["tcp-server", "rtu-server", "rtu-over-tcp-server"] }
 tokio-serial = { version = "5.4.4", default-features = false }
