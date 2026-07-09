@@ -23,9 +23,9 @@ jobs:
           egress-policy: audit
 
       - name: ⤵️ Check out code from GitHub
-        uses: actions/checkout@v5.0.0
+        uses: actions/checkout@08c6903cd8c0fde910a37f88322edcfb5dd907a8 # v5.0.0
       - name: 🏗 Set up uv
-        uses: astral-sh/setup-uv@v6.8.0
+        uses: astral-sh/setup-uv@d0cc045d04ccac9d8b7881df0226f9e82c39688e # v6.8.0
         with:
           enable-cache: true
           python-version: ${{ matrix.python }}
@@ -34,7 +34,7 @@ jobs:
       - name: 🚀 Run pytest
         run: uv run --no-sync pytest --cov tmodbus tests
       - name: ⬆️ Upload coverage artifact
-        uses: actions/upload-artifact@v4.6.2
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
         with:
           name: coverage-${{ matrix.python }}
           path: .coverage
@@ -51,13 +51,13 @@ jobs:
           egress-policy: audit
 
       - name: ⤵️ Check out code from GitHub
-        uses: actions/checkout@v5.0.0
+        uses: actions/checkout@08c6903cd8c0fde910a37f88322edcfb5dd907a8 # v5.0.0
         with:
           fetch-depth: 0
       - name: ⬇️ Download coverage data
-        uses: actions/download-artifact@v5.0.0
+        uses: actions/download-artifact@634f93cb2916e3fdff6788551b99b062d0335ce0 # v5.0.0
       - name: 🏗 Set up uv
-        uses: astral-sh/setup-uv@v6.8.0
+        uses: astral-sh/setup-uv@d0cc045d04ccac9d8b7881df0226f9e82c39688e # v6.8.0
         with:
           enable-cache: true
           python-version: ${{ env.DEFAULT_PYTHON }}
@@ -68,4 +68,4 @@ jobs:
           uv run --no-sync coverage combine coverage*/.coverage*
           uv run --no-sync coverage xml -i
       - name: 🚀 Upload coverage report
-        uses: codecov/codecov-action@v5.5.1
+        uses: codecov/codecov-action@5a1091511ad55cbe89839c7260b706298ca349f7 # v5.5.1
