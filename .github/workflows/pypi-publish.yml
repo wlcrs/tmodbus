@@ -5,10 +5,8 @@ on: # yamllint disable rule:truthy
   push:
     tags: ["v[0-9]+.[0-9]+.[0-9]+"]
 
-permissions:
-  attestations: write
-  contents: write
-  id-token: write
+# Set global permissions to nothing, then explicitly grant them per job
+permissions: {}
 
 jobs:
   tests:
@@ -16,6 +14,10 @@ jobs:
   build:
     runs-on: ubuntu-latest
     needs: tests
+    permissions:
+      contents: read         # Required for actions/checkout
+      id-token: write        # Required for file provenance attestations
+      attestations: write    # Required for generating attestations
     steps:
       - name: Harden the runner (Audit all outbound calls)
         uses: step-security/harden-runner@bf7454d06d71f1098171f2acdf0cd4708d7b5920 # v2.20.0
@@ -34,6 +36,9 @@ jobs:
     runs-on: ubuntu-latest
     needs: build
     environment: pypi
+    permissions:
+      contents: write      # Required to create the GitHub Release
+      id-token: write      # Required for PyPI Trusted Publishing (OIDC)
     steps:
       - name: Harden the runner (Audit all outbound calls)
         uses: step-security/harden-runner@bf7454d06d71f1098171f2acdf0cd4708d7b5920 # v2.20.0
