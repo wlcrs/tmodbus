@@ -16,4 +16,4 @@ path = "ascii-server.rs"
 [dependencies]
 rmodbus = { version = "0.12.2" }
 once_cell = { version = "1.19.0" }
-serial = { version = "0.4.0" }
+serial2 = { version = "0.2" }

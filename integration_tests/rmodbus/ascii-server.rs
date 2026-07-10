@@ -1,6 +1,4 @@
 use once_cell::sync::Lazy;
-use serial::prelude::*;
-use std::io::{Read, Write};
 use std::sync::RwLock;
 use std::time::Duration;
 
@@ -15,17 +13,17 @@ pub static CONTEXT: Lazy<RwLock<ModbusStorageFull>> = Lazy::new(<_>::default);
 
 
 pub fn asciiserver(unit: u8, port: &str) {
-    let mut port = serial::open(port).unwrap();
-    port.reconfigure(&|settings| {
-        (settings.set_baud_rate(serial::Baud19200).unwrap());
-        settings.set_char_size(serial::Bits8);
-        settings.set_parity(serial::ParityNone);
-        settings.set_stop_bits(serial::Stop1);
-        settings.set_flow_control(serial::FlowNone);
-        Ok(())
+    let mut port = serial2::SerialPort::open(port, |mut settings: serial2::Settings| {
+        settings.set_raw();
+        settings.set_baud_rate(19200)?;
+        settings.set_char_size(serial2::CharSize::Bits8);
+        settings.set_parity(serial2::Parity::None);
+        settings.set_stop_bits(serial2::StopBits::One);
+        settings.set_flow_control(serial2::FlowControl::None);
+        Ok(settings)
     })
     .unwrap();
-    port.set_timeout(Duration::from_secs(3600)).unwrap();
+    port.set_read_timeout(Duration::from_secs(3600)).unwrap();
     loop {
         let mut asciibuf = [0; 1024];
         let rd = port.read(&mut asciibuf).unwrap();
