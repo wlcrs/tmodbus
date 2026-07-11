@@ -84,7 +84,7 @@ class AsyncTcpServer:
 
                 if protocol_id != 0:
                     logger.warning("Invalid protocol ID from %s: %d", addr, protocol_id)
-                    continue
+                    break
 
                 # Read PDU
                 pdu_length = length - 1  # Length includes unit_id
