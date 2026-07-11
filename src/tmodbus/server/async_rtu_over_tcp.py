@@ -103,9 +103,9 @@ class AsyncRtuOverTcpServer:
                             raise ValueError(msg)
 
                     except ValueError:
-                        logger.warning("Unsupported function code %02X from %s, clearing buffer", function_code, addr)
+                        logger.warning("Unsupported function code %02X from %s, disconnecting client", function_code, addr)
                         buffer.clear()
-                        break
+                        return
 
                     if len(buffer) > 2:
                         expected_data_len = pdu_class.get_expected_request_data_length(buffer[2:])
@@ -115,9 +115,9 @@ class AsyncRtuOverTcpServer:
                     expected_total_len = 1 + 1 + expected_data_len + 2  # unit_id + fc + data + crc
 
                     if expected_total_len > MAX_RTU_FRAME_SIZE:
-                        logger.warning("Expected frame size too large from %s: %d", addr, expected_total_len)
+                        logger.warning("Expected frame size too large from %s: %d, disconnecting client", addr, expected_total_len)
                         buffer.clear()
-                        break
+                        return
 
                     if len(buffer) < expected_total_len:
                         break  # Wait for more data
