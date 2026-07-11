@@ -2,7 +2,7 @@
 
 import logging
 from collections.abc import Awaitable, Callable
-from typing import Any
+from typing import Any, Protocol
 
 from tmodbus.const import ExceptionCode
 from tmodbus.exceptions import ModbusResponseError
@@ -10,9 +10,14 @@ from tmodbus.pdu import BasePDU
 
 logger = logging.getLogger(__name__)
 
-# A ModbusHandler is a function that takes a unit_id and a PDU request, and returns the response payload
-# or raises a ModbusResponseError.
-type ModbusHandler = Callable[[int, BasePDU[Any]], Awaitable[Any]]
+# A ModbusHandler is a protocol representing a callable that processes a request PDU
+# and returns the response payload of the matching type.
+class ModbusHandler(Protocol):
+    """Protocol for Modbus request handlers."""
+
+    def __call__[T](self, unit_id: int, request: BasePDU[T], /) -> Awaitable[T]:
+        """Process a Modbus request and return the response value."""
+        ...
 
 
 class ModbusRequestRouter:
@@ -42,7 +47,7 @@ class ModbusRequestRouter:
 async def handle_modbus_request[T](
     unit_id: int,
     request: BasePDU[T],
-    handler: Callable[[int, BasePDU[T]], Awaitable[T]],
+    handler: ModbusHandler,
 ) -> bytes:
     """Handle a Modbus request using the given handler and encode the response.
 
