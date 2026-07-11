@@ -117,7 +117,7 @@ class AsyncAsciiServer:
 
                 log_raw_traffic("recv", frame)
 
-                if len(frame) < 11:  # : + unit_id(2) + fc(2) + lrc(2) + \r\n
+                if len(frame) < 9:  # : + unit_id(2) + fc(2) + lrc(2) + \r\n
                     continue
 
                 hex_data = frame[1:-2]
