@@ -14,6 +14,7 @@ class RawReadHoldingRegistersPDU(BasePDU[bytes]):
     """Read Holding Register as raw bytes PDU implementation."""
 
     function_code = FunctionCode.READ_HOLDING_REGISTERS
+    rtu_request_data_length = 4  # address (2) + quantity (2)
 
     def __init__(self, start_address: int, quantity: int) -> None:
         """Initialize Read Holding Registers PDU.
@@ -123,6 +124,7 @@ class ReadHoldingRegistersPDU(BasePDU[list[int]]):
     """Read Holding Register PDU."""
 
     function_code = FunctionCode.READ_HOLDING_REGISTERS
+    rtu_request_data_length = 4  # address (2) + quantity (2)
 
     def __init__(self, start_address: int, quantity: int) -> None:
         """Initialize Read Holding Registers PDU.

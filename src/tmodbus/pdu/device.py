@@ -67,7 +67,8 @@ class ReadDeviceIdentificationPDU(BaseSubFunctionClientPDU[ReadDeviceIdentificat
     """Modbus Request to read a device identifier."""
 
     function_code = FunctionCode.ENCAPSULATED_INTERFACE_TRANSPORT
-
+    rtu_request_data_length = 3  # MEI Type (1) + Read Device ID code (1) + Object ID (1)
+    
     sub_function_code = 0x0E
     read_device_id_code: Literal[0x01, 0x02, 0x03, 0x04]
     object_id: int

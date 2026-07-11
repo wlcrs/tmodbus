@@ -26,7 +26,8 @@ class ReportServerIdPDU(BasePDU[ServerIdResponse]):
     """PDU for Report Server ID (function code 0x11)."""
 
     function_code = 0x11
-
+    rtu_request_data_length = 0  # no data
+    
     def __init__(self) -> None:
         """Initialize ReportServerIdPDU."""
 
