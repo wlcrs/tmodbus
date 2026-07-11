@@ -4,7 +4,7 @@ import asyncio
 import logging
 from tmodbus.exceptions import IllegalDataAddressError, IllegalFunctionError
 from tmodbus.pdu import ReadHoldingRegistersPDU, WriteMultipleRegistersPDU, WriteSingleRegisterPDU
-from tmodbus.server import AsyncTcpServer, ModbusServiceRouter
+from tmodbus.server import AsyncTcpServer, ModbusRequestRouter
 
 # Set up logging to see the server output
 logging.basicConfig(level=logging.INFO)
@@ -12,7 +12,7 @@ logging.basicConfig(level=logging.INFO)
 # Our simple data store: 100 registers initialized to 0
 REGISTER_STORE = [0] * 100
 
-router = ModbusServiceRouter()
+router = ModbusRequestRouter()
 
 
 @router.register(ReadHoldingRegistersPDU)
