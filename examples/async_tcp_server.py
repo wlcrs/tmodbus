@@ -2,6 +2,7 @@
 
 import asyncio
 import logging
+
 from tmodbus.exceptions import IllegalDataAddressError, IllegalFunctionError
 from tmodbus.pdu import ReadHoldingRegistersPDU, WriteMultipleRegistersPDU, WriteSingleRegisterPDU
 from tmodbus.server import AsyncTcpServer, ModbusRequestRouter

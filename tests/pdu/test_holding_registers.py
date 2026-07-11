@@ -525,8 +525,13 @@ class TestWriteMultipleRegistersPDU:
         """Test valid initialization."""
         values = [0x1234, 0x5678, 0x9ABC]
         pdu = WriteMultipleRegistersPDU(start_address=100, values=values)
-        assert pdu.start_adress == 100  # Note: typo in source code
+        assert pdu.start_address == 100
         assert pdu.values == values
+
+    def test_get_expected_request_data_length(self) -> None:
+        """Test get_expected_request_data_length."""
+        assert WriteMultipleRegistersPDU.get_expected_request_data_length(b"\x00\x00\x00\x00") == 5
+        assert WriteMultipleRegistersPDU.get_expected_request_data_length(b"\x00\x00\x00\x00\x02") == 7
 
     @pytest.mark.parametrize(
         ("start_address", "values", "expected_error"),

@@ -21,6 +21,10 @@ class TestReadFileRecordPDU:
         pdu = ReadFileRecordPDU(requests)
         assert pdu.function_code == 0x14
 
+    def test_get_expected_request_data_length(self) -> None:
+        """Test get_expected_request_data_length."""
+        assert ReadFileRecordPDU.get_expected_request_data_length(b"\x0a") == 11
+
     def test_encode_request_single_record(self) -> None:
         """Test encoding a single file record request."""
         requests = [FileRecordRequest(file_number=4, record_number=1, record_length=2)]
@@ -345,6 +349,10 @@ class TestWriteFileRecordPDU:
         records = [FileRecord(file_number=4, record_number=7, data=b"\x06\xaf\x04\xbe")]
         pdu = WriteFileRecordPDU(file_records=records)
         assert pdu.function_code == 0x15
+
+    def test_get_expected_request_data_length(self) -> None:
+        """Test get_expected_request_data_length."""
+        assert WriteFileRecordPDU.get_expected_request_data_length(b"\x0b") == 12
 
     def test_encode_request_single_record(self) -> None:
         """Test encoding a single file record write request."""

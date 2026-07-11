@@ -96,9 +96,9 @@ class AsyncTcpServer:
     async def serve_forever(self) -> None:
         """Start the server and block until cancelled."""
         await self.start()
-        if self._server:
-            async with self._server:
-                await self._server.serve_forever()
+        assert self._server is not None
+        async with self._server:
+            await self._server.serve_forever()
 
     def _get_pdu_class(self, function_code: int, pdu_bytes: bytes) -> type[BasePDU[Any]]:
         """Get the PDU class for the given function code."""
@@ -127,28 +127,39 @@ class AsyncTcpServer:
 
         Returns True if handling should continue, False if connection should close.
         """
-        # Read MBAP header (7 bytes)
-        mbap_header = await reader.readexactly(7)
-        transaction_id, protocol_id, length, unit_id = struct.unpack(">HHHB", mbap_header)
+        mbap_header = b""
+        pdu_bytes = b""
+        try:
+            # Read MBAP header (7 bytes)
+            mbap_header = await reader.readexactly(7)
+            transaction_id, protocol_id, length, unit_id = struct.unpack(">HHHB", mbap_header)
 
-        if protocol_id != 0:
-            logger.warning("Invalid protocol ID from %s: %d", addr, protocol_id)
-            return False
+            if protocol_id != 0:
+                logger.warning("Invalid protocol ID from %s: %d", addr, protocol_id)
+                log_raw_traffic("recv", mbap_header, is_error=True)
+                return False
 
-        # Read PDU
-        pdu_length = length - 1  # Length includes unit_id
-        if pdu_length <= 0 or pdu_length > 253:
-            logger.warning("Invalid PDU length from %s: %d", addr, pdu_length)
-            return False
+            # Read PDU
+            pdu_length = length - 1  # Length includes unit_id
+            if pdu_length <= 0 or pdu_length > 253:
+                logger.warning("Invalid PDU length from %s: %d", addr, pdu_length)
+                log_raw_traffic("recv", mbap_header, is_error=True)
+                return False
 
-        pdu_bytes = await reader.readexactly(pdu_length)
-
-        log_raw_traffic("recv", mbap_header + pdu_bytes)
-
-        if len(pdu_bytes) == 0:
-            return True
+            pdu_bytes = await reader.readexactly(pdu_length)
+        except asyncio.IncompleteReadError as e:
+            received_bytes = mbap_header + e.partial
+            if received_bytes:
+                log_raw_traffic("recv", received_bytes, is_error=True)
+            raise
+        except Exception:
+            received_bytes = mbap_header + pdu_bytes
+            if received_bytes:
+                log_raw_traffic("recv", received_bytes, is_error=True)
+            raise
 
         function_code = pdu_bytes[0]
+        is_error = False
 
         try:
             raw_pdu_class = self._get_pdu_class(function_code, pdu_bytes)
@@ -158,11 +169,11 @@ class AsyncTcpServer:
             # Cannot respond if we don't even know the function code properly, or if unsupported
             # We might reply with IllegalFunction if we at least have function_code
             response_pdu_bytes = bytes([function_code | 0x80, 0x01])  # ILLEGAL_FUNCTION
+            is_error = True
         else:
-            if self.handler:
-                response_pdu_bytes = await handle_modbus_request(unit_id, request_pdu, self.handler)
-            else:
-                response_pdu_bytes = bytes([function_code | 0x80, 0x01])  # ILLEGAL_FUNCTION
+            response_pdu_bytes = await handle_modbus_request(unit_id, request_pdu, self.handler)
+
+        log_raw_traffic("recv", mbap_header + pdu_bytes, is_error=is_error)
 
         # Build MBAP header for response
         resp_length = len(response_pdu_bytes) + 1

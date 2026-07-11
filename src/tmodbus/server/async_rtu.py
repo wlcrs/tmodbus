@@ -100,9 +100,9 @@ class AsyncRtuServer:
     async def serve_forever(self) -> None:
         """Start the server and block until cancelled."""
         await self.start()
-        if self._task:
-            with contextlib.suppress(asyncio.CancelledError):
-                await self._task
+        assert self._task is not None
+        with contextlib.suppress(asyncio.CancelledError):
+            await self._task
 
     def _get_pdu_class(self, function_code: int, buffer: bytearray) -> type[BasePDU[Any]] | None:
         """Get the PDU class for the given function code, or None if more data is needed."""
@@ -145,8 +145,11 @@ class AsyncRtuServer:
 
         return expected_total_len
 
-    async def _handle_frame(self, frame: bytes) -> None:
-        """Handle a validated frame."""
+    async def _handle_frame(self, frame: bytes) -> bool:
+        """Handle a validated frame.
+
+        Returns True if the request was successfully decoded and handled, False if it was invalid.
+        """
         unit_id = frame[0]
         function_code = frame[1]
         pdu_bytes = frame[1:-2]
@@ -154,16 +157,15 @@ class AsyncRtuServer:
         pdu_class = self._get_pdu_class(function_code, bytearray(frame))
         assert pdu_class is not None
 
+        is_error = False
         try:
             request_pdu = pdu_class.decode_request(pdu_bytes)
-        except InvalidRequestError as e:
+        except (ValueError, InvalidRequestError) as e:
             logger.warning("Invalid request: %s", e)
             response_pdu_bytes = bytes([function_code | 0x80, 0x01])
+            is_error = True
         else:
-            if self.handler:
-                response_pdu_bytes = await handle_modbus_request(unit_id, request_pdu, self.handler)
-            else:
-                response_pdu_bytes = bytes([function_code | 0x80, 0x01])
+            response_pdu_bytes = await handle_modbus_request(unit_id, request_pdu, self.handler)
 
         out_frame = bytearray([unit_id]) + response_pdu_bytes
         crc = calculate_crc16(out_frame)
@@ -172,6 +174,8 @@ class AsyncRtuServer:
         if self._serial:
             await self._serial.write(out_frame)
             log_raw_traffic("sent", out_frame)
+
+        return not is_error
 
     async def _process_next_frame(self, buffer: bytearray) -> Literal["need_data", "processed"]:
         """Process the next frame in the buffer if possible.
@@ -187,6 +191,7 @@ class AsyncRtuServer:
                 return "need_data"
         except ValueError as e:
             logger.warning("%s, clearing buffer", e)
+            log_raw_traffic("recv", bytes(buffer), is_error=True)
             buffer.clear()
             return "processed"
 
@@ -197,36 +202,41 @@ class AsyncRtuServer:
         frame = buffer[:expected_total_len]
         del buffer[:expected_total_len]
 
-        log_raw_traffic("recv", frame)
-
         # Validate CRC
         if not validate_crc16(frame):
             logger.warning("CRC validation failed")
+            log_raw_traffic("recv", frame, is_error=True)
             return "processed"
 
-        await self._handle_frame(frame)
+        is_success = await self._handle_frame(frame)
+        log_raw_traffic("recv", frame, is_error=not is_success)
         return "processed"
 
     async def _serve(self) -> None:
         """Read and handle requests in a loop."""
         buffer = bytearray()
 
-        while self._running and self._serial:
-            try:
-                # Read at least 1 byte
-                data = await self._serial.read()
-                if not data:
-                    continue
-                buffer.extend(data)
+        try:
+            while self._running and self._serial:
+                try:
+                    # Read at least 1 byte
+                    data = await self._serial.read()
+                    if not data:
+                        continue
+                    buffer.extend(data)
 
-                while True:
-                    status = await self._process_next_frame(buffer)
-                    if status == "need_data":
-                        break
+                    while True:
+                        status = await self._process_next_frame(buffer)
+                        if status == "need_data":
+                            break
 
-            except Exception:
-                if self._running:
+                except Exception:
                     logger.exception("Error in RTU server loop")
                     # Simple recovery mechanism
+                    if buffer:
+                        log_raw_traffic("recv", bytes(buffer), is_error=True)
                     buffer.clear()
                     await asyncio.sleep(0.1)
+        finally:
+            if buffer:
+                log_raw_traffic("recv", bytes(buffer), is_error=True)

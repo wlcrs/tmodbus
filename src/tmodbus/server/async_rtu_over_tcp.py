@@ -92,9 +92,9 @@ class AsyncRtuOverTcpServer:
     async def serve_forever(self) -> None:
         """Start the server and block until cancelled."""
         await self.start()
-        if self._server:
-            async with self._server:
-                await self._server.serve_forever()
+        assert self._server is not None
+        async with self._server:
+            await self._server.serve_forever()
 
     def _get_pdu_class(self, function_code: int, buffer: bytearray) -> type[BasePDU[Any]] | None:
         """Get the PDU class for the given function code, or None if more data is needed."""
@@ -137,8 +137,11 @@ class AsyncRtuOverTcpServer:
 
         return expected_total_len
 
-    async def _handle_frame(self, frame: bytes, addr: Any, writer: asyncio.StreamWriter) -> None:
-        """Handle a validated frame."""
+    async def _handle_frame(self, frame: bytes, addr: Any, writer: asyncio.StreamWriter) -> bool:
+        """Handle a validated frame.
+
+        Returns True if the request was successfully decoded and handled, False if it was invalid.
+        """
         unit_id = frame[0]
         function_code = frame[1]
         pdu_bytes = frame[1:-2]
@@ -146,16 +149,15 @@ class AsyncRtuOverTcpServer:
         pdu_class = self._get_pdu_class(function_code, bytearray(frame))
         assert pdu_class is not None
 
+        is_error = False
         try:
             request_pdu = pdu_class.decode_request(pdu_bytes)
-        except InvalidRequestError as e:
+        except (ValueError, InvalidRequestError) as e:
             logger.warning("Invalid request from %s: %s", addr, e)
             response_pdu_bytes = bytes([function_code | 0x80, 0x01])
+            is_error = True
         else:
-            if self.handler:
-                response_pdu_bytes = await handle_modbus_request(unit_id, request_pdu, self.handler)
-            else:
-                response_pdu_bytes = bytes([function_code | 0x80, 0x01])
+            response_pdu_bytes = await handle_modbus_request(unit_id, request_pdu, self.handler)
 
         out_frame = bytearray([unit_id]) + response_pdu_bytes
         crc = calculate_crc16(out_frame)
@@ -164,6 +166,7 @@ class AsyncRtuOverTcpServer:
         writer.write(out_frame)
         log_raw_traffic("sent", out_frame)
         await writer.drain()
+        return not is_error
 
     async def _process_next_frame(
         self, buffer: bytearray, addr: Any, writer: asyncio.StreamWriter
@@ -186,6 +189,7 @@ class AsyncRtuOverTcpServer:
                 e,
                 addr,
             )
+            log_raw_traffic("recv", bytes(buffer), is_error=True)
             buffer.clear()
             return "disconnect"
 
@@ -195,13 +199,14 @@ class AsyncRtuOverTcpServer:
         frame = buffer[:expected_total_len]
         del buffer[:expected_total_len]
 
-        log_raw_traffic("recv", frame)
-
+        # Validate CRC
         if not validate_crc16(frame):
             logger.warning("CRC validation failed from %s", addr)
+            log_raw_traffic("recv", frame, is_error=True)
             return "processed"
 
-        await self._handle_frame(frame, addr, writer)
+        is_success = await self._handle_frame(frame, addr, writer)
+        log_raw_traffic("recv", frame, is_error=not is_success)
         return "processed"
 
     async def handle_client(self, reader: asyncio.StreamReader, writer: asyncio.StreamWriter) -> None:
@@ -225,13 +230,12 @@ class AsyncRtuOverTcpServer:
                         break
                     if status == "disconnect":
                         return
-
-        except asyncio.IncompleteReadError:
-            pass
         except Exception:
             logger.exception("Error handling client %s", addr)
         finally:
             logger.info("Client disconnected: %s", addr)
+            if buffer:
+                log_raw_traffic("recv", bytes(buffer), is_error=True)
             writer.close()
             with contextlib.suppress(Exception):
                 await writer.wait_closed()

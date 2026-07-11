@@ -138,6 +138,8 @@ class ReadHoldingRegistersPDU(BasePDU[list[int]]):
 
         """
         self.raw_pdu = RawReadHoldingRegistersPDU(start_address, quantity)
+        self.start_address = start_address
+        self.quantity = quantity
 
     def encode_request(self) -> bytes:
         """Convert PDU to bytes.
@@ -490,7 +492,7 @@ class WriteMultipleRegistersPDU(BasePDU[int]):
         if not (0 <= start_address < 65536):
             msg = "Address must be between 0 and 65535."
             raise ValueError(msg)
-        self.start_adress = start_address
+        self.start_address = start_address
 
         if not (1 <= len(values) <= 123):
             msg = "Number of registers must be between 1 and 123."
@@ -556,6 +558,14 @@ class WriteMultipleRegistersPDU(BasePDU[int]):
 
         """
         return self.raw_pdu.encode_response(value)
+
+    @classmethod
+    def get_expected_request_data_length(cls, data: bytes) -> int:
+        """Get the expected number of bytes for the data part of the request PDU."""
+        if len(data) < 5:
+            return 5  # wait for byte count
+        byte_count = data[4]
+        return 5 + byte_count
 
 
 class MaskWriteRegisterPDU(BasePDU[tuple[int, int]]):

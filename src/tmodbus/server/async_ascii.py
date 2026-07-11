@@ -99,9 +99,9 @@ class AsyncAsciiServer:
     async def serve_forever(self) -> None:
         """Start the server and block until cancelled."""
         await self.start()
-        if self._task:
-            with contextlib.suppress(asyncio.CancelledError):
-                await self._task
+        assert self._task is not None
+        with contextlib.suppress(asyncio.CancelledError):
+            await self._task
 
     def _get_pdu_class(self, function_code: int, pdu_bytes: bytes) -> type[BasePDU[Any]]:
         """Get the PDU class for the given function code."""
@@ -125,9 +125,13 @@ class AsyncAsciiServer:
         try:
             start_idx = buffer.index(b":")
         except ValueError:
+            if buffer:
+                log_raw_traffic("recv", bytes(buffer), is_error=True)
             return None, bytearray()
 
         if start_idx > 0:
+            garbage = bytes(buffer[:start_idx])
+            log_raw_traffic("recv", garbage, is_error=True)
             buffer = buffer[start_idx:]
 
         try:
@@ -139,37 +143,40 @@ class AsyncAsciiServer:
         remaining = buffer[end_idx + 2 :]
         return frame, remaining
 
-    async def _process_next_frame(self, frame: bytes) -> None:
-        """Process a single complete Modbus ASCII frame."""
+    async def _process_next_frame(self, frame: bytes) -> bool:
+        """Process a single complete Modbus ASCII frame.
+
+        Returns True if successful, False if an error occurred.
+        """
         if len(frame) < 9:  # : + unit_id(2) + fc(2) + lrc(2) + \r\n
-            return
+            logger.warning("ASCII frame too short")
+            return False
 
         hex_data = frame[1:-2]
         try:
             bin_data = bytes.fromhex(hex_data.decode("ascii"))
         except ValueError:
             logger.warning("Invalid hex string in ASCII frame")
-            return
+            return False
 
         if not validate_lrc(bin_data[:-1], bin_data[-1]):
             logger.warning("LRC validation failed")
-            return
+            return False
 
         unit_id = bin_data[0]
         function_code = bin_data[1]
         pdu_bytes = bin_data[1:-1]  # exclude unit_id and lrc
 
+        is_error = False
         try:
             pdu_class = self._get_pdu_class(function_code, pdu_bytes)
             request_pdu = pdu_class.decode_request(pdu_bytes)
         except (ValueError, InvalidRequestError) as e:
             logger.warning("Invalid request: %s", e)
             response_pdu_bytes = bytes([function_code | 0x80, 0x01])
+            is_error = True
         else:
-            if self.handler:
-                response_pdu_bytes = await handle_modbus_request(unit_id, request_pdu, self.handler)
-            else:
-                response_pdu_bytes = bytes([function_code | 0x80, 0x01])
+            response_pdu_bytes = await handle_modbus_request(unit_id, request_pdu, self.handler)
 
         out_bin = bytearray([unit_id]) + response_pdu_bytes
         lrc = calculate_lrc(out_bin)
@@ -181,34 +188,42 @@ class AsyncAsciiServer:
             await self._serial.write(out_frame)
             log_raw_traffic("sent", out_frame)
 
+        return not is_error
+
     async def _serve(self) -> None:
         """Read and handle requests in a loop."""
         buffer = bytearray()
 
-        while self._running and self._serial:
-            try:
-                # Read at least 1 byte
-                data = await self._serial.read()
-                if not data:
-                    continue
-                buffer.extend(data)
+        try:
+            while self._running and self._serial:
+                try:
+                    # Read at least 1 byte
+                    data = await self._serial.read()
+                    if not data:
+                        continue
+                    buffer.extend(data)
 
-                if len(buffer) > 513:
-                    logger.warning("ASCII buffer exceeded maximum frame size, clearing")
-                    buffer.clear()
-                    continue
+                    if len(buffer) > 513:
+                        logger.warning("ASCII buffer exceeded maximum frame size, clearing")
+                        log_raw_traffic("recv", bytes(buffer), is_error=True)
+                        buffer.clear()
+                        continue
 
-                while True:
-                    frame, remaining = self._extract_next_frame(buffer)
-                    if frame is None:
+                    while True:
+                        frame, remaining = self._extract_next_frame(buffer)
+                        if frame is None:
+                            buffer = remaining
+                            break
                         buffer = remaining
-                        break
-                    buffer = remaining
-                    log_raw_traffic("recv", frame)
-                    await self._process_next_frame(frame)
+                        is_success = await self._process_next_frame(frame)
+                        log_raw_traffic("recv", frame, is_error=not is_success)
 
-            except Exception:
-                if self._running:
+                except Exception:
                     logger.exception("Error in ASCII server loop")
+                    if buffer:
+                        log_raw_traffic("recv", bytes(buffer), is_error=True)
                     buffer.clear()
                     await asyncio.sleep(0.1)
+        finally:
+            if buffer:
+                log_raw_traffic("recv", bytes(buffer), is_error=True)
