@@ -2,13 +2,18 @@
 
 import logging
 from collections.abc import Awaitable, Callable
-from typing import Any, Protocol
+from typing import Any, Protocol, TypeGuard
 
 from tmodbus.const import ExceptionCode
 from tmodbus.exceptions import ModbusResponseError
-from tmodbus.pdu import BasePDU
+from tmodbus.pdu import BaseClientPDU, BasePDU
 
 logger = logging.getLogger(__name__)
+
+
+def is_server_pdu_class(pdu_class: type[BaseClientPDU[Any]]) -> TypeGuard[type[BasePDU[Any]]]:
+    """Type guard to check if a PDU class implements server-side methods."""
+    return issubclass(pdu_class, BasePDU)
 
 # A ModbusHandler is a protocol representing a callable that processes a request PDU
 # and returns the response payload of the matching type.

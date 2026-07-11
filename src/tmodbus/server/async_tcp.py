@@ -11,7 +11,7 @@ from tmodbus.exceptions import InvalidRequestError
 from tmodbus.pdu import BasePDU, get_pdu_class, get_subfunction_pdu_class, is_function_code_for_subfunction_pdu
 from tmodbus.utils.raw_traffic_logger import log_raw_traffic as base_log_raw_traffic
 
-from .handler import ModbusHandler, handle_modbus_request
+from .handler import ModbusHandler, handle_modbus_request, is_server_pdu_class
 
 logger = logging.getLogger(__name__)
 log_raw_traffic = partial(base_log_raw_traffic, "TCP-Server")
@@ -107,15 +107,15 @@ class AsyncTcpServer:
                             msg = "Missing sub-function code"
                             raise InvalidRequestError(msg, request_bytes=pdu_bytes)
                         sub_function_code = pdu_bytes[1]
-                        pdu_class = get_subfunction_pdu_class(function_code, sub_function_code)
+                        raw_pdu_class = get_subfunction_pdu_class(function_code, sub_function_code)
                     else:
-                        pdu_class = get_pdu_class(function_code)  # type: ignore[assignment]
+                        raw_pdu_class = get_pdu_class(function_code)
 
-                    if not issubclass(pdu_class, BasePDU):
-                        msg = f"PDU class {pdu_class.__name__} does not implement server methods"
+                    if not is_server_pdu_class(raw_pdu_class):
+                        msg = f"PDU class {raw_pdu_class.__name__} does not implement server methods"
                         raise ValueError(msg)
 
-                    request_pdu = pdu_class.decode_request(pdu_bytes)
+                    request_pdu = raw_pdu_class.decode_request(pdu_bytes)
 
                 except (ValueError, InvalidRequestError) as e:
                     logger.warning("Invalid request from %s: %s", addr, e)

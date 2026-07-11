@@ -11,7 +11,7 @@ from tmodbus.pdu import BasePDU, get_pdu_class, get_subfunction_pdu_class, is_fu
 from tmodbus.utils.crc import calculate_crc16, validate_crc16
 from tmodbus.utils.raw_traffic_logger import log_raw_traffic as base_log_raw_traffic
 
-from .handler import ModbusHandler, handle_modbus_request
+from .handler import ModbusHandler, handle_modbus_request, is_server_pdu_class
 
 logger = logging.getLogger(__name__)
 log_raw_traffic = partial(base_log_raw_traffic, "RTU-over-TCP-Server")
@@ -99,9 +99,9 @@ class AsyncRtuOverTcpServer:
                             sub_function_code = buffer[2]
                             pdu_class = get_subfunction_pdu_class(function_code, sub_function_code)
                         else:
-                            pdu_class = get_pdu_class(function_code)  # type: ignore[assignment]
+                            pdu_class = get_pdu_class(function_code)
 
-                        if not issubclass(pdu_class, BasePDU):
+                        if not is_server_pdu_class(pdu_class):
                             msg = f"PDU class {pdu_class.__name__} does not implement server methods"
                             raise ValueError(msg)
 
