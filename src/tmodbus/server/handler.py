@@ -20,7 +20,7 @@ class ModbusHandler(Protocol):
         ...
 
 
-class ModbusRequestRouter:
+class ModbusRequestRouter(ModbusHandler):
     """A type-safe dispatcher/router for Modbus requests."""
 
     def __init__(self) -> None:
@@ -35,7 +35,7 @@ class ModbusRequestRouter:
             return handler
         return decorator
 
-    async def __call__(self, unit_id: int, request: BasePDU[Any]) -> Any:
+    async def __call__[T](self, unit_id: int, request: BasePDU[T]) -> T:
         handler = self._handlers.get(request.function_code)
         if handler is None:
             from tmodbus.const import ExceptionCode
