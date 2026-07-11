@@ -10,12 +10,12 @@ from tmodbus.pdu import BasePDU
 
 logger = logging.getLogger(__name__)
 
-# A ModbusService is a function that takes a unit_id and a PDU request, and returns the response payload
+# A ModbusHandler is a function that takes a unit_id and a PDU request, and returns the response payload
 # or raises a ModbusResponseError.
-type ModbusService = Callable[[int, BasePDU[Any]], Awaitable[Any]]
+type ModbusHandler = Callable[[int, BasePDU[Any]], Awaitable[Any]]
 
 
-class ModbusServiceRouter:
+class ModbusRequestRouter:
     """A type-safe dispatcher/router for Modbus requests."""
 
     def __init__(self) -> None:
@@ -39,7 +39,7 @@ class ModbusServiceRouter:
         return await handler(unit_id, request)
 
 
-async def ModbusRequestHandler[T](
+async def handle_modbus_request[T](
     unit_id: int,
     request: BasePDU[T],
     handler: Callable[[int, BasePDU[T]], Awaitable[T]],

@@ -13,7 +13,7 @@ from tmodbus.pdu import BasePDU, get_pdu_class, get_subfunction_pdu_class, is_fu
 from tmodbus.utils.crc import calculate_crc16, validate_crc16
 from tmodbus.utils.raw_traffic_logger import log_raw_traffic as base_log_raw_traffic
 
-from .handler import ModbusRequestHandler, ModbusService
+from .handler import ModbusHandler, handle_modbus_request
 
 logger = logging.getLogger(__name__)
 log_raw_traffic = partial(base_log_raw_traffic, "RTU-Server")
@@ -28,7 +28,7 @@ class AsyncRtuServer:
         self,
         port: str,
         baudrate: int = 19200,
-        handler: ModbusService | None = None,
+        handler: ModbusHandler | None = None,
         **serial_kwargs: Any,
     ) -> None:
         """Initialize Async Modbus RTU Server.
@@ -156,7 +156,7 @@ class AsyncRtuServer:
                     response_pdu_bytes = bytes([function_code | 0x80, 0x01])
                 else:
                     if self.handler:
-                        response_pdu_bytes = await ModbusRequestHandler(unit_id, request_pdu, self.handler)
+                        response_pdu_bytes = await handle_modbus_request(unit_id, request_pdu, self.handler)
                     else:
                         response_pdu_bytes = bytes([function_code | 0x80, 0x01])
 

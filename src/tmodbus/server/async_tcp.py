@@ -11,7 +11,7 @@ from tmodbus.exceptions import InvalidRequestError
 from tmodbus.pdu import BasePDU, get_pdu_class, get_subfunction_pdu_class, is_function_code_for_subfunction_pdu
 from tmodbus.utils.raw_traffic_logger import log_raw_traffic as base_log_raw_traffic
 
-from .handler import ModbusRequestHandler, ModbusService
+from .handler import ModbusHandler, handle_modbus_request
 
 logger = logging.getLogger(__name__)
 log_raw_traffic = partial(base_log_raw_traffic, "TCP-Server")
@@ -24,7 +24,7 @@ class AsyncTcpServer:
         self,
         host: str,
         port: int = 502,
-        handler: ModbusService | None = None,
+        handler: ModbusHandler | None = None,
         **server_kwargs: Any,
     ) -> None:
         """Initialize Async Modbus TCP Server.
@@ -124,7 +124,7 @@ class AsyncTcpServer:
                     response_pdu_bytes = bytes([function_code | 0x80, 0x01])  # ILLEGAL_FUNCTION
                 else:
                     if self.handler:
-                        response_pdu_bytes = await ModbusRequestHandler(unit_id, request_pdu, self.handler)
+                        response_pdu_bytes = await handle_modbus_request(unit_id, request_pdu, self.handler)
                     else:
                         response_pdu_bytes = bytes([function_code | 0x80, 0x01])  # ILLEGAL_FUNCTION
 
