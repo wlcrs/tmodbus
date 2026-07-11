@@ -88,9 +88,9 @@ class AsyncTcpServer:
 
                 # Read PDU
                 pdu_length = length - 1  # Length includes unit_id
-                if pdu_length <= 0:
+                if pdu_length <= 0 or pdu_length > 253:
                     logger.warning("Invalid PDU length from %s: %d", addr, pdu_length)
-                    continue
+                    break
 
                 pdu_bytes = await reader.readexactly(pdu_length)
 
