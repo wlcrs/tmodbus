@@ -25,8 +25,8 @@ class AsyncRtuOverTcpServer:
     def __init__(
         self,
         host: str,
+        handler: ModbusHandler,
         port: int = 502,
-        handler: ModbusHandler | None = None,
         **server_kwargs: Any,
     ) -> None:
         """Initialize Async Modbus RTU-over-TCP Server.
@@ -39,16 +39,13 @@ class AsyncRtuOverTcpServer:
 
         """
         self.host = host
-        self.port = port
         self.handler = handler
+        self.port = port
         self.server_kwargs = server_kwargs
         self._server: asyncio.Server | None = None
 
     async def start(self) -> None:
         """Start the server."""
-        if self.handler is None:
-            msg = "No handler specified for Modbus Server"
-            raise ValueError(msg)
 
         self._server = await asyncio.start_server(
             self.handle_client,

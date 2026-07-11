@@ -25,8 +25,8 @@ class AsyncAsciiServer:
     def __init__(
         self,
         port: str,
+        handler: ModbusHandler,
         baudrate: int = 19200,
-        handler: ModbusHandler | None = None,
         **serial_kwargs: Any,
     ) -> None:
         """Initialize Async Modbus ASCII Server.
@@ -39,8 +39,8 @@ class AsyncAsciiServer:
 
         """
         self.port = port
-        self.baudrate = baudrate
         self.handler = handler
+        self.baudrate = baudrate
         self.serial_kwargs = serial_kwargs
         self._serial: Serial | None = None
         self._running = False
@@ -48,9 +48,6 @@ class AsyncAsciiServer:
 
     async def start(self) -> None:
         """Start the server."""
-        if self.handler is None:
-            msg = "No handler specified for Modbus Server"
-            raise ValueError(msg)
 
         self._serial = Serial(self.port, baudrate=self.baudrate, **self.serial_kwargs)
         self._serial.open()
