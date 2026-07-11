@@ -91,6 +91,11 @@ class AsyncAsciiServer:
                     continue
                 buffer.extend(data)
 
+                if len(buffer) > 513:
+                    logger.warning("ASCII buffer exceeded maximum frame size, clearing")
+                    buffer.clear()
+                    continue
+
                 # Check for start character ':'
                 try:
                     start_idx = buffer.index(b":")
