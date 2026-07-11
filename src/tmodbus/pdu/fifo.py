@@ -17,7 +17,7 @@ class ReadFifoQueuePDU(BasePDU[list[int]]):
 
     function_code: int = FunctionCode.READ_FIFO_QUEUE
     rtu_request_data_length = 2  # address (2)
-    
+
     def __post_init__(self) -> None:
         """Initialize Read FIFO Queue PDU.
 

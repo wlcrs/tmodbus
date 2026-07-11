@@ -5,7 +5,7 @@ from collections.abc import Awaitable, Callable
 from typing import Any, Protocol, TypeGuard
 
 from tmodbus.const import ExceptionCode
-from tmodbus.exceptions import ModbusResponseError
+from tmodbus.exceptions import IllegalFunctionError, ModbusResponseError
 from tmodbus.pdu import BaseClientPDU, BasePDU
 
 logger = logging.getLogger(__name__)
@@ -29,6 +29,38 @@ class ModbusRequestRouter(ModbusHandler):
     """A type-safe dispatcher/router for Modbus requests."""
 
     def __init__(self) -> None:
+        """Initialize the ModbusRequestRouter.
+
+        This router acts as a centralized dispatcher for incoming Modbus request PDUs.
+        It maps Modbus function codes to async handler functions with full static type
+        safety.
+
+        Examples:
+            Creating and using a router for a Modbus server:
+
+            ```python
+            from tmodbus.pdu import ReadHoldingRegistersRequest
+            from tmodbus.server import AsyncTcpServer, ModbusRequestRouter
+
+            router = ModbusRequestRouter()
+
+
+            # Register handler for specific Modbus requests
+            @router.register(ReadHoldingRegistersRequest)
+            async def handle_read_holding_registers(
+                unit_id: int, request: ReadHoldingRegistersRequest
+            ) -> list[int]:
+                # Implement holding registers reading logic
+                # Must return a list of integers corresponding to registers
+                return [42] * request.quantity
+
+
+            # Pass the router as the handler to the Modbus server
+            server = AsyncTcpServer(host="localhost", port=502, handler=router)
+            await server.serve_forever()
+            ```
+
+        """
         self._handlers: dict[int, Callable[[int, Any], Awaitable[Any]]] = {}
 
     def register[T](
@@ -41,10 +73,23 @@ class ModbusRequestRouter(ModbusHandler):
         return decorator
 
     async def __call__[T](self, unit_id: int, request: BasePDU[T]) -> T:
+        """Route the incoming Modbus request to its registered handler.
+
+        Args:
+            unit_id: The slave address / unit ID of the target device.
+            request: The parsed Modbus request PDU.
+
+        Returns:
+            The output payload returned by the registered handler, typed
+            specifically to the request PDU.
+
+        Raises:
+            IllegalFunctionError: If no handler is registered for the function code
+                specified in the request PDU.
+
+        """
         handler = self._handlers.get(request.function_code)
         if handler is None:
-            from tmodbus.const import ExceptionCode
-            from tmodbus.exceptions import IllegalFunctionError
             raise IllegalFunctionError(ExceptionCode.ILLEGAL_FUNCTION, request.function_code)
         return await handler(unit_id, request)
 

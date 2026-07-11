@@ -18,7 +18,40 @@ log_raw_traffic = partial(base_log_raw_traffic, "TCP-Server")
 
 
 class AsyncTcpServer:
-    """Async Modbus TCP Server."""
+    """Async Modbus TCP Server.
+
+    Incoming Data Flow & Error Branches:
+    ```
+    [ TCP Socket / Client Connection ]
+                  │
+                  ▼
+         handle_client()
+                  │ (reads 7-byte MBAP header)
+                  ├───[ IncompleteReadError ]─────────────► [ Terminate Connection ]
+                  ▼
+       _handle_single_request()
+                  │
+                  ├───[ Protocol ID != 0 ]────────────────► [ Terminate Connection ] (returns False)
+                  ├───[ PDU Length invalid ]──────────────► [ Terminate Connection ] (returns False)
+                  │ (reads PDU bytes)
+                  ├───[ IncompleteReadError ]─────────────► [ Terminate Connection ]
+                  ▼
+         _get_pdu_class()
+                  │
+                  ├───[ Unsupported Code / Not Server PDU ]
+                  │   (ValueError) ──► Responds with IllegalFunction PDU ──► [ Continue Loop ] (returns True)
+                  ▼
+         PDU.decode_request()
+                  │
+                  ├───[ Malformed Request ]
+                  │   (InvalidRequestError) ──► Responds with IllegalFunction ──► [ Continue Loop ] (returns True)
+                  ▼
+       handle_modbus_request()  ────► routes to ModbusHandler/router
+                  │ (normal case: executes handler, encodes response)
+                  ▼
+            [ TCP Write ]       ────► prepends response MBAP and sends (returns True)
+    ```
+    """
 
     def __init__(
         self,
@@ -44,7 +77,6 @@ class AsyncTcpServer:
 
     async def start(self) -> None:
         """Start the server."""
-
         self._server = await asyncio.start_server(
             self.handle_client,
             self.host,
@@ -68,76 +100,92 @@ class AsyncTcpServer:
             async with self._server:
                 await self._server.serve_forever()
 
+    def _get_pdu_class(self, function_code: int, pdu_bytes: bytes) -> type[BasePDU[Any]]:
+        """Get the PDU class for the given function code."""
+        if is_function_code_for_subfunction_pdu(function_code):
+            if len(pdu_bytes) < 2:
+                msg = "Missing sub-function code"
+                raise InvalidRequestError(msg, request_bytes=pdu_bytes)
+            sub_function_code = pdu_bytes[1]
+            raw_pdu_class = get_subfunction_pdu_class(function_code, sub_function_code)
+        else:
+            raw_pdu_class = get_pdu_class(function_code)
+
+        if not is_server_pdu_class(raw_pdu_class):
+            msg = f"PDU class {raw_pdu_class.__name__} does not implement server methods"
+            raise ValueError(msg)
+
+        return raw_pdu_class
+
+    async def _handle_single_request(
+        self,
+        reader: asyncio.StreamReader,
+        writer: asyncio.StreamWriter,
+        addr: Any,
+    ) -> bool:
+        """Handle a single Modbus TCP request from the reader and write to writer.
+
+        Returns True if handling should continue, False if connection should close.
+        """
+        # Read MBAP header (7 bytes)
+        mbap_header = await reader.readexactly(7)
+        transaction_id, protocol_id, length, unit_id = struct.unpack(">HHHB", mbap_header)
+
+        if protocol_id != 0:
+            logger.warning("Invalid protocol ID from %s: %d", addr, protocol_id)
+            return False
+
+        # Read PDU
+        pdu_length = length - 1  # Length includes unit_id
+        if pdu_length <= 0 or pdu_length > 253:
+            logger.warning("Invalid PDU length from %s: %d", addr, pdu_length)
+            return False
+
+        pdu_bytes = await reader.readexactly(pdu_length)
+
+        log_raw_traffic("recv", mbap_header + pdu_bytes)
+
+        if len(pdu_bytes) == 0:
+            return True
+
+        function_code = pdu_bytes[0]
+
+        try:
+            raw_pdu_class = self._get_pdu_class(function_code, pdu_bytes)
+            request_pdu = raw_pdu_class.decode_request(pdu_bytes)
+        except (ValueError, InvalidRequestError) as e:
+            logger.warning("Invalid request from %s: %s", addr, e)
+            # Cannot respond if we don't even know the function code properly, or if unsupported
+            # We might reply with IllegalFunction if we at least have function_code
+            response_pdu_bytes = bytes([function_code | 0x80, 0x01])  # ILLEGAL_FUNCTION
+        else:
+            if self.handler:
+                response_pdu_bytes = await handle_modbus_request(unit_id, request_pdu, self.handler)
+            else:
+                response_pdu_bytes = bytes([function_code | 0x80, 0x01])  # ILLEGAL_FUNCTION
+
+        # Build MBAP header for response
+        resp_length = len(response_pdu_bytes) + 1
+        resp_mbap = struct.pack(">HHHB", transaction_id, protocol_id, resp_length, unit_id)
+
+        out_bytes = resp_mbap + response_pdu_bytes
+        writer.write(out_bytes)
+        log_raw_traffic("sent", out_bytes)
+        await writer.drain()
+        return True
+
     async def handle_client(self, reader: asyncio.StreamReader, writer: asyncio.StreamWriter) -> None:
         """Handle a single client connection."""
         addr = writer.get_extra_info("peername")
         logger.info("Client connected: %s", addr)
 
         try:
-            while True:
-                # Read MBAP header (7 bytes)
-                mbap_header = await reader.readexactly(7)
-                transaction_id, protocol_id, length, unit_id = struct.unpack(">HHHB", mbap_header)
-
-                if protocol_id != 0:
-                    logger.warning("Invalid protocol ID from %s: %d", addr, protocol_id)
-                    break
-
-                # Read PDU
-                pdu_length = length - 1  # Length includes unit_id
-                if pdu_length <= 0 or pdu_length > 253:
-                    logger.warning("Invalid PDU length from %s: %d", addr, pdu_length)
-                    break
-
-                pdu_bytes = await reader.readexactly(pdu_length)
-
-                log_raw_traffic("recv", mbap_header + pdu_bytes)
-
-                if len(pdu_bytes) == 0:
-                    continue
-
-                function_code = pdu_bytes[0]
-
-                try:
-                    if is_function_code_for_subfunction_pdu(function_code):
-                        if len(pdu_bytes) < 2:
-                            msg = "Missing sub-function code"
-                            raise InvalidRequestError(msg, request_bytes=pdu_bytes)
-                        sub_function_code = pdu_bytes[1]
-                        raw_pdu_class = get_subfunction_pdu_class(function_code, sub_function_code)
-                    else:
-                        raw_pdu_class = get_pdu_class(function_code)
-
-                    if not is_server_pdu_class(raw_pdu_class):
-                        msg = f"PDU class {raw_pdu_class.__name__} does not implement server methods"
-                        raise ValueError(msg)
-
-                    request_pdu = raw_pdu_class.decode_request(pdu_bytes)
-
-                except (ValueError, InvalidRequestError) as e:
-                    logger.warning("Invalid request from %s: %s", addr, e)
-                    # Cannot respond if we don't even know the function code properly, or if unsupported
-                    # We might reply with IllegalFunction if we at least have function_code
-                    response_pdu_bytes = bytes([function_code | 0x80, 0x01])  # ILLEGAL_FUNCTION
-                else:
-                    if self.handler:
-                        response_pdu_bytes = await handle_modbus_request(unit_id, request_pdu, self.handler)
-                    else:
-                        response_pdu_bytes = bytes([function_code | 0x80, 0x01])  # ILLEGAL_FUNCTION
-
-                # Build MBAP header for response
-                resp_length = len(response_pdu_bytes) + 1
-                resp_mbap = struct.pack(">HHHB", transaction_id, protocol_id, resp_length, unit_id)
-
-                out_bytes = resp_mbap + response_pdu_bytes
-                writer.write(out_bytes)
-                log_raw_traffic("sent", out_bytes)
-                await writer.drain()
-
+            while await self._handle_single_request(reader, writer, addr):
+                pass
         except asyncio.IncompleteReadError:
             logger.info("Client disconnected: %s", addr)
-        except Exception as e:
-            logger.exception("Error handling client %s: %s", addr, e)
+        except Exception:
+            logger.exception("Error handling client %s", addr)
         finally:
             writer.close()
             with contextlib.suppress(Exception):

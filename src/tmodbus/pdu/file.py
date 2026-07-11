@@ -225,7 +225,7 @@ class ReadFileRecordPDU(BasePDU[list[bytes]]):
     @classmethod
     def get_expected_request_data_length(cls, data: bytes) -> int:
         """Get the expected number of bytes for the data part of the request PDU."""
-        return 1 + data[0] 
+        return 1 + data[0]
 
 @dataclass(frozen=True)
 class FileRecord:
@@ -459,7 +459,7 @@ class WriteFileRecordPDU(BasePDU[list[FileRecord]]):
             return cls(records)
         except ValueError as e:
             raise InvalidRequestError(str(e), request_bytes=request) from e
-            
+
     @classmethod
     def get_expected_request_data_length(cls, data: bytes) -> int:
         """Get the expected number of bytes for the data part of the request PDU."""
