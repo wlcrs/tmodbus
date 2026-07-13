@@ -141,7 +141,7 @@ async def test_ascii_server_invalid_hex() -> None:
     with patch("tmodbus.server.async_ascii.log_raw_traffic") as mock_log:
         await mock_serial_inst.read_queue.put(frame)
         await asyncio.sleep(0.05)
-        mock_log.assert_any_call("recv", frame, is_error=True)
+        mock_log.assert_any_call("recv", frame, is_error=True, is_ignored=False)
 
     assert len(mock_serial_inst.write_calls) == 0
 
@@ -163,7 +163,7 @@ async def test_ascii_server_short_frame() -> None:
     with patch("tmodbus.server.async_ascii.log_raw_traffic") as mock_log:
         await mock_serial_inst.read_queue.put(frame)
         await asyncio.sleep(0.05)
-        mock_log.assert_any_call("recv", frame, is_error=True)
+        mock_log.assert_any_call("recv", frame, is_error=True, is_ignored=False)
 
     assert len(mock_serial_inst.write_calls) == 0
 
@@ -185,7 +185,7 @@ async def test_ascii_server_invalid_lrc() -> None:
     with patch("tmodbus.server.async_ascii.log_raw_traffic") as mock_log:
         await mock_serial_inst.read_queue.put(frame)
         await asyncio.sleep(0.05)
-        mock_log.assert_any_call("recv", frame, is_error=True)
+        mock_log.assert_any_call("recv", frame, is_error=True, is_ignored=False)
 
     assert len(mock_serial_inst.write_calls) == 0
 
@@ -212,7 +212,7 @@ async def test_ascii_server_raw_traffic_logging() -> None:
         frame = b":01030000000100\r\n"
         await mock_serial_inst.read_queue.put(frame)
         await asyncio.sleep(0.05)
-        mock_log.assert_any_call("recv", frame, is_error=True)
+        mock_log.assert_any_call("recv", frame, is_error=True, is_ignored=False)
 
         # 3. Buffer exceeded maximum frame size
         mock_log.reset_mock()
@@ -341,3 +341,64 @@ async def test_ascii_server_read_exception_empty_buffer() -> None:
         await server.start()
         await asyncio.sleep(0.15)
         await server.stop()
+
+
+async def test_ascii_server_unregistered_unit_id_ignored() -> None:
+    """Test that ASCII server silently ignores requests with unregistered unit IDs."""
+    router = ModbusRequestRouter()
+
+    # Register only for unit_id=1
+    @router.register(ReadHoldingRegistersPDU, unit_id=1)
+    async def handle_read(_unit_id: int, _request: ReadHoldingRegistersPDU) -> list[int]:
+        return [0x7777]
+
+    server = AsyncAsciiServer(port="/dev/ttyUSB0", handler=router)
+    await server.start()
+
+    mock_serial_inst = server._serial
+    assert mock_serial_inst is not None
+
+    # Feed a frame targeting unit_id=2 (unregistered)
+    frame = b":020300000001FA\r\n"
+    with patch("tmodbus.server.async_ascii.log_raw_traffic") as mock_log:
+        await mock_serial_inst.read_queue.put(frame)
+        await asyncio.sleep(0.05)
+
+        # Should NOT have sent any response
+        assert len(mock_serial_inst.write_calls) == 0
+
+        # Verify it was logged as ignored
+        mock_log.assert_any_call("recv", frame, is_error=False, is_ignored=True)
+
+    await server.stop()
+
+
+async def test_ascii_server_broadcast() -> None:
+    """Test that ASCII server processes broadcast (unit_id=0) but sends no response."""
+    router = ModbusRequestRouter()
+    called = False
+
+    @router.register(ReadHoldingRegistersPDU, unit_id=0)
+    async def handle_read(_unit_id: int, _request: ReadHoldingRegistersPDU) -> list[int]:
+        nonlocal called
+        called = True
+        return [0x7777]
+
+    server = AsyncAsciiServer(port="/dev/ttyUSB0", handler=router)
+    await server.start()
+
+    mock_serial_inst = server._serial
+    assert mock_serial_inst is not None
+
+    # Feed a frame targeting unit_id=0 (broadcast)
+    frame = b":000300000001FC\r\n"
+    await mock_serial_inst.read_queue.put(frame)
+
+    await asyncio.sleep(0.05)
+
+    # Should have called the handler
+    assert called is True
+    # Should NOT have sent any response
+    assert len(mock_serial_inst.write_calls) == 0
+
+    await server.stop()

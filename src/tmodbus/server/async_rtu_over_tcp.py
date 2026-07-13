@@ -6,6 +6,7 @@ import logging
 from functools import partial
 from typing import Any, Literal
 
+from tmodbus.const import ExceptionCode
 from tmodbus.exceptions import InvalidRequestError
 from tmodbus.pdu import BasePDU, get_pdu_class, get_subfunction_pdu_class, is_function_code_for_subfunction_pdu
 from tmodbus.utils.crc import calculate_crc16, validate_crc16
@@ -54,6 +55,8 @@ class AsyncRtuOverTcpServer:
         host: str,
         handler: ModbusHandler,
         port: int = 502,
+        *,
+        unregistered_unit_id_exception_code: int = ExceptionCode.GATEWAY_TARGET_DEVICE_FAILED_TO_RESPOND,
         **server_kwargs: Any,
     ) -> None:
         """Initialize Async Modbus RTU-over-TCP Server.
@@ -62,12 +65,17 @@ class AsyncRtuOverTcpServer:
             host: Interface to bind to
             port: Port to listen on (default: 502)
             handler: User-defined async handler for processing requests
+            unregistered_unit_id_exception_code: Exception code returned when a request is received
+                for a Unit ID that is not registered in the handler (default: 0x0B).
+                Note that `ExceptionCode.GATEWAY_PATH_UNAVAILABLE` (0x0A) is preferred if the server
+                is acting as a gateway.
             server_kwargs: Additional arguments for `asyncio.start_server`
 
         """
         self.host = host
         self.handler = handler
         self.port = port
+        self.unregistered_unit_id_exception_code = unregistered_unit_id_exception_code
         self.server_kwargs = server_kwargs
         self._server: asyncio.Server | None = None
 
@@ -98,6 +106,7 @@ class AsyncRtuOverTcpServer:
 
     def _get_pdu_class(self, function_code: int, buffer: bytearray) -> type[BasePDU[Any]] | None:
         """Get the PDU class for the given function code, or None if more data is needed."""
+        pdu_class: type[Any]
         if is_function_code_for_subfunction_pdu(function_code):
             if len(buffer) < 3:
                 return None
@@ -126,7 +135,7 @@ class AsyncRtuOverTcpServer:
             return None
 
         if len(buffer) > 2:
-            expected_data_len = pdu_class.get_expected_request_data_length(buffer[2:])
+            expected_data_len = pdu_class.get_expected_request_data_length(bytes(buffer[2:]))
         else:
             return None
 
@@ -146,25 +155,30 @@ class AsyncRtuOverTcpServer:
         function_code = frame[1]
         pdu_bytes = frame[1:-2]
 
-        pdu_class = self._get_pdu_class(function_code, bytearray(frame))
-        assert pdu_class is not None
-
         is_error = False
-        try:
-            request_pdu = pdu_class.decode_request(pdu_bytes)
-        except (ValueError, InvalidRequestError) as e:
-            logger.warning("Invalid request from %s: %s", addr, e)
-            response_pdu_bytes = bytes([function_code | 0x80, 0x01])
+
+        if not self.handler.supports_unit_id(unit_id):
+            logger.warning("Request for unregistered unit ID %d from %s", unit_id, addr)
+            response_pdu_bytes = bytes([function_code | 0x80, self.unregistered_unit_id_exception_code])
             is_error = True
         else:
-            response_pdu_bytes = await handle_modbus_request(unit_id, request_pdu, self.handler)
+            try:
+                pdu_class = self._get_pdu_class(function_code, bytearray(frame))
+                assert pdu_class is not None
+                request_pdu = pdu_class.decode_request(pdu_bytes)
+            except (ValueError, InvalidRequestError) as e:
+                logger.warning("Invalid request from %s: %s", addr, e)
+                response_pdu_bytes = bytes([function_code | 0x80, 0x01])
+                is_error = True
+            else:
+                response_pdu_bytes = await handle_modbus_request(unit_id, request_pdu, self.handler)
 
         out_frame = bytearray([unit_id]) + response_pdu_bytes
-        crc = calculate_crc16(out_frame)
+        crc = calculate_crc16(bytes(out_frame))
         out_frame.extend(crc)
 
         writer.write(out_frame)
-        log_raw_traffic("sent", out_frame)
+        log_raw_traffic("sent", bytes(out_frame))
         await writer.drain()
         return not is_error
 
@@ -196,7 +210,7 @@ class AsyncRtuOverTcpServer:
         if len(buffer) < expected_total_len:
             return "need_data"
 
-        frame = buffer[:expected_total_len]
+        frame = bytes(buffer[:expected_total_len])
         del buffer[:expected_total_len]
 
         # Validate CRC

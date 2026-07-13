@@ -3,7 +3,7 @@
 import asyncio
 import logging
 
-from tmodbus.exceptions import IllegalDataAddressError, IllegalFunctionError
+from tmodbus.exceptions import IllegalDataAddressError
 from tmodbus.pdu import ReadHoldingRegistersPDU, WriteMultipleRegistersPDU, WriteSingleRegisterPDU
 from tmodbus.server import AsyncTcpServer, ModbusRequestRouter
 
@@ -16,13 +16,9 @@ REGISTER_STORE = [0] * 100
 router = ModbusRequestRouter()
 
 
-@router.register(ReadHoldingRegistersPDU)
-async def handle_read_holding_registers(unit_id: int, request: ReadHoldingRegistersPDU) -> list[int]:
+@router.register(ReadHoldingRegistersPDU, unit_id=1)
+async def handle_read_holding_registers(_unit_id: int, request: ReadHoldingRegistersPDU) -> list[int]:
     """Handle incoming Read Holding Registers request."""
-    # Reject anything that isn't for unit ID 1
-    if unit_id != 1:
-        raise IllegalFunctionError(1, request.function_code)
-
     addr = request.start_address
     qty = request.quantity
     if addr + qty > len(REGISTER_STORE):
@@ -30,13 +26,9 @@ async def handle_read_holding_registers(unit_id: int, request: ReadHoldingRegist
     return REGISTER_STORE[addr : addr + qty]
 
 
-@router.register(WriteSingleRegisterPDU)
-async def handle_write_single_register(unit_id: int, request: WriteSingleRegisterPDU) -> int:
+@router.register(WriteSingleRegisterPDU, unit_id=1)
+async def handle_write_single_register(_unit_id: int, request: WriteSingleRegisterPDU) -> int:
     """Handle incoming Write Single Register request."""
-    # Reject anything that isn't for unit ID 1
-    if unit_id != 1:
-        raise IllegalFunctionError(1, request.function_code)
-
     addr = request.address
     val = request.value
     if addr >= len(REGISTER_STORE):
@@ -45,13 +37,9 @@ async def handle_write_single_register(unit_id: int, request: WriteSingleRegiste
     return val
 
 
-@router.register(WriteMultipleRegistersPDU)
-async def handle_write_multiple_registers(unit_id: int, request: WriteMultipleRegistersPDU) -> int:
+@router.register(WriteMultipleRegistersPDU, unit_id=1)
+async def handle_write_multiple_registers(_unit_id: int, request: WriteMultipleRegistersPDU) -> int:
     """Handle incoming Write Multiple Registers request."""
-    # Reject anything that isn't for unit ID 1
-    if unit_id != 1:
-        raise IllegalFunctionError(1, request.function_code)
-
     addr = request.start_address
     vals = request.values
     if addr + len(vals) > len(REGISTER_STORE):

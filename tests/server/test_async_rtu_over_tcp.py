@@ -352,3 +352,80 @@ async def test_rtu_over_tcp_server_edge_cases() -> None:  # noqa: PLR0915
             await writer.wait_closed()
 
     await server.stop()
+
+
+async def test_rtu_over_tcp_server_unregistered_unit_id() -> None:
+    """Test that RTU-over-TCP server returns configured exception response for unregistered unit ID."""
+    router = ModbusRequestRouter()
+
+    # Register only for unit_id=1
+    @router.register(ReadHoldingRegistersPDU, unit_id=1)
+    async def handle_read(_unit_id: int, _request: ReadHoldingRegistersPDU) -> list[int]:
+        return [0x1234]
+
+    server = AsyncRtuOverTcpServer(host="127.0.0.1", port=0, handler=router)
+    await server.start()
+
+    try:
+        port = get_server_port(server)
+        reader, writer = await asyncio.open_connection("127.0.0.1", port)
+
+        try:
+            # Request to unregistered unit_id=2 (RTU framing)
+            pdu = b"\x02\x03\x00\x00\x00\x01"
+            frame = bytearray(pdu) + calculate_crc16(pdu)
+            writer.write(frame)
+            await writer.drain()
+
+            resp = await reader.readexactly(5)  # unit(1) + fc|0x80(1) + err(1) + crc(2)
+            assert resp[0] == 2
+            assert resp[1] == 0x83
+            # Default is 0x0B
+            assert resp[2] == 0x0B
+
+        finally:
+            writer.close()
+            await writer.wait_closed()
+
+    finally:
+        await server.stop()
+
+
+async def test_rtu_over_tcp_server_configurable_exception_code() -> None:
+    """Test that RTU-over-TCP server unregistered unit ID exception code is configurable."""
+    router = ModbusRequestRouter()
+
+    @router.register(ReadHoldingRegistersPDU, unit_id=1)
+    async def handle_read(_unit_id: int, _request: ReadHoldingRegistersPDU) -> list[int]:
+        return [0x1234]
+
+    server = AsyncRtuOverTcpServer(
+        host="127.0.0.1",
+        port=0,
+        handler=router,
+        unregistered_unit_id_exception_code=0x0A,  # GATEWAY_PATH_UNAVAILABLE
+    )
+    await server.start()
+
+    try:
+        port = get_server_port(server)
+        reader, writer = await asyncio.open_connection("127.0.0.1", port)
+
+        try:
+            # Request to unregistered unit_id=2 (RTU framing)
+            pdu = b"\x02\x03\x00\x00\x00\x01"
+            frame = bytearray(pdu) + calculate_crc16(pdu)
+            writer.write(frame)
+            await writer.drain()
+
+            resp = await reader.readexactly(5)
+            assert resp[0] == 2
+            assert resp[1] == 0x83
+            assert resp[2] == 0x0A
+
+        finally:
+            writer.close()
+            await writer.wait_closed()
+
+    finally:
+        await server.stop()

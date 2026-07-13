@@ -106,6 +106,7 @@ class AsyncRtuServer:
 
     def _get_pdu_class(self, function_code: int, buffer: bytearray) -> type[BasePDU[Any]] | None:
         """Get the PDU class for the given function code, or None if more data is needed."""
+        pdu_class: type[BasePDU[Any]]
         if is_function_code_for_subfunction_pdu(function_code):
             if len(buffer) < 3:
                 return None
@@ -134,7 +135,7 @@ class AsyncRtuServer:
             return None
 
         if len(buffer) > 2:
-            expected_data_len = pdu_class.get_expected_request_data_length(buffer[2:])
+            expected_data_len = pdu_class.get_expected_request_data_length(bytes(buffer[2:]))
         else:
             return None
 
@@ -145,12 +146,15 @@ class AsyncRtuServer:
 
         return expected_total_len
 
-    async def _handle_frame(self, frame: bytes) -> bool:
+    async def _handle_frame(self, frame: bytes) -> Literal["ignored", "success", "error"]:
         """Handle a validated frame.
 
-        Returns True if the request was successfully decoded and handled, False if it was invalid.
+        Returns "ignored", "success", or "error".
         """
         unit_id = frame[0]
+        if not self.handler.supports_unit_id(unit_id):
+            return "ignored"
+
         function_code = frame[1]
         pdu_bytes = frame[1:-2]
 
@@ -167,15 +171,16 @@ class AsyncRtuServer:
         else:
             response_pdu_bytes = await handle_modbus_request(unit_id, request_pdu, self.handler)
 
-        out_frame = bytearray([unit_id]) + response_pdu_bytes
-        crc = calculate_crc16(out_frame)
-        out_frame.extend(crc)
+        if unit_id != 0:
+            out_frame = bytearray([unit_id]) + response_pdu_bytes
+            crc = calculate_crc16(bytes(out_frame))
+            out_frame.extend(crc)
 
-        if self._serial:
-            await self._serial.write(out_frame)
-            log_raw_traffic("sent", out_frame)
+            if self._serial:
+                await self._serial.write(out_frame)
+                log_raw_traffic("sent", bytes(out_frame))
 
-        return not is_error
+        return "error" if is_error else "success"
 
     async def _process_next_frame(self, buffer: bytearray) -> Literal["need_data", "processed"]:
         """Process the next frame in the buffer if possible.
@@ -199,7 +204,7 @@ class AsyncRtuServer:
             return "need_data"
 
         # We have a full frame
-        frame = buffer[:expected_total_len]
+        frame = bytes(buffer[:expected_total_len])
         del buffer[:expected_total_len]
 
         # Validate CRC
@@ -208,8 +213,8 @@ class AsyncRtuServer:
             log_raw_traffic("recv", frame, is_error=True)
             return "processed"
 
-        is_success = await self._handle_frame(frame)
-        log_raw_traffic("recv", frame, is_error=not is_success)
+        status = await self._handle_frame(frame)
+        log_raw_traffic("recv", frame, is_error=(status == "error"), is_ignored=(status == "ignored"))
         return "processed"
 
     async def _serve(self) -> None:

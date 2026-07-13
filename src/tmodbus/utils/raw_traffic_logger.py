@@ -12,6 +12,7 @@ def log_raw_traffic(
     data: bytes,
     *,
     is_error: bool = False,
+    is_ignored: bool = False,
 ) -> None:
     """Log raw Modbus traffic when debug logging is enabled."""
     # This runs on every frame in both directions, and formatting the bytes to
@@ -19,12 +20,18 @@ def log_raw_traffic(
     if not raw_traffic_logger.isEnabledFor(DEBUG):
         return
 
+    status = ""
+    if is_error:
+        status = "[!]"
+    elif is_ignored:
+        status = "[ignored]"
+
     raw_traffic_logger.debug(
         "%6s %s: %s %s",
         transport_name,
         direction,
         _format_bytes(data),
-        "[!]" if is_error else "",
+        status,
     )
 
 

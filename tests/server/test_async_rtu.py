@@ -136,7 +136,7 @@ async def test_rtu_server_unsupported_function_code() -> None:
     with patch("tmodbus.server.async_rtu.log_raw_traffic") as mock_log:
         await mock_serial_inst.read_queue.put(pdu_good + crc_good)
         await asyncio.sleep(0.05)
-        mock_log.assert_any_call("recv", pdu_good + crc_good, is_error=False)
+        mock_log.assert_any_call("recv", pdu_good + crc_good, is_error=False, is_ignored=False)
 
     assert len(mock_serial_inst.write_calls) == 1
     assert mock_serial_inst.write_calls[0][3:5] == b"\x55\x55"
@@ -314,3 +314,69 @@ async def test_rtu_server_read_exception_empty_buffer() -> None:
         await server.start()
         await asyncio.sleep(0.15)
         await server.stop()
+
+
+async def test_rtu_server_unregistered_unit_id_ignored() -> None:
+    """Test that RTU server silently ignores requests with unregistered unit IDs."""
+    router = ModbusRequestRouter()
+
+    # Register only for unit_id=1
+    @router.register(ReadHoldingRegistersPDU, unit_id=1)
+    async def handle_read(_unit_id: int, _request: ReadHoldingRegistersPDU) -> list[int]:
+        return [0x7777]
+
+    server = AsyncRtuServer(port="/dev/ttyUSB0", handler=router)
+    await server.start()
+
+    mock_serial_inst = server._serial
+    assert mock_serial_inst is not None
+
+    # Feed a frame targeting unit_id=2 (unregistered)
+    pdu = b"\x02\x03\x00\x00\x00\x01"
+    crc = calculate_crc16(pdu)
+    with patch("tmodbus.server.async_rtu.log_raw_traffic") as mock_log:
+        for b in pdu + crc:
+            await mock_serial_inst.read_queue.put(bytes([b]))
+
+        await asyncio.sleep(0.05)
+
+        # Should NOT have sent any response
+        assert len(mock_serial_inst.write_calls) == 0
+
+        # Verify it was logged as ignored
+        mock_log.assert_any_call("recv", pdu + crc, is_error=False, is_ignored=True)
+
+    await server.stop()
+
+
+async def test_rtu_server_broadcast() -> None:
+    """Test that RTU server processes broadcast (unit_id=0) but sends no response."""
+    router = ModbusRequestRouter()
+    called = False
+
+    @router.register(ReadHoldingRegistersPDU, unit_id=0)
+    async def handle_read(_unit_id: int, _request: ReadHoldingRegistersPDU) -> list[int]:
+        nonlocal called
+        called = True
+        return [0x7777]
+
+    server = AsyncRtuServer(port="/dev/ttyUSB0", handler=router)
+    await server.start()
+
+    mock_serial_inst = server._serial
+    assert mock_serial_inst is not None
+
+    # Feed a frame targeting unit_id=0 (broadcast)
+    pdu = b"\x00\x03\x00\x00\x00\x01"
+    crc = calculate_crc16(pdu)
+    for b in pdu + crc:
+        await mock_serial_inst.read_queue.put(bytes([b]))
+
+    await asyncio.sleep(0.05)
+
+    # Should have called the handler
+    assert called is True
+    # Should NOT have sent any response
+    assert len(mock_serial_inst.write_calls) == 0
+
+    await server.stop()

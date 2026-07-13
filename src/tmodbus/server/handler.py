@@ -1,8 +1,8 @@
 """Modbus Server Handler Protocol."""
 
 import logging
-from collections.abc import Awaitable, Callable
-from typing import Any, Protocol, TypeGuard
+from collections.abc import Awaitable, Callable, Iterable
+from typing import Any, Protocol, TypeGuard, cast
 
 from tmodbus.const import ExceptionCode
 from tmodbus.exceptions import IllegalFunctionError, ModbusResponseError
@@ -15,6 +15,13 @@ def is_server_pdu_class(pdu_class: type[BaseClientPDU[Any]]) -> TypeGuard[type[B
     """Type guard to check if a PDU class implements server-side methods."""
     return issubclass(pdu_class, BasePDU)
 
+
+# A type alias for the type-erased underlying handler callable.
+# We use `Any` because each Modbus function code handles a different PDU class
+# and returns a different payload type, and function parameters are contravariant.
+type RouterHandler = Callable[[int, Any], Awaitable[Any]]
+
+
 # A ModbusHandler is a protocol representing a callable that processes a request PDU
 # and returns the response payload of the matching type.
 class ModbusHandler(Protocol):
@@ -23,6 +30,10 @@ class ModbusHandler(Protocol):
     def __call__[T](self, unit_id: int, request: BasePDU[T], /) -> Awaitable[T]:
         """Process a Modbus request and return the response value."""
         ...
+
+    def supports_unit_id(self, _unit_id: int, /) -> bool:
+        """Check if the handler supports the given unit ID."""
+        return True
 
 
 class ModbusRequestRouter(ModbusHandler):
@@ -61,15 +72,57 @@ class ModbusRequestRouter(ModbusHandler):
             ```
 
         """
-        self._handlers: dict[int, Callable[[int, Any], Awaitable[Any]]] = {}
+        # Map of registered handlers.
+        #
+        # Structure:
+        #   Outer Key: `int | None` representing the unit ID (slave address).
+        #              `None` acts as a wildcard fallback key for any unit ID.
+        #   Inner Key: `int` representing the Modbus function code (e.g. 0x03).
+        #   Value:     `RouterHandler` async callable.
+        self._handlers: dict[int | None, dict[int, RouterHandler]] = {}
 
-    def register[T](
-        self, pdu_class: type[BasePDU[T]]
-    ) -> Callable[[Callable[[int, BasePDU[T]], Awaitable[T]]], Callable[[int, BasePDU[T]], Awaitable[T]]]:
-        """Register a handler for a specific request PDU class with complete static type safety."""
-        def decorator(handler: Callable[[int, BasePDU[T]], Awaitable[T]]) -> Callable[[int, BasePDU[T]], Awaitable[T]]:
-            self._handlers[pdu_class.function_code] = handler
+    def supports_unit_id(self, unit_id: int, /) -> bool:
+        """Check if the handler supports the given unit ID."""
+        return None in self._handlers or unit_id in self._handlers
+
+    def register[T, PDU: BasePDU[Any]](
+        self,
+        pdu_class: type[PDU],
+        *,
+        unit_id: int | Iterable[int] | None = None,
+    ) -> Callable[[Callable[[int, PDU], Awaitable[T]]], Callable[[int, PDU], Awaitable[T]]]:
+        """Register a handler for a specific request PDU class and optional unit ID(s).
+
+        Note:
+            For Modbus RTU/ASCII (serial line), to handle broadcast requests, a handler
+            must be explicitly registered for unit ID 0 (or register a default wildcard
+            handler by omitting the unit_id parameter).
+
+        """
+
+        def decorator(handler: Callable[[int, PDU], Awaitable[T]]) -> Callable[[int, PDU], Awaitable[T]]:
+            # Ensure pdu_class has function_code (since it should be a BasePDU subclass)
+            func_code = pdu_class.function_code
+
+            def add_handler(uid: int | None) -> None:
+                if uid not in self._handlers:
+                    self._handlers[uid] = {}
+
+                if func_code in self._handlers[uid]:
+                    msg = f"Handler for function code {func_code} and unit ID {uid} already registered"
+                    raise ValueError(msg)
+
+                self._handlers[uid][func_code] = handler
+
+            if unit_id is None:
+                add_handler(None)
+            elif isinstance(unit_id, int):
+                add_handler(unit_id)
+            else:
+                for uid in unit_id:
+                    add_handler(uid)
             return handler
+
         return decorator
 
     async def __call__[T](self, unit_id: int, request: BasePDU[T]) -> T:
@@ -88,10 +141,20 @@ class ModbusRequestRouter(ModbusHandler):
                 specified in the request PDU.
 
         """
-        handler = self._handlers.get(request.function_code)
+        # First, try to find handlers for the specific unit ID
+        func_handlers = self._handlers.get(unit_id)
+        if func_handlers is None:
+            # Fallback to the default (wildcard None) unit ID handlers
+            func_handlers = self._handlers.get(None)
+
+        if func_handlers is None:
+            raise IllegalFunctionError(ExceptionCode.ILLEGAL_FUNCTION, request.function_code)
+
+        handler = func_handlers.get(request.function_code)
         if handler is None:
             raise IllegalFunctionError(ExceptionCode.ILLEGAL_FUNCTION, request.function_code)
-        return await handler(unit_id, request)
+
+        return cast("T", await handler(unit_id, request))
 
 
 async def handle_modbus_request[T](

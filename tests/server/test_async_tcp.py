@@ -382,3 +382,85 @@ async def test_tcp_server_read_exception(tcp_server: AsyncTcpServer) -> None:
             writer.close()
             with contextlib.suppress(ConnectionError):
                 await writer.wait_closed()
+
+
+async def test_tcp_server_unregistered_unit_id() -> None:
+    """Test that unregistered unit ID returns configured exception code."""
+    router = ModbusRequestRouter()
+
+    # Register only for unit_id=1
+    @router.register(ReadHoldingRegistersPDU, unit_id=1)
+    async def handle_read(_unit_id: int, _request: ReadHoldingRegistersPDU) -> list[int]:
+        return [0x1234]
+
+    # By default, unregistered_unit_id_exception_code = GATEWAY_TARGET_DEVICE_FAILED_TO_RESPOND (0x0B)
+    server = AsyncTcpServer(host="127.0.0.1", port=0, handler=router)
+    await server.start()
+
+    try:
+        port = get_server_port(server)
+        reader, writer = await asyncio.open_connection("127.0.0.1", port)
+
+        try:
+            # Request to unregistered unit_id=2
+            mbap = struct.pack(">HHHB", 1, 0, 6, 2)
+            pdu = b"\x03\x00\x00\x00\x01"  # ReadHoldingRegisters
+            writer.write(mbap + pdu)
+            await writer.drain()
+
+            resp_mbap = await reader.readexactly(7)
+            _tx, _proto, length, unit = struct.unpack(">HHHB", resp_mbap)
+            assert unit == 2
+
+            resp_pdu = await reader.readexactly(length - 1)
+            # Exception response: function code = 0x83, exception code = 0x0B
+            assert resp_pdu == b"\x83\x0b"
+
+        finally:
+            writer.close()
+            await writer.wait_closed()
+
+    finally:
+        await server.stop()
+
+
+async def test_tcp_server_configurable_exception_code() -> None:
+    """Test that unregistered unit ID exception code is configurable (e.g. 0x0A)."""
+    router = ModbusRequestRouter()
+
+    @router.register(ReadHoldingRegistersPDU, unit_id=1)
+    async def handle_read(_unit_id: int, _request: ReadHoldingRegistersPDU) -> list[int]:
+        return [0x1234]
+
+    server = AsyncTcpServer(
+        host="127.0.0.1",
+        port=0,
+        handler=router,
+        unregistered_unit_id_exception_code=0x0A,  # GATEWAY_PATH_UNAVAILABLE
+    )
+    await server.start()
+
+    try:
+        port = get_server_port(server)
+        reader, writer = await asyncio.open_connection("127.0.0.1", port)
+
+        try:
+            # Request to unregistered unit_id=2
+            mbap = struct.pack(">HHHB", 1, 0, 6, 2)
+            pdu = b"\x03\x00\x00\x00\x01"
+            writer.write(mbap + pdu)
+            await writer.drain()
+
+            resp_mbap = await reader.readexactly(7)
+            _tx, _proto, length, _unit = struct.unpack(">HHHB", resp_mbap)
+
+            resp_pdu = await reader.readexactly(length - 1)
+            # Exception response: function code = 0x83, exception code = 0x0A
+            assert resp_pdu == b"\x83\x0a"
+
+        finally:
+            writer.close()
+            await writer.wait_closed()
+
+    finally:
+        await server.stop()

@@ -4,7 +4,7 @@ import asyncio
 import contextlib
 import logging
 from functools import partial
-from typing import Any
+from typing import Any, Literal
 
 from serialx import Serial
 
@@ -143,27 +143,30 @@ class AsyncAsciiServer:
         remaining = buffer[end_idx + 2 :]
         return frame, remaining
 
-    async def _process_next_frame(self, frame: bytes) -> bool:
+    async def _process_next_frame(self, frame: bytes) -> Literal["ignored", "success", "error"]:
         """Process a single complete Modbus ASCII frame.
 
-        Returns True if successful, False if an error occurred.
+        Returns "ignored", "success", or "error".
         """
         if len(frame) < 9:  # : + unit_id(2) + fc(2) + lrc(2) + \r\n
             logger.warning("ASCII frame too short")
-            return False
+            return "error"
 
         hex_data = frame[1:-2]
         try:
             bin_data = bytes.fromhex(hex_data.decode("ascii"))
         except ValueError:
             logger.warning("Invalid hex string in ASCII frame")
-            return False
+            return "error"
 
         if not validate_lrc(bin_data[:-1], bin_data[-1]):
             logger.warning("LRC validation failed")
-            return False
+            return "error"
 
         unit_id = bin_data[0]
+        if not self.handler.supports_unit_id(unit_id):
+            return "ignored"
+
         function_code = bin_data[1]
         pdu_bytes = bin_data[1:-1]  # exclude unit_id and lrc
 
@@ -178,17 +181,18 @@ class AsyncAsciiServer:
         else:
             response_pdu_bytes = await handle_modbus_request(unit_id, request_pdu, self.handler)
 
-        out_bin = bytearray([unit_id]) + response_pdu_bytes
-        lrc = calculate_lrc(out_bin)
-        out_bin.append(lrc)
+        if unit_id != 0:
+            out_bin = bytearray([unit_id]) + response_pdu_bytes
+            lrc = calculate_lrc(bytes(out_bin))
+            out_bin.append(lrc)
 
-        out_frame = b":" + out_bin.hex().upper().encode("ascii") + b"\r\n"
+            out_frame = b":" + out_bin.hex().upper().encode("ascii") + b"\r\n"
 
-        if self._serial:
-            await self._serial.write(out_frame)
-            log_raw_traffic("sent", out_frame)
+            if self._serial:
+                await self._serial.write(out_frame)
+                log_raw_traffic("sent", out_frame)
 
-        return not is_error
+        return "error" if is_error else "success"
 
     async def _serve(self) -> None:
         """Read and handle requests in a loop."""
@@ -215,8 +219,8 @@ class AsyncAsciiServer:
                             buffer = remaining
                             break
                         buffer = remaining
-                        is_success = await self._process_next_frame(frame)
-                        log_raw_traffic("recv", frame, is_error=not is_success)
+                        status = await self._process_next_frame(frame)
+                        log_raw_traffic("recv", frame, is_error=(status == "error"), is_ignored=(status == "ignored"))
 
                 except Exception:
                     logger.exception("Error in ASCII server loop")

@@ -7,6 +7,7 @@ import struct
 from functools import partial
 from typing import Any
 
+from tmodbus.const import ExceptionCode
 from tmodbus.exceptions import InvalidRequestError
 from tmodbus.pdu import BasePDU, get_pdu_class, get_subfunction_pdu_class, is_function_code_for_subfunction_pdu
 from tmodbus.utils.raw_traffic_logger import log_raw_traffic as base_log_raw_traffic
@@ -46,10 +47,10 @@ class AsyncTcpServer:
                   ├───[ Malformed Request ]
                   │   (InvalidRequestError) ──► Responds with IllegalFunction ──► [ Continue Loop ] (returns True)
                   ▼
-       handle_modbus_request()  ────► routes to ModbusHandler/router
+        handle_modbus_request()  ────► routes to ModbusHandler/router
                   │ (normal case: executes handler, encodes response)
                   ▼
-            [ TCP Write ]       ────► prepends response MBAP and sends (returns True)
+             [ TCP Write ]       ────► prepends response MBAP and sends (returns True)
     ```
     """
 
@@ -58,6 +59,8 @@ class AsyncTcpServer:
         host: str,
         handler: ModbusHandler,
         port: int = 502,
+        *,
+        unregistered_unit_id_exception_code: int = ExceptionCode.GATEWAY_TARGET_DEVICE_FAILED_TO_RESPOND,
         **server_kwargs: Any,
     ) -> None:
         """Initialize Async Modbus TCP Server.
@@ -66,12 +69,17 @@ class AsyncTcpServer:
             host: Interface to bind to
             port: Port to listen on (default: 502)
             handler: User-defined async handler for processing requests
+            unregistered_unit_id_exception_code: Exception code returned when a request is received
+                for a Unit ID that is not registered in the handler (default: 0x0B).
+                Note that `ExceptionCode.GATEWAY_PATH_UNAVAILABLE` (0x0A) is preferred if the server
+                is acting as a gateway.
             server_kwargs: Additional arguments for `asyncio.start_server`
 
         """
         self.host = host
         self.handler = handler
         self.port = port
+        self.unregistered_unit_id_exception_code = unregistered_unit_id_exception_code
         self.server_kwargs = server_kwargs
         self._server: asyncio.Server | None = None
 
@@ -102,6 +110,7 @@ class AsyncTcpServer:
 
     def _get_pdu_class(self, function_code: int, pdu_bytes: bytes) -> type[BasePDU[Any]]:
         """Get the PDU class for the given function code."""
+        raw_pdu_class: type[BasePDU[Any]]
         if is_function_code_for_subfunction_pdu(function_code):
             if len(pdu_bytes) < 2:
                 msg = "Missing sub-function code"
@@ -161,17 +170,22 @@ class AsyncTcpServer:
         function_code = pdu_bytes[0]
         is_error = False
 
-        try:
-            raw_pdu_class = self._get_pdu_class(function_code, pdu_bytes)
-            request_pdu = raw_pdu_class.decode_request(pdu_bytes)
-        except (ValueError, InvalidRequestError) as e:
-            logger.warning("Invalid request from %s: %s", addr, e)
-            # Cannot respond if we don't even know the function code properly, or if unsupported
-            # We might reply with IllegalFunction if we at least have function_code
-            response_pdu_bytes = bytes([function_code | 0x80, 0x01])  # ILLEGAL_FUNCTION
+        if not self.handler.supports_unit_id(unit_id):
+            logger.warning("Request for unregistered unit ID %d from %s", unit_id, addr)
+            response_pdu_bytes = bytes([function_code | 0x80, self.unregistered_unit_id_exception_code])
             is_error = True
         else:
-            response_pdu_bytes = await handle_modbus_request(unit_id, request_pdu, self.handler)
+            try:
+                raw_pdu_class = self._get_pdu_class(function_code, pdu_bytes)
+                request_pdu = raw_pdu_class.decode_request(pdu_bytes)
+            except (ValueError, InvalidRequestError) as e:
+                logger.warning("Invalid request from %s: %s", addr, e)
+                # Cannot respond if we don't even know the function code properly, or if unsupported
+                # We might reply with IllegalFunction if we at least have function_code
+                response_pdu_bytes = bytes([function_code | 0x80, 0x01])  # ILLEGAL_FUNCTION
+                is_error = True
+            else:
+                response_pdu_bytes = await handle_modbus_request(unit_id, request_pdu, self.handler)
 
         log_raw_traffic("recv", mbap_header + pdu_bytes, is_error=is_error)
 

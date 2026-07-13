@@ -1,9 +1,22 @@
 """Tests for server handler and router implementation."""
 
+from collections.abc import Awaitable
+from typing import Any
+
 import pytest
 from tmodbus.exceptions import IllegalDataAddressError, IllegalFunctionError
-from tmodbus.pdu import ReadHoldingRegistersPDU, WriteSingleRegisterPDU
-from tmodbus.server import ModbusRequestRouter, handle_modbus_request
+from tmodbus.pdu import BasePDU, ReadHoldingRegistersPDU, WriteSingleRegisterPDU
+from tmodbus.server import ModbusHandler, ModbusRequestRouter, handle_modbus_request
+
+
+async def test_default_supports_unit_id() -> None:
+    """Test the default supports_unit_id function."""
+
+    class MyHandler(ModbusHandler):
+        def __call__(self, unit_id: int, request: BasePDU[Any]) -> Awaitable[Any]:
+            raise NotImplementedError
+
+    assert MyHandler().supports_unit_id(1) is True
 
 
 async def test_router_registration_and_dispatch() -> None:
@@ -16,6 +29,14 @@ async def test_router_registration_and_dispatch() -> None:
         assert request.start_address == 10
         assert request.quantity == 5
         return [42] * request.quantity
+
+    with pytest.raises(ValueError, match="already registered"):
+        # we don't support registering multiple handlers for the same function code/unit id as this
+        # is a footgun.
+
+        @router.register(ReadHoldingRegistersPDU)
+        async def handle_read_duplicate(_unit_id: int, _request: ReadHoldingRegistersPDU) -> list[int]:
+            return [-1]
 
     # Test routing a registered request
     req = ReadHoldingRegistersPDU(start_address=10, quantity=5)
@@ -69,3 +90,73 @@ async def test_handle_modbus_request_unexpected_error() -> None:
     response_bytes = await handle_modbus_request(1, req, router)
     # Expected SERVER_DEVICE_FAILURE exception code (0x04)
     assert response_bytes == b"\x83\x04"
+
+
+async def test_router_unit_id_routing() -> None:
+    """Test routing with specific unit IDs, fallback behavior, and multiple unit ID registration."""
+    router = ModbusRequestRouter()
+
+    # Register for specific unit ID 1
+    @router.register(ReadHoldingRegistersPDU, unit_id=1)
+    async def handle_unit_1(_unit_id: int, request: ReadHoldingRegistersPDU) -> list[int]:
+        return [1] * request.quantity
+
+    # Register for multiple unit IDs: 2 and 3
+    @router.register(ReadHoldingRegistersPDU, unit_id=[2, 3])
+    async def handle_units_2_3(unit_id: int, request: ReadHoldingRegistersPDU) -> list[int]:
+        return [unit_id] * request.quantity
+
+    # Test routing before a wildcard handler for ReadHoldingRegistersPDU is registered
+    with pytest.raises(IllegalFunctionError):
+        await router(4, ReadHoldingRegistersPDU(start_address=10, quantity=3))
+
+    # Register a general default handler for WriteSingleRegisterPDU (no unit_id specified)
+    @router.register(WriteSingleRegisterPDU)
+    async def handle_write_default(_unit_id: int, _request: WriteSingleRegisterPDU) -> int:
+        return 99
+
+    # Register a specific handler for WriteSingleRegisterPDU on unit_id=5
+    @router.register(WriteSingleRegisterPDU, unit_id=5)
+    async def handle_write_unit_5(_unit_id: int, _request: WriteSingleRegisterPDU) -> int:
+        return 55
+
+    # Test routing to unit_id=1
+    req_read = ReadHoldingRegistersPDU(start_address=10, quantity=3)
+    resp = await router(1, req_read)
+    assert resp == [1, 1, 1]
+
+    # Test routing to unit_id=2 and 3
+    assert await router(2, req_read) == [2, 2, 2]
+    assert await router(3, req_read) == [3, 3, 3]
+
+    # Test routing to an unregistered unit_id (e.g. 4) for ReadHoldingRegistersPDU
+    with pytest.raises(IllegalFunctionError):
+        await router(4, req_read)
+
+    # Test WriteSingleRegisterPDU routing
+    req_write = WriteSingleRegisterPDU(address=10, value=100)
+    # Unit 5 should route to specific handler
+    assert await router(5, req_write) == 55
+    # Unit 6 should route to default handler
+    assert await router(6, req_write) == 99
+
+    # Test supports_unit_id helper
+    assert router.supports_unit_id(1) is True
+    assert router.supports_unit_id(2) is True
+    assert router.supports_unit_id(3) is True
+    assert router.supports_unit_id(5) is True
+    assert router.supports_unit_id(6) is True  # True because of the default (None) handler
+    assert router.supports_unit_id(4) is True  # True because WriteSingleRegisterPDU has a default (None) handler
+    assert router.supports_unit_id(0) is True
+
+    # Test supports_unit_id with strict registration (no default handlers)
+    strict_router = ModbusRequestRouter()
+
+    @strict_router.register(ReadHoldingRegistersPDU, unit_id=[1, 2])
+    async def handle_strict(_unit_id: int, _request: ReadHoldingRegistersPDU) -> list[int]:
+        return [42]
+
+    assert strict_router.supports_unit_id(1) is True
+    assert strict_router.supports_unit_id(2) is True
+    assert strict_router.supports_unit_id(3) is False
+    assert strict_router.supports_unit_id(0) is False
