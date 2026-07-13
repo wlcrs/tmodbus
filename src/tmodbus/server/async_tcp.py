@@ -9,22 +9,16 @@ from typing import Any
 
 from tmodbus.const import ExceptionCode
 from tmodbus.exceptions import InvalidRequestError
-from tmodbus.pdu import (
-    BaseClientPDU,
-    BasePDU,
-    get_pdu_class,
-    get_subfunction_pdu_class,
-    is_function_code_for_subfunction_pdu,
-)
 from tmodbus.utils.raw_traffic_logger import log_raw_traffic as base_log_raw_traffic
 
-from .handler import ModbusHandler, handle_modbus_request, is_server_pdu_class
+from .base import AsyncBaseServer, get_server_pdu_class
+from .handler import ModbusHandler, handle_modbus_request
 
 logger = logging.getLogger(__name__)
 log_raw_traffic = partial(base_log_raw_traffic, "TCP-Server")
 
 
-class AsyncTcpServer:
+class AsyncTcpServer(AsyncBaseServer):
     """Async Modbus TCP Server.
 
     Incoming Data Flow & Error Branches:
@@ -114,24 +108,6 @@ class AsyncTcpServer:
         async with self._server:
             await self._server.serve_forever()
 
-    def _get_pdu_class(self, function_code: int, pdu_bytes: bytes) -> type[BasePDU[Any]]:
-        """Get the PDU class for the given function code."""
-        raw_pdu_class: type[BaseClientPDU[Any]]
-        if is_function_code_for_subfunction_pdu(function_code):
-            if len(pdu_bytes) < 2:
-                msg = "Missing sub-function code"
-                raise InvalidRequestError(msg, request_bytes=pdu_bytes)
-            sub_function_code = pdu_bytes[1]
-            raw_pdu_class = get_subfunction_pdu_class(function_code, sub_function_code)
-        else:
-            raw_pdu_class = get_pdu_class(function_code)
-
-        if not is_server_pdu_class(raw_pdu_class):
-            msg = f"PDU class {raw_pdu_class.__name__} does not implement server methods"
-            raise ValueError(msg)
-
-        return raw_pdu_class
-
     async def _handle_single_request(
         self,
         reader: asyncio.StreamReader,
@@ -182,7 +158,7 @@ class AsyncTcpServer:
             is_error = True
         else:
             try:
-                raw_pdu_class = self._get_pdu_class(function_code, pdu_bytes)
+                raw_pdu_class = get_server_pdu_class(pdu_bytes)
                 request_pdu = raw_pdu_class.decode_request(pdu_bytes)
             except (ValueError, InvalidRequestError) as e:
                 logger.warning("Invalid request from %s: %s", addr, e)

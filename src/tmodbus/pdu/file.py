@@ -227,6 +227,7 @@ class ReadFileRecordPDU(BasePDU[list[bytes]]):
         """Get the expected number of bytes for the data part of the request PDU."""
         return 1 + data[0]
 
+
 @dataclass(frozen=True)
 class FileRecord:
     """Data structure for Write File Record response."""

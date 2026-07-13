@@ -316,7 +316,7 @@ async def test_rtu_over_tcp_server_edge_cases() -> None:  # noqa: PLR0915
         class DummyClientOnlyPDU(BaseClientPDU[None]):
             function_code = 0x03
 
-        with patch("tmodbus.server.async_rtu_over_tcp.get_pdu_class", return_value=DummyClientOnlyPDU):
+        with patch("tmodbus.server.base.get_pdu_class", return_value=DummyClientOnlyPDU):
             writer.write(b"\x01\x03\x00\x00\x00\x01\x00\x00")
             await writer.drain()
             await asyncio.sleep(0.05)

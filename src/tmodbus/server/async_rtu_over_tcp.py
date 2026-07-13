@@ -8,11 +8,11 @@ from typing import Any, Literal
 
 from tmodbus.const import ExceptionCode
 from tmodbus.exceptions import InvalidRequestError
-from tmodbus.pdu import BasePDU, get_pdu_class, get_subfunction_pdu_class, is_function_code_for_subfunction_pdu
 from tmodbus.utils.crc import calculate_crc16, validate_crc16
 from tmodbus.utils.raw_traffic_logger import log_raw_traffic as base_log_raw_traffic
 
-from .handler import ModbusHandler, handle_modbus_request, is_server_pdu_class
+from .base import AsyncBaseServer, get_server_pdu_class_from_buffer
+from .handler import ModbusHandler, handle_modbus_request
 
 logger = logging.getLogger(__name__)
 log_raw_traffic = partial(base_log_raw_traffic, "RTU-over-TCP-Server")
@@ -20,7 +20,7 @@ log_raw_traffic = partial(base_log_raw_traffic, "RTU-over-TCP-Server")
 MAX_RTU_FRAME_SIZE = 256
 
 
-class AsyncRtuOverTcpServer:
+class AsyncRtuOverTcpServer(AsyncBaseServer):
     """Async Modbus RTU-over-TCP Server.
 
     Incoming Data Flow & Error Branches:
@@ -104,22 +104,6 @@ class AsyncRtuOverTcpServer:
         async with self._server:
             await self._server.serve_forever()
 
-    def _get_pdu_class(self, function_code: int, buffer: bytearray) -> type[BasePDU[Any]] | None:
-        """Get the PDU class for the given function code, or None if more data is needed."""
-        pdu_class: type[Any]
-        if is_function_code_for_subfunction_pdu(function_code):
-            if len(buffer) < 3:
-                return None
-            sub_function_code = buffer[2]
-            pdu_class = get_subfunction_pdu_class(function_code, sub_function_code)
-        else:
-            pdu_class = get_pdu_class(function_code)
-
-        if not is_server_pdu_class(pdu_class):
-            msg = f"PDU class {pdu_class.__name__} does not implement server methods"
-            raise ValueError(msg)
-        return pdu_class
-
     def _parse_frame_length(self, buffer: bytearray) -> int | None:
         """Parse expected total frame length from buffer, or return None if not enough data.
 
@@ -128,9 +112,7 @@ class AsyncRtuOverTcpServer:
         if len(buffer) < 2:
             return None
 
-        function_code = buffer[1]
-
-        pdu_class = self._get_pdu_class(function_code, buffer)
+        pdu_class = get_server_pdu_class_from_buffer(buffer)
         if pdu_class is None:
             return None
 
@@ -163,7 +145,7 @@ class AsyncRtuOverTcpServer:
             is_error = True
         else:
             try:
-                pdu_class = self._get_pdu_class(function_code, bytearray(frame))
+                pdu_class = get_server_pdu_class_from_buffer(bytearray(frame))
                 assert pdu_class is not None
                 request_pdu = pdu_class.decode_request(pdu_bytes)
             except (ValueError, InvalidRequestError) as e:

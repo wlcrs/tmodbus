@@ -263,7 +263,7 @@ async def test_tcp_server_non_server_pdu_class(tcp_server: AsyncTcpServer) -> No
     port = get_server_port(tcp_server)
     reader, writer = await asyncio.open_connection("127.0.0.1", port)
 
-    with patch("tmodbus.server.async_tcp.get_pdu_class", return_value=DummyClientOnlyPDU):
+    with patch("tmodbus.server.base.get_pdu_class", return_value=DummyClientOnlyPDU):
         try:
             mbap = struct.pack(">HHHB", 6, 0, 6, 1)
             pdu = b"\x03\x00\x00\x00\x02"
