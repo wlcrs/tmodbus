@@ -6,10 +6,16 @@ import logging
 from functools import partial
 from typing import Any, Literal
 
-from serialx import Serial
+from serialx import open_serial_connection
 
 from tmodbus.exceptions import InvalidRequestError
-from tmodbus.pdu import BasePDU, get_pdu_class, get_subfunction_pdu_class, is_function_code_for_subfunction_pdu
+from tmodbus.pdu import (
+    BaseClientPDU,
+    BasePDU,
+    get_pdu_class,
+    get_subfunction_pdu_class,
+    is_function_code_for_subfunction_pdu,
+)
 from tmodbus.utils.crc import calculate_crc16, validate_crc16
 from tmodbus.utils.raw_traffic_logger import log_raw_traffic as base_log_raw_traffic
 
@@ -18,7 +24,9 @@ from .handler import ModbusHandler, handle_modbus_request, is_server_pdu_class
 logger = logging.getLogger(__name__)
 log_raw_traffic = partial(base_log_raw_traffic, "RTU-Server")
 
+
 MAX_RTU_FRAME_SIZE = 256
+BITS_PER_CHAR = 11  # 1 start + 8 data + parity + 1 stop ~= 11 bits per character
 
 
 class AsyncRtuServer:
@@ -71,14 +79,24 @@ class AsyncRtuServer:
         self.handler = handler
         self.baudrate = baudrate
         self.serial_kwargs = serial_kwargs
-        self._serial: Serial | None = None
+        self._reader: asyncio.StreamReader | None = None
+        self._writer: asyncio.StreamWriter | None = None
+        self._last_recv_time: float = 0.0
         self._running = False
         self._task: asyncio.Task[None] | None = None
 
     async def start(self) -> None:
-        """Start the server."""
-        self._serial = Serial(self.port, baudrate=self.baudrate, **self.serial_kwargs)
-        self._serial.open()
+        """Start the server using serialx's async connection."""
+        reader, writer = await open_serial_connection(url=self.port, baudrate=self.baudrate, **self.serial_kwargs)
+        self._reader = reader
+        self._writer = writer
+
+        # Calculate conservative inter-character timing (seconds per char).
+        # The Modbus RTU specification requires a silent interval of 3.5 character times
+        # to delimit frames; compute that once and use before transmitting responses.
+        char_time = BITS_PER_CHAR / float(self.baudrate)
+        self._inter_frame_silence = 3.5 * char_time
+
         self._running = True
         self._task = asyncio.create_task(self._serve())
         logger.info("Modbus RTU Server listening on %s", self.port)
@@ -92,10 +110,15 @@ class AsyncRtuServer:
                 await self._task
             self._task = None
 
-        if self._serial:
-            self._serial.close()
-            self._serial = None
-            logger.info("Modbus RTU Server stopped")
+        if self._writer:
+            try:
+                self._writer.close()
+                with contextlib.suppress(Exception):
+                    await self._writer.wait_closed()
+            finally:
+                self._writer = None
+                self._reader = None
+                logger.info("Modbus RTU Server stopped")
 
     async def serve_forever(self) -> None:
         """Start the server and block until cancelled."""
@@ -106,7 +129,7 @@ class AsyncRtuServer:
 
     def _get_pdu_class(self, function_code: int, buffer: bytearray) -> type[BasePDU[Any]] | None:
         """Get the PDU class for the given function code, or None if more data is needed."""
-        pdu_class: type[BasePDU[Any]]
+        pdu_class: type[BaseClientPDU[Any]]
         if is_function_code_for_subfunction_pdu(function_code):
             if len(buffer) < 3:
                 return None
@@ -176,9 +199,16 @@ class AsyncRtuServer:
             crc = calculate_crc16(bytes(out_frame))
             out_frame.extend(crc)
 
-            if self._serial:
-                await self._serial.write(out_frame)
+            if self._writer:
+                # Wait until the bus has been idle for the required silent interval
+                await self._wait_for_bus_idle()
+
+                self._writer.write(bytes(out_frame))
+                await self._writer.drain()
                 log_raw_traffic("sent", bytes(out_frame))
+            else:
+                logger.warning("No writer available to send RTU response; dropping frame")
+                log_raw_traffic("sent", bytes(out_frame), is_error=True)
 
         return "error" if is_error else "success"
 
@@ -212,22 +242,41 @@ class AsyncRtuServer:
             logger.warning("CRC validation failed")
             log_raw_traffic("recv", frame, is_error=True)
             return "processed"
-
         status = await self._handle_frame(frame)
         log_raw_traffic("recv", frame, is_error=(status == "error"), is_ignored=(status == "ignored"))
+        # Update last receive timestamp to help determine bus idle time
+        self._last_recv_time = asyncio.get_running_loop().time()
         return "processed"
+
+    async def _wait_for_bus_idle(self) -> None:
+        """Await until we've observed the configured inter-frame silent interval.
+
+        This method reads `self._last_recv_time` (updated on every received
+        byte) and sleeps only the remaining time needed so that at least
+        `self._inter_frame_silence` seconds have elapsed since the last
+        observed receive time.
+        """
+        loop = asyncio.get_running_loop()
+        while True:
+            elapsed = loop.time() - self._last_recv_time
+            rem = self._inter_frame_silence - elapsed
+            if rem <= 0:
+                break
+            await asyncio.sleep(rem)
 
     async def _serve(self) -> None:
         """Read and handle requests in a loop."""
         buffer = bytearray()
 
         try:
-            while self._running and self._serial:
+            while self._running and self._reader:
                 try:
                     # Read at least 1 byte
-                    data = await self._serial.read()
+                    data = await self._reader.read(1)
                     if not data:
                         continue
+                    # Record time for each received byte to observe actual bus activity
+                    self._last_recv_time = asyncio.get_running_loop().time()
                     buffer.extend(data)
 
                     while True:

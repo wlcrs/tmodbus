@@ -6,10 +6,16 @@ import logging
 from functools import partial
 from typing import Any, Literal
 
-from serialx import Serial
+from serialx import open_serial_connection
 
 from tmodbus.exceptions import InvalidRequestError
-from tmodbus.pdu import BasePDU, get_pdu_class, get_subfunction_pdu_class, is_function_code_for_subfunction_pdu
+from tmodbus.pdu import (
+    BaseClientPDU,
+    BasePDU,
+    get_pdu_class,
+    get_subfunction_pdu_class,
+    is_function_code_for_subfunction_pdu,
+)
 from tmodbus.utils.lrc import calculate_lrc, validate_lrc
 from tmodbus.utils.raw_traffic_logger import log_raw_traffic as base_log_raw_traffic
 
@@ -70,14 +76,16 @@ class AsyncAsciiServer:
         self.handler = handler
         self.baudrate = baudrate
         self.serial_kwargs = serial_kwargs
-        self._serial: Serial | None = None
+        self._reader: asyncio.StreamReader | None = None
+        self._writer: asyncio.StreamWriter | None = None
         self._running = False
         self._task: asyncio.Task[None] | None = None
 
     async def start(self) -> None:
-        """Start the server."""
-        self._serial = Serial(self.port, baudrate=self.baudrate, **self.serial_kwargs)
-        self._serial.open()
+        """Start the server using serialx's async connection."""
+        reader, writer = await open_serial_connection(url=self.port, baudrate=self.baudrate, **self.serial_kwargs)
+        self._reader = reader
+        self._writer = writer
         self._running = True
         self._task = asyncio.create_task(self._serve())
         logger.info("Modbus ASCII Server listening on %s", self.port)
@@ -90,11 +98,15 @@ class AsyncAsciiServer:
             with contextlib.suppress(asyncio.CancelledError):
                 await self._task
             self._task = None
-
-        if self._serial:
-            self._serial.close()
-            self._serial = None
-            logger.info("Modbus ASCII Server stopped")
+        if self._writer:
+            try:
+                self._writer.close()
+                with contextlib.suppress(Exception):
+                    await self._writer.wait_closed()
+            finally:
+                self._writer = None
+                self._reader = None
+                logger.info("Modbus ASCII Server stopped")
 
     async def serve_forever(self) -> None:
         """Start the server and block until cancelled."""
@@ -105,6 +117,7 @@ class AsyncAsciiServer:
 
     def _get_pdu_class(self, function_code: int, pdu_bytes: bytes) -> type[BasePDU[Any]]:
         """Get the PDU class for the given function code."""
+        raw_pdu_class: type[BaseClientPDU[Any]]
         if is_function_code_for_subfunction_pdu(function_code):
             if len(pdu_bytes) < 2:
                 msg = "Missing sub-function code"
@@ -188,9 +201,13 @@ class AsyncAsciiServer:
 
             out_frame = b":" + out_bin.hex().upper().encode("ascii") + b"\r\n"
 
-            if self._serial:
-                await self._serial.write(out_frame)
+            if self._writer:
+                self._writer.write(out_frame)
+                await self._writer.drain()
                 log_raw_traffic("sent", out_frame)
+            else:
+                logger.warning("No writer available to send ASCII response; dropping frame")
+                log_raw_traffic("sent", out_frame, is_error=True)
 
         return "error" if is_error else "success"
 
@@ -199,10 +216,10 @@ class AsyncAsciiServer:
         buffer = bytearray()
 
         try:
-            while self._running and self._serial:
+            while self._running and self._reader:
                 try:
                     # Read at least 1 byte
-                    data = await self._serial.read()
+                    data = await self._reader.read(1)
                     if not data:
                         continue
                     buffer.extend(data)

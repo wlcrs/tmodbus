@@ -3,6 +3,7 @@
 import asyncio
 import contextlib
 import struct
+from collections.abc import AsyncIterator
 from unittest.mock import patch
 
 import pytest
@@ -12,7 +13,7 @@ from tmodbus.server import AsyncTcpServer, ModbusRequestRouter
 
 
 @pytest.fixture
-async def tcp_server() -> AsyncTcpServer:
+async def tcp_server() -> AsyncIterator[AsyncTcpServer]:
     """Fixture to start a Modbus TCP server on a free local port."""
     router = ModbusRequestRouter()
 
@@ -33,7 +34,9 @@ def get_server_port(server: AsyncTcpServer) -> int:
     sockets = server._server.sockets
     assert sockets is not None
     assert len(sockets) > 0
-    return sockets[0].getsockname()[1]
+    addr = sockets[0].getsockname()
+    assert isinstance(addr, tuple)
+    return int(addr[1])
 
 
 async def test_tcp_server_happy_path(tcp_server: AsyncTcpServer) -> None:

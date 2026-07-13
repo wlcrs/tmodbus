@@ -9,7 +9,13 @@ from typing import Any
 
 from tmodbus.const import ExceptionCode
 from tmodbus.exceptions import InvalidRequestError
-from tmodbus.pdu import BasePDU, get_pdu_class, get_subfunction_pdu_class, is_function_code_for_subfunction_pdu
+from tmodbus.pdu import (
+    BaseClientPDU,
+    BasePDU,
+    get_pdu_class,
+    get_subfunction_pdu_class,
+    is_function_code_for_subfunction_pdu,
+)
 from tmodbus.utils.raw_traffic_logger import log_raw_traffic as base_log_raw_traffic
 
 from .handler import ModbusHandler, handle_modbus_request, is_server_pdu_class
@@ -110,7 +116,7 @@ class AsyncTcpServer:
 
     def _get_pdu_class(self, function_code: int, pdu_bytes: bytes) -> type[BasePDU[Any]]:
         """Get the PDU class for the given function code."""
-        raw_pdu_class: type[BasePDU[Any]]
+        raw_pdu_class: type[BaseClientPDU[Any]]
         if is_function_code_for_subfunction_pdu(function_code):
             if len(pdu_bytes) < 2:
                 msg = "Missing sub-function code"

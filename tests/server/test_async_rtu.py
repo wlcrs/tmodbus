@@ -1,6 +1,8 @@
 """Tests for tmodbus/server/async_rtu.py."""
 
 import asyncio
+from collections.abc import Iterator
+from typing import cast
 from unittest.mock import patch
 
 import pytest
@@ -31,20 +33,31 @@ class MockSerial:
         """Close the serial port."""
         self._is_open = False
 
-    async def read(self) -> bytes:
-        """Read data from the serial port."""
+    async def read(self, _n: int | None = None) -> bytes:
+        """Read data from the serial port. Accepts an optional size arg."""
         return await self.read_queue.get()
 
-    async def write(self, data: bytes) -> None:
-        """Write data to the serial port."""
+    def write(self, data: bytes) -> None:
+        """Write data to the serial port (synchronous for writer-like API)."""
         self.write_calls.append(data)
+
+    async def drain(self) -> None:
+        """No-op drain for writer compatibility."""
+        return
 
 
 @pytest.fixture
-def patch_serial() -> type[MockSerial]:
+def patch_serial() -> Iterator[type[MockSerial]]:
     """Fixture to patch the Serial class with our MockSerial."""
-    with patch("tmodbus.server.async_rtu.Serial", new=MockSerial) as mock_cls:
-        yield mock_cls  # type: ignore[yield-type]
+
+    async def fake_open_serial_connection(
+        url: str | None, baudrate: int = 19200, **kwargs: object
+    ) -> tuple[MockSerial, MockSerial]:
+        inst = MockSerial(url or "", baudrate=baudrate, **kwargs)
+        return inst, inst
+
+    with patch("tmodbus.server.async_rtu.open_serial_connection", new=fake_open_serial_connection):
+        yield MockSerial
 
 
 async def test_rtu_server_happy_path() -> None:
@@ -58,7 +71,7 @@ async def test_rtu_server_happy_path() -> None:
     server = AsyncRtuServer(port="/dev/ttyUSB0", handler=router)
     await server.start()
 
-    mock_serial_inst = server._serial
+    mock_serial_inst = cast("MockSerial", server._reader)
     assert mock_serial_inst is not None
 
     # Feed a valid RTU frame: unit_id=1, fc=3, start_address=0, quantity=1
@@ -87,7 +100,7 @@ async def test_rtu_server_invalid_crc() -> None:
     server = AsyncRtuServer(port="/dev/ttyUSB0", handler=router)
     await server.start()
 
-    mock_serial_inst = server._serial
+    mock_serial_inst = cast("MockSerial", server._reader)
     assert mock_serial_inst is not None
 
     # Send PDU with invalid CRC (b"\x00\x00")
@@ -111,7 +124,7 @@ async def test_rtu_server_unsupported_function_code() -> None:
     server = AsyncRtuServer(port="/dev/ttyUSB0", handler=router)
     await server.start()
 
-    mock_serial_inst = server._serial
+    mock_serial_inst = cast("MockSerial", server._reader)
     assert mock_serial_inst is not None
 
     # Send unsupported function code 0x99 as a single chunk
@@ -151,7 +164,7 @@ async def test_rtu_server_frame_too_large() -> None:
     server = AsyncRtuServer(port="/dev/ttyUSB0", handler=router)
     await server.start()
 
-    mock_serial_inst = server._serial
+    mock_serial_inst = cast("MockSerial", server._reader)
     assert mock_serial_inst is not None
 
     # Send Write Multiple Registers function code 16 with huge payload count (exceeding MAX_RTU_FRAME_SIZE)
@@ -172,7 +185,7 @@ async def test_rtu_server_raw_traffic_logging() -> None:
     router = ModbusRequestRouter()
     server = AsyncRtuServer(port="/dev/ttyUSB0", handler=router)
     await server.start()
-    mock_serial_inst = server._serial
+    mock_serial_inst = cast("MockSerial", server._reader)
     assert mock_serial_inst is not None
 
     with patch("tmodbus.server.async_rtu.log_raw_traffic") as mock_log:
@@ -224,14 +237,15 @@ async def test_rtu_server_edge_cases() -> None:  # noqa: PLR0915
 
     @router.register(WriteMultipleRegistersPDU)
     async def handle_write_multiple(_unit_id: int, _request: WriteMultipleRegistersPDU) -> int:
-        # Terminate loop by setting server._serial to None
-        server._serial = None
+        # Terminate loop by clearing the reader/writer so serve loop exits
+        server._reader = None
+        server._writer = None
         return 1
 
     server = AsyncRtuServer(port="/dev/ttyUSB0", handler=router)
     await server.start()
 
-    mock_serial_inst = server._serial
+    mock_serial_inst = cast("MockSerial", server._reader)
     assert mock_serial_inst is not None
 
     # Test "if not data: continue" in RTU serve loop
@@ -328,7 +342,7 @@ async def test_rtu_server_unregistered_unit_id_ignored() -> None:
     server = AsyncRtuServer(port="/dev/ttyUSB0", handler=router)
     await server.start()
 
-    mock_serial_inst = server._serial
+    mock_serial_inst = cast("MockSerial", server._reader)
     assert mock_serial_inst is not None
 
     # Feed a frame targeting unit_id=2 (unregistered)
@@ -363,7 +377,7 @@ async def test_rtu_server_broadcast() -> None:
     server = AsyncRtuServer(port="/dev/ttyUSB0", handler=router)
     await server.start()
 
-    mock_serial_inst = server._serial
+    mock_serial_inst = cast("MockSerial", server._reader)
     assert mock_serial_inst is not None
 
     # Feed a frame targeting unit_id=0 (broadcast)

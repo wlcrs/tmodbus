@@ -2,6 +2,7 @@
 
 import asyncio
 import contextlib
+from collections.abc import AsyncIterator
 from unittest.mock import patch
 
 import pytest
@@ -12,7 +13,7 @@ from tmodbus.utils.crc import calculate_crc16, validate_crc16
 
 
 @pytest.fixture
-async def rtu_over_tcp_server() -> AsyncRtuOverTcpServer:
+async def rtu_over_tcp_server() -> AsyncIterator[AsyncRtuOverTcpServer]:
     """Fixture to start a Modbus RTU-over-TCP server on a free local port."""
     router = ModbusRequestRouter()
 
@@ -33,7 +34,9 @@ def get_server_port(server: AsyncRtuOverTcpServer) -> int:
     sockets = server._server.sockets
     assert sockets is not None
     assert len(sockets) > 0
-    return sockets[0].getsockname()[1]
+    addr = sockets[0].getsockname()
+    assert isinstance(addr, tuple)
+    return int(addr[1])
 
 
 async def test_rtu_over_tcp_server_happy_path(rtu_over_tcp_server: AsyncRtuOverTcpServer) -> None:

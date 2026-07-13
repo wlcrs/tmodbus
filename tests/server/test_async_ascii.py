@@ -1,6 +1,8 @@
 """Tests for tmodbus/server/async_ascii.py."""
 
 import asyncio
+from collections.abc import Iterator
+from typing import cast
 from unittest.mock import patch
 
 import pytest
@@ -31,20 +33,31 @@ class MockSerial:
         """Close the serial port."""
         self._is_open = False
 
-    async def read(self) -> bytes:
-        """Read data from the serial port."""
+    async def read(self, _n: int | None = None) -> bytes:
+        """Read data from the serial port. Accepts an optional size arg."""
         return await self.read_queue.get()
 
-    async def write(self, data: bytes) -> None:
-        """Write data to the serial port."""
+    def write(self, data: bytes) -> None:
+        """Write data to the serial port (synchronous for writer-like API)."""
         self.write_calls.append(data)
+
+    async def drain(self) -> None:
+        """No-op drain for writer compatibility."""
+        return
 
 
 @pytest.fixture
-def patch_serial() -> type[MockSerial]:
-    """Fixture to patch the Serial class with our MockSerial."""
-    with patch("tmodbus.server.async_ascii.Serial", new=MockSerial) as mock_cls:
-        yield mock_cls  # type: ignore[yield-type]
+def patch_serial() -> Iterator[type[MockSerial]]:
+    """Fixture to patch `open_serial_connection` with our MockSerial pair."""
+
+    async def fake_open_serial_connection(
+        url: str | None, baudrate: int = 19200, **kwargs: object
+    ) -> tuple[MockSerial, MockSerial]:
+        inst = MockSerial(url or "", baudrate=baudrate, **kwargs)
+        return inst, inst
+
+    with patch("tmodbus.server.async_ascii.open_serial_connection", new=fake_open_serial_connection):
+        yield MockSerial
 
 
 async def test_ascii_server_happy_path() -> None:
@@ -58,7 +71,7 @@ async def test_ascii_server_happy_path() -> None:
     server = AsyncAsciiServer(port="/dev/ttyUSB0", handler=router)
     await server.start()
 
-    mock_serial_inst = server._serial
+    mock_serial_inst = cast("MockSerial", server._reader)
     assert mock_serial_inst is not None
 
     # Build ASCII frame: unit_id=1, fc=3, start_address=0, quantity=1
@@ -95,7 +108,7 @@ async def test_ascii_server_buffer_overrun_dos() -> None:
     server = AsyncAsciiServer(port="/dev/ttyUSB0", handler=router)
     await server.start()
 
-    mock_serial_inst = server._serial
+    mock_serial_inst = cast("MockSerial", server._reader)
     assert mock_serial_inst is not None
 
     # Send 514 bytes of data without ":" or "\r\n"
@@ -133,7 +146,7 @@ async def test_ascii_server_invalid_hex() -> None:
     server = AsyncAsciiServer(port="/dev/ttyUSB0", handler=router)
     await server.start()
 
-    mock_serial_inst = server._serial
+    mock_serial_inst = cast("MockSerial", server._reader)
     assert mock_serial_inst is not None
 
     # Contains 'G' which is invalid hex
@@ -155,7 +168,7 @@ async def test_ascii_server_short_frame() -> None:
     server = AsyncAsciiServer(port="/dev/ttyUSB0", handler=router)
     await server.start()
 
-    mock_serial_inst = server._serial
+    mock_serial_inst = cast("MockSerial", server._reader)
     assert mock_serial_inst is not None
 
     # Less than 9 characters
@@ -177,7 +190,7 @@ async def test_ascii_server_invalid_lrc() -> None:
     server = AsyncAsciiServer(port="/dev/ttyUSB0", handler=router)
     await server.start()
 
-    mock_serial_inst = server._serial
+    mock_serial_inst = cast("MockSerial", server._reader)
     assert mock_serial_inst is not None
 
     # LRC should be FA, sending 00 instead
@@ -197,7 +210,7 @@ async def test_ascii_server_raw_traffic_logging() -> None:
     router = ModbusRequestRouter()
     server = AsyncAsciiServer(port="/dev/ttyUSB0", handler=router)
     await server.start()
-    mock_serial_inst = server._serial
+    mock_serial_inst = cast("MockSerial", server._reader)
     assert mock_serial_inst is not None
 
     with patch("tmodbus.server.async_ascii.log_raw_traffic") as mock_log:
@@ -251,13 +264,14 @@ async def test_ascii_server_edge_cases() -> None:
 
     @router.register(WriteMultipleRegistersPDU)
     async def handle_write_multiple(_unit_id: int, _request: WriteMultipleRegistersPDU) -> int:
-        server._serial = None
+        server._reader = None
+        server._writer = None
         return 1
 
     server = AsyncAsciiServer(port="/dev/ttyUSB0", handler=router)
     await server.start()
 
-    mock_serial_inst = server._serial
+    mock_serial_inst = cast("MockSerial", server._reader)
     assert mock_serial_inst is not None
 
     # Test "if not data: continue" in ASCII serve loop
@@ -355,7 +369,7 @@ async def test_ascii_server_unregistered_unit_id_ignored() -> None:
     server = AsyncAsciiServer(port="/dev/ttyUSB0", handler=router)
     await server.start()
 
-    mock_serial_inst = server._serial
+    mock_serial_inst = cast("MockSerial", server._reader)
     assert mock_serial_inst is not None
 
     # Feed a frame targeting unit_id=2 (unregistered)
@@ -387,7 +401,7 @@ async def test_ascii_server_broadcast() -> None:
     server = AsyncAsciiServer(port="/dev/ttyUSB0", handler=router)
     await server.start()
 
-    mock_serial_inst = server._serial
+    mock_serial_inst = cast("MockSerial", server._reader)
     assert mock_serial_inst is not None
 
     # Feed a frame targeting unit_id=0 (broadcast)
