@@ -1,8 +1,10 @@
-Batch reading registers
-=======================
+#########################
+ Batch reading registers
+#########################
 
-Parsing multiple registers with `Struct`
-----------------------------------------
+******************************************
+ Parsing multiple registers with `Struct`
+******************************************
 
 When reading a large number of registers, it is often more efficient to read them in
 batches rather than one at a time. The `AsyncModbusClient` class provides methods to
@@ -44,8 +46,9 @@ following:
 As one Modbus register is 16 bits (2 bytes), the above example reads a total of 6
 registers (4 bytes for each int32 and float32, totaling 12 bytes).
 
-Word ordering
--------------
+***************
+ Word ordering
+***************
 
 Modbus defines registers as 16-bit values, but many devices use 32-bit or 64-bit values
 that span multiple registers. While the order of the bytes within each register is

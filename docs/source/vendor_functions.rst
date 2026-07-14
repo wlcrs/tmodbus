@@ -1,5 +1,6 @@
-Vendor functions
-================
+##################
+ Vendor functions
+##################
 
 This library makes it easy to add support for vendor-specific Modbus functions. Vendor
 functions are custom Modbus functions that are not part of the standard Modbus
@@ -19,8 +20,9 @@ module to see how they are implemented. For example, you can look at the
 :class:`tmodbus.pdu.device.ReadDeviceIdentificationPDU` class, which implements the
 standard Modbus function code 0x2B with sub-function code 0x0E.
 
-Example implementation
-----------------------
+************************
+ Example implementation
+************************
 
 This is an example of how to implement a vendor-specific Modbus function.
 
@@ -58,7 +60,7 @@ The response PDU has the following format:
       - <16 bytes>
 
 Example code:
-~~~~~~~~~~~~~
+=============
 
 Note that the use of the `LoginChallenge` class is a bit contrived in this example, but
 it shows how you can return a complex object from the `decode_response` method.
@@ -67,8 +69,9 @@ it shows how you can return a complex object from the `decode_response` method.
     :language: python
     :linenos:
 
-Using your custom PDU
----------------------
+***********************
+ Using your custom PDU
+***********************
 
 To use your custom PDU, you can create an instance of it and pass it to the
 :func:`tmodbus.client.AsyncModbusClient.execute` method.
