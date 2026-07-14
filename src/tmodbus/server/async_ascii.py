@@ -141,8 +141,8 @@ class AsyncAsciiServer(AsyncBaseServer):
 
             if last_colon == -1:
                 # No colon before \r\n. Discard everything up to the \r\n.
-                log_raw_traffic("recv", bytes(buffer[:end_idx + 2]), is_error=True)
-                buffer = buffer[end_idx + 2:]
+                log_raw_traffic("recv", bytes(buffer[: end_idx + 2]), is_error=True)
+                buffer = buffer[end_idx + 2 :]
                 continue
 
             # If there is garbage/noise before the last colon, discard and log it
