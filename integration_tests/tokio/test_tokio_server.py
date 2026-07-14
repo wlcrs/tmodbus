@@ -1,9 +1,7 @@
 """Integration tests for tmodbus servers against a tokio-based Rust client."""
 
 import asyncio
-import subprocess
 import sys
-import time
 from collections.abc import Generator
 from pathlib import Path
 
@@ -16,20 +14,10 @@ from tmodbus.server import (
     AsyncTcpServer,
 )
 
+from helpers import get_server_port, make_virtual_serial_ports
 from integration_test_server import ModbusDevice, setup_router
 
 client_bin_path = Path(__file__).parent / "target/release/tokio-client"
-
-
-def get_server_port(server: AsyncTcpServer | AsyncRtuOverTcpServer) -> int:
-    """Get the dynamically allocated port from an active TCP server."""
-    assert server._server is not None
-    sockets = server._server.sockets
-    assert sockets is not None
-    assert len(sockets) > 0
-    addr = sockets[0].getsockname()
-    assert isinstance(addr, tuple)
-    return int(addr[1])
 
 
 @pytest.fixture
@@ -37,40 +25,8 @@ def virtual_serial_ports() -> Generator[tuple[Path, Path], None, None]:
     """Fixture to start socat to create a virtual serial port pair link."""
     server_socket_path = Path(__file__).parent / "tokio-server-socket-test"
     client_socket_path = Path(__file__).parent / "tokio-client-socket-test"
-
-    for path in (server_socket_path, client_socket_path):
-        if path.exists():
-            path.unlink()
-
-    # Use socat to create a virtual serial port
-    socat_process = subprocess.Popen(  # noqa: S603
-        [
-            "/usr/bin/socat",
-            "-d",
-            "-d",
-            "-v",
-            f"pty,rawer,echo=0,link={server_socket_path}",
-            f"pty,rawer,echo=0,link={client_socket_path}",
-        ],
-    )
-
-    # Wait for the ports to be created
-    for _ in range(30):
-        if server_socket_path.exists() and client_socket_path.exists():
-            break
-        time.sleep(0.1)
-    else:
-        socat_process.terminate()
-        msg = "Failed to create virtual serial ports via socat"
-        raise RuntimeError(msg)
-
-    yield server_socket_path, client_socket_path
-
-    socat_process.terminate()
-    socat_process.wait()
-    for path in (server_socket_path, client_socket_path):
-        if path.exists():
-            path.unlink()
+    with make_virtual_serial_ports(server_socket_path, client_socket_path) as ports:
+        yield ports
 
 
 @pytest.mark.asyncio
