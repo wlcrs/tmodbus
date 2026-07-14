@@ -17,7 +17,7 @@ use std::{
 use tokio::net::TcpListener;
 
 use tokio_modbus::{
-    prelude::{ Response, Request, ExceptionCode},
+    prelude::{ Response, Request, ExceptionCode, ReadDeviceIdentificationResponse, DeviceIdObject, ConformityLevel},
     server::tcp::{accept_tcp_connection, Server},
     server::rtu::Server as RtuServer,
     server::rtu_over_tcp::Server as RtuOverTcpServer,
@@ -55,6 +55,29 @@ impl tokio_modbus::server::Service for ExampleService {
                 std::slice::from_ref(&value),
             )
             .map(|_| Response::WriteSingleRegister(addr, value)),
+            Request::ReadDeviceIdentification(read_code, _object_id) => {
+                let response = ReadDeviceIdentificationResponse {
+                    read_code,
+                    conformity_level: ConformityLevel::BasicIdentificationStreamOnly,
+                    more_follows: false,
+                    next_object_id: 0,
+                    device_id_objects: vec![
+                        DeviceIdObject {
+                            id: 0,
+                            value: bytes::Bytes::from_static(b"wlcrs"),
+                        },
+                        DeviceIdObject {
+                            id: 1,
+                            value: bytes::Bytes::from_static(b"TMB"),
+                        },
+                        DeviceIdObject {
+                            id: 2,
+                            value: bytes::Bytes::from_static(b"1.0"),
+                        },
+                    ],
+                };
+                Ok(Response::ReadDeviceIdentification(response))
+            }
             _ => {
                 println!("SERVER: Exception::IllegalFunction - Unimplemented function code in request: {req:?}");
                 Err(ExceptionCode::IllegalFunction)

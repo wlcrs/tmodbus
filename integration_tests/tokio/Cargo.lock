@@ -342,6 +342,7 @@ dependencies = [
 name = "tokio-modbus-server"
 version = "0.1.0"
 dependencies = [
+ "bytes",
  "tokio",
  "tokio-modbus",
  "tokio-serial",

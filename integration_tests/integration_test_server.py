@@ -3,6 +3,8 @@
 from tmodbus.pdu import (
     MaskWriteRegisterPDU,
     ReadCoilsPDU,
+    ReadDeviceIdentificationPDU,
+    ReadDeviceIdentificationResponse,
     ReadDiscreteInputsPDU,
     ReadHoldingRegistersPDU,
     ReadInputRegistersPDU,
@@ -12,6 +14,7 @@ from tmodbus.pdu import (
     WriteSingleCoilPDU,
     WriteSingleRegisterPDU,
 )
+from tmodbus.pdu.device import ConformityLevel, ObjectName
 from tmodbus.server import ModbusRequestRouter
 
 
@@ -131,5 +134,24 @@ def setup_router(device: ModbusDevice) -> ModbusRequestRouter:  # noqa: C901
         # Then read
         read_start = request.read_start_address
         return device.holding_registers[read_start : read_start + request.read_quantity]
+
+    @router.register(ReadDeviceIdentificationPDU)
+    async def handle_read_device_identification(
+        _unit_id: int, request: ReadDeviceIdentificationPDU
+    ) -> ReadDeviceIdentificationResponse:
+        all_objects = {
+            ObjectName.VENDOR_NAME: b"wlcrs",
+            ObjectName.PRODUCT_CODE: b"TMB",
+            ObjectName.MAJOR_MINOR_REVISION: b"1.0",
+        }
+        filtered = {k: v for k, v in all_objects.items() if k >= request.object_id}
+        return ReadDeviceIdentificationResponse(
+            device_id_code=request.read_device_id_code,
+            conformity_level=ConformityLevel.BASIC,
+            more=False,
+            next_object_id=0,
+            number_of_objects=len(filtered),
+            objects=filtered,
+        )
 
     return router

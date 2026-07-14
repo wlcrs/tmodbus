@@ -289,8 +289,11 @@ async def test_rtu_server_edge_cases() -> None:  # noqa: PLR0915
     await mock_serial_inst.read_queue.put(pdu_large + calculate_crc16(pdu_large))
     await asyncio.sleep(0.05)
 
-    # Verify write calls: only invalid param writes exception response, others clear buffer silently
-    assert len(mock_serial_inst.write_calls) == 1
+    # Verify write calls: now it writes exception response for pdu_good_sub (IllegalFunction)
+    # and pdu_invalid_param (IllegalDataValue), so 2 write calls.
+    assert len(mock_serial_inst.write_calls) == 2
+    assert mock_serial_inst.write_calls[0] == b"\x01\xab\x01\x9e\xf0"
+    assert mock_serial_inst.write_calls[1] == b"\x01\x83\x01\x80\xf0"
     mock_serial_inst.write_calls.clear()
 
     # 1. Serial port read exception in loop (run while loop is still active!)

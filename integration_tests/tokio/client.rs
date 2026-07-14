@@ -61,6 +61,20 @@ where
     let written_vals = ctx.read_holding_registers(40, 2).await?.unwrap();
     assert_eq!(written_vals, vec![999, 888]);
 
+    println!("7. Testing Read Device Identification...");
+    let response = ctx.read_device_identification(ReadCode::Basic, 0).await?.unwrap();
+    assert_eq!(response.read_code, ReadCode::Basic);
+    assert_eq!(response.conformity_level, ConformityLevel::BasicIdentificationStreamOnly);
+    assert_eq!(response.more_follows, false);
+    assert_eq!(response.next_object_id, 0);
+    assert_eq!(response.device_id_objects.len(), 3);
+    assert_eq!(response.device_id_objects[0].id, 0);
+    assert_eq!(response.device_id_objects[0].value_as_str().unwrap(), "wlcrs");
+    assert_eq!(response.device_id_objects[1].id, 1);
+    assert_eq!(response.device_id_objects[1].value_as_str().unwrap(), "TMB");
+    assert_eq!(response.device_id_objects[2].id, 2);
+    assert_eq!(response.device_id_objects[2].value_as_str().unwrap(), "1.0");
+
     println!("All tests passed successfully!");
     Ok(())
 }

@@ -79,6 +79,14 @@ async def test_client(transport: AsyncBaseTransport) -> None:
     ir0_1 = await client.read_input_registers(0, 2)
     assert ir0_1 == [1234, 5678]
 
+    # Read device identification
+    device_info = await client.read_device_identification(1, 0)
+    assert device_info == {
+        0: b"wlcrs",
+        1: b"TMB",
+        2: b"1.0",
+    }
+
     await client.disconnect()
 
 

@@ -16,3 +16,4 @@ path = "client.rs"
 tokio = { version = "1.35.1", default-features = false, features = ["io-util", "rt-multi-thread", "macros", "net", "time"] }
 tokio-modbus = { version = "0.17.0", features = ["tcp-server", "rtu-server", "rtu-over-tcp-server", "tcp", "rtu"] }
 tokio-serial = { version = "5.4.4", default-features = false }
+bytes = "1.0"

@@ -275,9 +275,9 @@ async def test_rtu_over_tcp_server_edge_cases() -> None:  # noqa: PLR0915
         pdu_sub = b"\x01\x2b\x0e\x01\x00"
         writer.write(b"\x0e\x01\x00" + calculate_crc16(pdu_sub))
         await writer.drain()
-        # Should get response (which is EOF / disconnect due to client-only PDU class)
+        # Should get exception response (IllegalFunction) since the PDU class is now a supported server PDU class
         resp = await reader.read(100)
-        assert len(resp) == 0
+        assert resp == b"\x01\xab\x01\x9e\xf0"
     finally:
         writer.close()
         with contextlib.suppress(ConnectionError):
