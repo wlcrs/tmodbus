@@ -121,6 +121,31 @@ async def test_ascii_server_buffer_overrun_dos() -> None:
     # Server should clear buffer, no crash and no response
     assert len(mock_serial_inst.write_calls) == 0
 
+    # Send 514 bytes of data with an A and ':' alternating or "\r\n"
+    overrun_data = b"A:" * 257  # 514 bytes
+    for b in overrun_data:
+        await mock_serial_inst.read_queue.put(bytes([b]))
+
+    await asyncio.sleep(0.05)
+
+    # Server should clear buffer, no crash and no response
+    assert len(mock_serial_inst.write_calls) == 0
+
+    # Send 514 bytes of data starting with ":" but without any subsequent ":" or "\r\n"
+    overrun_data_starts_colon = b":" + b"A" * 514
+    for b in overrun_data_starts_colon:
+        await mock_serial_inst.read_queue.put(bytes([b]))
+
+    await asyncio.sleep(0.05)
+    assert len(mock_serial_inst.write_calls) == 0
+
+    # Send a frame starting with ":" and ending with "\r\n" but exceeding 515 bytes
+    overrun_frame_with_delim = b":" + b"A" * 514 + b"\r\n"
+    await mock_serial_inst.read_queue.put(overrun_frame_with_delim)
+
+    await asyncio.sleep(0.05)
+    assert len(mock_serial_inst.write_calls) == 0
+
     # Verify server is still functional by sending a valid frame
     @router.register(ReadHoldingRegistersPDU)
     async def handle_read(_unit_id: int, _request: ReadHoldingRegistersPDU) -> list[int]:
@@ -502,5 +527,42 @@ async def test_ascii_server_multiple_frames_and_overrun() -> None:
 
     assert received_regs == [1, 3]
     assert len(mock_serial_inst.write_calls) == 2
+
+    await server.stop()
+
+
+async def test_ascii_server_multiple_colons() -> None:
+    """Test that ASCII server correctly extracts a frame containing multiple colons by looking backward from \\r\\n."""
+    router = ModbusRequestRouter()
+    received_regs = []
+
+    @router.register(ReadHoldingRegistersPDU)
+    async def handle_read(_unit_id: int, request: ReadHoldingRegistersPDU) -> list[int]:
+        received_regs.append(request.start_address)
+        return [request.start_address]
+
+    server = AsyncAsciiServer(port="/dev/ttyUSB0", handler=router)
+    await server.start()
+
+    mock_serial_inst = cast("MockSerial", server._reader)
+    assert mock_serial_inst is not None
+
+    # Build a valid frame: unit_id=1, fc=3, start_address=5, quantity=1
+    bin_data = b"\x01\x03\x00\x05\x00\x01"
+    valid_frame = b":" + (bin_data + bytes([calculate_lrc(bin_data)])).hex().upper().encode("ascii") + b"\r\n"
+
+    # Send a buffer containing multiple colons before the actual valid frame:
+    # e.g., b":A:A:A:A" + valid_frame
+    buffer = b":A:A:A:A" + valid_frame
+
+    with patch("tmodbus.server.async_ascii.log_raw_traffic") as mock_log:
+        await mock_serial_inst.read_queue.put(buffer)
+        await asyncio.sleep(0.05)
+
+        # Preceding colon noise should be logged as error
+        mock_log.assert_any_call("recv", b":A:A:A:A", is_error=True)
+
+    assert received_regs == [5]
+    assert len(mock_serial_inst.write_calls) == 1
 
     await server.stop()

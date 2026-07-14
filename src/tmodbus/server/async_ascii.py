@@ -109,45 +109,59 @@ class AsyncAsciiServer(AsyncBaseServer):
         with contextlib.suppress(asyncio.CancelledError):
             await self._task
 
-    def _recover_from_overrun(self, buffer: bytearray, discard_len: int) -> tuple[bytes | None, bytearray]:
-        """Recover from an ASCII frame overrun by searching for the next colon."""
-        next_colon = buffer.find(b":", 1)
-        if next_colon != -1:
-            log_raw_traffic("recv", bytes(buffer[:next_colon]), is_error=True)
-            return self._extract_next_frame(buffer[next_colon:])
-        log_raw_traffic("recv", bytes(buffer[:discard_len]), is_error=True)
-        return self._extract_next_frame(buffer[discard_len:])
-
     def _extract_next_frame(self, buffer: bytearray) -> tuple[bytes | None, bytearray]:
         """Extract the next complete frame from the buffer if available."""
-        try:
-            start_idx = buffer.index(b":")
-        except ValueError:
-            if buffer:
-                log_raw_traffic("recv", bytes(buffer), is_error=True)
-            return None, bytearray()
+        while True:
+            # Try to find the end of a frame ('\r\n')
+            end_idx = buffer.find(b"\r\n")
 
-        if start_idx > 0:
-            garbage = bytes(buffer[:start_idx])
-            log_raw_traffic("recv", garbage, is_error=True)
-            buffer = buffer[start_idx:]
+            if end_idx == -1:
+                # No \r\n found yet.
+                # Discard any bytes before the last colon since a frame must start with a colon
+                last_colon = buffer.rfind(b":")
+                if last_colon == -1:
+                    # No colon found in the buffer. Everything is garbage.
+                    if buffer:
+                        log_raw_traffic("recv", bytes(buffer), is_error=True)
+                    return None, bytearray()
 
-        try:
-            end_idx = buffer.index(b"\r\n")
-        except ValueError:
-            # If no \r\n but the buffer is already > 513 bytes, the frame is too long
-            if len(buffer) > 513:
-                return self._recover_from_overrun(buffer, len(buffer))
-            return None, buffer
+                if last_colon > 0:
+                    log_raw_traffic("recv", bytes(buffer[:last_colon]), is_error=True)
+                    buffer = buffer[last_colon:]
 
-        frame_len = end_idx + 2
-        if frame_len > 515:
-            # The frame starting at 0 is too long. Recover from the next colon.
-            return self._recover_from_overrun(buffer, frame_len)
+                # Check if the colon-aligned buffer has exceeded maximum frame length
+                if len(buffer) > 513:
+                    # the frame size must be 513 bytes at maximum
+                    log_raw_traffic("recv", bytes(buffer), is_error=True)
+                    return None, bytearray()
+                return None, buffer
 
-        frame = bytes(buffer[:frame_len])
-        remaining = buffer[frame_len:]
-        return frame, remaining
+            # We found a \r\n. Find the last colon before this \r\n.
+            last_colon = buffer.rfind(b":", 0, end_idx)
+
+            if last_colon == -1:
+                # No colon before \r\n. Discard everything up to the \r\n.
+                log_raw_traffic("recv", bytes(buffer[:end_idx + 2]), is_error=True)
+                buffer = buffer[end_idx + 2:]
+                continue
+
+            # If there is garbage/noise before the last colon, discard and log it
+            if last_colon > 0:
+                log_raw_traffic("recv", bytes(buffer[:last_colon]), is_error=True)
+                buffer = buffer[last_colon:]
+                # Adjust end_idx because slicing the buffer shifted the indices
+                end_idx -= last_colon
+
+            frame_len = end_idx + 2
+            if frame_len > 515:
+                # Frame starting at last_colon is too long. Discard the colon to check the rest.
+                log_raw_traffic("recv", bytes(buffer[:1]), is_error=True)
+                buffer = buffer[1:]
+                continue
+
+            frame = bytes(buffer[:frame_len])
+            remaining = buffer[frame_len:]
+            return frame, remaining
 
     async def _process_next_frame(self, frame: bytes) -> Literal["ignored", "success", "error"]:
         """Process a single complete Modbus ASCII frame.
