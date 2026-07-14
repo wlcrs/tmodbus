@@ -800,6 +800,19 @@ class TestMaskWriteRegisterPDU:
 class TestReadWriteMultipleRegistersPDU:
     """Tests for ReadWriteMultipleRegistersPDU."""
 
+    def test_get_expected_request_data_length(self) -> None:
+        """Test get_expected_request_data_length."""
+        # test incomplete message
+        assert ReadWriteMultipleRegistersPDU.get_expected_request_data_length(b"\x17\x00\x03\x00") == 9
+
+        # test complete message
+        assert (
+            ReadWriteMultipleRegistersPDU.get_expected_request_data_length(
+                b"\x17\x00\x03\x00\x06\x00\x0e\x00\x03\x06\x00\xff\x00\xff\x00\xff"
+            )
+            == 12
+        )
+
     def test_initialization_valid(self) -> None:
         """Test valid initialization."""
         pdu = ReadWriteMultipleRegistersPDU(
