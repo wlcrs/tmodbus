@@ -3,121 +3,26 @@
 import asyncio
 import socket
 import subprocess
+import sys
 import time
 from collections.abc import Generator
 from pathlib import Path
 
 import pytest
 from tmodbus.client import AsyncModbusClient
-from tmodbus.pdu import (
-    MaskWriteRegisterPDU,
-    ReadCoilsPDU,
-    ReadDiscreteInputsPDU,
-    ReadHoldingRegistersPDU,
-    ReadInputRegistersPDU,
-    ReadWriteMultipleRegistersPDU,
-    WriteMultipleCoilsPDU,
-    WriteMultipleRegistersPDU,
-    WriteSingleCoilPDU,
-    WriteSingleRegisterPDU,
-)
+
+sys.path.append(str(Path(__file__).parent.parent))
 from tmodbus.server import (
     AsyncRtuOverTcpServer,
     AsyncRtuServer,
     AsyncTcpServer,
-    ModbusRequestRouter,
 )
 from tmodbus.transport import AsyncTcpTransport
 
+from integration_test_server import ModbusDevice, setup_router
+
 client_bin_path = Path(__file__).parent / "client"
 server_bin_path = Path(__file__).parent / "server"
-
-
-class ModbusDevice:
-    """In-memory database simulation of a Modbus device."""
-
-    def __init__(self) -> None:
-        """Initialize ModbusDevice."""
-        self.coils = [False] * 100
-
-        # Prepare discrete inputs matching expected values in client.go: [True, False, True, False]
-        self.discrete_inputs = [False] * 100
-        self.discrete_inputs[0] = True
-        self.discrete_inputs[1] = False
-        self.discrete_inputs[2] = True
-        self.discrete_inputs[3] = False
-
-        self.holding_registers = [0] * 100
-
-        # Prepare input registers matching expected values in client.go: [1234, 5678]
-        self.input_registers = [0] * 100
-        self.input_registers[0] = 1234
-        self.input_registers[1] = 5678
-
-
-def setup_router(device: ModbusDevice) -> ModbusRequestRouter:  # noqa: C901
-    """Register all PDU handlers on a ModbusRequestRouter."""
-    router = ModbusRequestRouter()
-
-    @router.register(ReadCoilsPDU)
-    async def handle_read_coils(_unit_id: int, request: ReadCoilsPDU) -> list[bool]:
-        return device.coils[request.start_address : request.start_address + request.quantity]
-
-    @router.register(ReadDiscreteInputsPDU)
-    async def handle_read_discrete_inputs(_unit_id: int, request: ReadDiscreteInputsPDU) -> list[bool]:
-        return device.discrete_inputs[request.start_address : request.start_address + request.quantity]
-
-    @router.register(ReadHoldingRegistersPDU)
-    async def handle_read_holding_registers(_unit_id: int, request: ReadHoldingRegistersPDU) -> list[int]:
-        return device.holding_registers[request.start_address : request.start_address + request.quantity]
-
-    @router.register(ReadInputRegistersPDU)
-    async def handle_read_input_registers(_unit_id: int, request: ReadInputRegistersPDU) -> list[int]:
-        return device.input_registers[request.start_address : request.start_address + request.quantity]
-
-    @router.register(WriteSingleCoilPDU)
-    async def handle_write_single_coil(_unit_id: int, request: WriteSingleCoilPDU) -> bool:
-        device.coils[request.address] = request.value
-        return request.value
-
-    @router.register(WriteSingleRegisterPDU)
-    async def handle_write_single_register(_unit_id: int, request: WriteSingleRegisterPDU) -> int:
-        device.holding_registers[request.address] = request.value
-        return request.value
-
-    @router.register(WriteMultipleCoilsPDU)
-    async def handle_write_multiple_coils(_unit_id: int, request: WriteMultipleCoilsPDU) -> int:
-        start = request.address
-        for i, val in enumerate(request.values):
-            device.coils[start + i] = val
-        return len(request.values)
-
-    @router.register(WriteMultipleRegistersPDU)
-    async def handle_write_multiple_registers(_unit_id: int, request: WriteMultipleRegistersPDU) -> int:
-        start = request.start_address
-        for i, val in enumerate(request.values):
-            device.holding_registers[start + i] = val
-        return len(request.values)
-
-    @router.register(MaskWriteRegisterPDU)
-    async def handle_mask_write_register(_unit_id: int, request: MaskWriteRegisterPDU) -> tuple[int, int]:
-        addr = request.address
-        curr = device.holding_registers[addr]
-        new_val = (curr & request.and_mask) | (request.or_mask & ~request.and_mask)
-        device.holding_registers[addr] = new_val & 0xFFFF
-        return request.and_mask, request.or_mask
-
-    @router.register(ReadWriteMultipleRegistersPDU)
-    async def handle_read_write_multiple_registers(_unit_id: int, request: ReadWriteMultipleRegistersPDU) -> list[int]:
-        # Write first
-        write_start = request.write_start_address
-        for i, val in enumerate(request.write_values):
-            device.holding_registers[write_start + i] = val
-        # Then read
-        read_start = request.read_start_address
-        return device.holding_registers[read_start : read_start + request.read_quantity]
-
-    return router
 
 
 def get_server_port(server: AsyncTcpServer | AsyncRtuOverTcpServer) -> int:
