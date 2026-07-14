@@ -12,6 +12,10 @@ path = "server.rs"
 name = "ascii-server"
 path = "ascii-server.rs"
 
+[[bin]]
+name = "client"
+path = "client.rs"
+
 
 [dependencies]
 rmodbus = { version = "0.12.2" }
