@@ -23,31 +23,31 @@ MAX_RTU_FRAME_SIZE = 256
 class AsyncRtuOverTcpServer(AsyncBaseServer):
     """Async Modbus RTU-over-TCP Server.
 
-    Incoming Data Flow & Error Branches:
-    ```
-    [ TCP Socket / Client Connection ]
-                  │
-                  ▼
-         handle_client()        ────► accumulates raw data into byte buffer
-                  │
-                  ▼
-       _process_next_frame()
-                  │
-                  ├──► _parse_frame_length()
-                  │         ├───[ buffer < 2 bytes ]──────► returns "need_data" (reads more)
-                  │         ├───[ unsupported function ]──► returns "disconnect" (clears buffer & exits)
-                  │         ├───[ expected size > 256 ]───► returns "disconnect" (clears buffer & exits)
-                  │         └───[ unknown length yet ]────► returns "need_data" (reads more)
-                  │
-                  ├───[ buffer < expected total size ]────► returns "need_data" (reads more)
-                  │
-                  ├───[ validate_crc16() fails ]──────────► returns "processed" (skips frame, continues loop)
-                  │
-                  └──► _handle_frame()
-                            ├───[ PDU.decode_request() fails ]──► responds with IllegalFunction
-                            └───[ Happy Path ]──────────────────► routes, encodes response & writes
-                                                                  (returns "processed")
-    ```
+    Incoming Data Flow & Error Branches::
+
+        [ TCP Socket / Client Connection ]
+                      │
+                      ▼
+             handle_client()        ────► accumulates raw data into byte buffer
+                      │
+                      ▼
+           _process_next_frame()
+                      │
+                      ├──► _parse_frame_length()
+                      │         ├───[ buffer < 2 bytes ]──────► returns "need_data" (reads more)
+                      │         ├───[ unsupported function ]──► returns "disconnect" (clears buffer & exits)
+                      │         ├───[ expected size > 256 ]───► returns "disconnect" (clears buffer & exits)
+                      │         └───[ unknown length yet ]────► returns "need_data" (reads more)
+                      │
+                      ├───[ buffer < expected total size ]────► returns "need_data" (reads more)
+                      │
+                      ├───[ validate_crc16() fails ]──────────► returns "processed" (skips frame, continues loop)
+                      │
+                      └──► _handle_frame()
+                                ├───[ PDU.decode_request() fails ]──► responds with IllegalFunction
+                                └───[ Happy Path ]──────────────────► routes, encodes response & writes
+                                                                      (returns "processed")
+
     """
 
     def __init__(

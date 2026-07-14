@@ -21,37 +21,37 @@ log_raw_traffic = partial(base_log_raw_traffic, "TCP-Server")
 class AsyncTcpServer(AsyncBaseServer):
     """Async Modbus TCP Server.
 
-    Incoming Data Flow & Error Branches:
-    ```
-    [ TCP Socket / Client Connection ]
-                  │
-                  ▼
-         handle_client()
-                  │ (reads 7-byte MBAP header)
-                  ├───[ IncompleteReadError ]─────────────► [ Terminate Connection ]
-                  ▼
-       _handle_single_request()
-                  │
-                  ├───[ Protocol ID != 0 ]────────────────► [ Terminate Connection ] (returns False)
-                  ├───[ PDU Length invalid ]──────────────► [ Terminate Connection ] (returns False)
-                  │ (reads PDU bytes)
-                  ├───[ IncompleteReadError ]─────────────► [ Terminate Connection ]
-                  ▼
-         _get_pdu_class()
-                  │
-                  ├───[ Unsupported Code / Not Server PDU ]
-                  │   (ValueError) ──► Responds with IllegalFunction PDU ──► [ Continue Loop ] (returns True)
-                  ▼
-         PDU.decode_request()
-                  │
-                  ├───[ Malformed Request ]
-                  │   (InvalidRequestError) ──► Responds with IllegalFunction ──► [ Continue Loop ] (returns True)
-                  ▼
-        handle_modbus_request()  ────► routes to ModbusHandler/router
-                  │ (normal case: executes handler, encodes response)
-                  ▼
-             [ TCP Write ]       ────► prepends response MBAP and sends (returns True)
-    ```
+    Incoming Data Flow & Error Branches::
+
+        [ TCP Socket / Client Connection ]
+                      │
+                      ▼
+             handle_client()
+                      │ (reads 7-byte MBAP header)
+                      ├───[ IncompleteReadError ]─────────────► [ Terminate Connection ]
+                      ▼
+           _handle_single_request()
+                      │
+                      ├───[ Protocol ID != 0 ]────────────────► [ Terminate Connection ] (returns False)
+                      ├───[ PDU Length invalid ]──────────────► [ Terminate Connection ] (returns False)
+                      │ (reads PDU bytes)
+                      ├───[ IncompleteReadError ]─────────────► [ Terminate Connection ]
+                      ▼
+             _get_pdu_class()
+                      │
+                      ├───[ Unsupported Code / Not Server PDU ]
+                      │   (ValueError) ──► Responds with IllegalFunction PDU ──► [ Continue Loop ] (returns True)
+                      ▼
+             PDU.decode_request()
+                      │
+                      ├───[ Malformed Request ]
+                      │   (InvalidRequestError) ──► Responds with IllegalFunction ──► [ Continue Loop ] (returns True)
+                      ▼
+            handle_modbus_request()  ────► routes to ModbusHandler/router
+                      │ (normal case: executes handler, encodes response)
+                      ▼
+                 [ TCP Write ]       ────► prepends response MBAP and sends (returns True)
+
     """
 
     def __init__(

@@ -26,31 +26,31 @@ BITS_PER_CHAR = 11  # 1 start + 8 data + parity + 1 stop ~= 11 bits per characte
 class AsyncRtuServer(AsyncBaseServer):
     """Async Modbus RTU Server.
 
-    Incoming Data Flow & Error Branches:
-    ```
-    [ Serial Port / RS-485 Interface ]
-                  │
-                  ▼
-              _serve()          ────► reads serial stream into byte buffer
-                  │
-                  ▼
-       _process_next_frame()
-                  │
-                  ├──► _parse_frame_length()
-                  │         ├───[ buffer < 2 bytes ]──────► returns "need_data" (reads more)
-                  │         ├───[ unsupported function ]──► returns "processed" (clears buffer, continues loop)
-                  │         ├───[ expected size > 256 ]───► returns "processed" (clears buffer, continues loop)
-                  │         └───[ unknown length yet ]────► returns "need_data" (reads more)
-                  │
-                  ├───[ buffer < expected total size ]────► returns "need_data" (reads more)
-                  │
-                  ├───[ validate_crc16() fails ]──────────► returns "processed" (skips frame, continues loop)
-                  │
-                  └──► _handle_frame()
-                            ├───[ PDU.decode_request() fails ]──► responds with IllegalFunction
-                            └───[ Happy Path ]──────────────────► routes, encodes response & writes
-                                                                  (returns "processed")
-    ```
+    Incoming Data Flow & Error Branches::
+
+        [ Serial Port / RS-485 Interface ]
+                      │
+                      ▼
+                  _serve()          ────► reads serial stream into byte buffer
+                      │
+                      ▼
+           _process_next_frame()
+                      │
+                      ├──► _parse_frame_length()
+                      │         ├───[ buffer < 2 bytes ]──────► returns "need_data" (reads more)
+                      │         ├───[ unsupported function ]──► returns "processed" (clears buffer, continues loop)
+                      │         ├───[ expected size > 256 ]───► returns "processed" (clears buffer, continues loop)
+                      │         └───[ unknown length yet ]────► returns "need_data" (reads more)
+                      │
+                      ├───[ buffer < expected total size ]────► returns "need_data" (reads more)
+                      │
+                      ├───[ validate_crc16() fails ]──────────► returns "processed" (skips frame, continues loop)
+                      │
+                      └──► _handle_frame()
+                                ├───[ PDU.decode_request() fails ]──► responds with IllegalFunction
+                                └───[ Happy Path ]──────────────────► routes, encodes response & writes
+                                                                      (returns "processed")
+
     """
 
     def __init__(

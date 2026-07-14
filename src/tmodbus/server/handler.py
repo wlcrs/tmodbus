@@ -49,27 +49,27 @@ class ModbusRequestRouter(ModbusHandler):
         Examples:
             Creating and using a router for a Modbus server:
 
-            ```python
-            from tmodbus.pdu import ReadHoldingRegistersRequest
-            from tmodbus.server import AsyncTcpServer, ModbusRequestRouter
+            .. code-block:: python
 
-            router = ModbusRequestRouter()
+                from tmodbus.pdu import ReadHoldingRegistersPDU
+                from tmodbus.server import AsyncTcpServer, ModbusRequestRouter
 
-
-            # Register handler for specific Modbus requests
-            @router.register(ReadHoldingRegistersRequest)
-            async def handle_read_holding_registers(
-                unit_id: int, request: ReadHoldingRegistersRequest
-            ) -> list[int]:
-                # Implement holding registers reading logic
-                # Must return a list of integers corresponding to registers
-                return [42] * request.quantity
+                router = ModbusRequestRouter()
 
 
-            # Pass the router as the handler to the Modbus server
-            server = AsyncTcpServer(host="localhost", port=502, handler=router)
-            await server.serve_forever()
-            ```
+                # Register handler for specific Modbus requests
+                @router.register(ReadHoldingRegistersPDU)
+                async def handle_read_holding_registers(
+                    unit_id: int, request: ReadHoldingRegistersPDU
+                ) -> list[int]:
+                    # Implement holding registers reading logic
+                    # Must return a list of integers corresponding to registers
+                    return [42] * request.quantity
+
+
+                # Pass the router as the handler to the Modbus server
+                server = AsyncTcpServer(host="localhost", port=502, handler=router)
+                await server.serve_forever()
 
         """
         # Map of registered handlers.

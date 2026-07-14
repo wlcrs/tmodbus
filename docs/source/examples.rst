@@ -1,5 +1,6 @@
-Examples
-========
+##########
+ Examples
+##########
 
 This section provides examples of how to use tmodbus in various scenarios.
 
@@ -7,37 +8,50 @@ This section provides examples of how to use tmodbus in various scenarios.
     :local:
     :depth: 1
 
-Async TCP Client
-----------------
+******************
+ Async TCP Client
+******************
 
 .. literalinclude:: ../../examples/async_tcp_client.py
     :language: python
     :linenos:
 
-Async RTU Client
-----------------
+******************
+ Async RTU Client
+******************
 
 .. literalinclude:: ../../examples/async_rtu_client.py
     :language: python
     :linenos:
 
-Async TCP over SSL Client
--------------------------
+***************************
+ Async TCP over SSL Client
+***************************
 
 .. literalinclude:: ../../examples/async_tcp_tls_client.py
     :language: python
     :linenos:
 
-Async ASCII Client
-------------------
+********************
+ Async ASCII Client
+********************
 
 .. literalinclude:: ../../examples/async_ascii_client.py
     :language: python
     :linenos:
 
-Async RTU over TCP Client
--------------------------
+***************************
+ Async RTU over TCP Client
+***************************
 
 .. literalinclude:: ../../examples/async_rtu_over_tcp_client.py
+    :language: python
+    :linenos:
+
+******************
+ Async TCP Server
+******************
+
+.. literalinclude:: ../../examples/async_tcp_server.py
     :language: python
     :linenos:

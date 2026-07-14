@@ -22,32 +22,32 @@ log_raw_traffic = partial(base_log_raw_traffic, "ASCII-Server")
 class AsyncAsciiServer(AsyncBaseServer):
     r"""Async Modbus ASCII Server.
 
-    Incoming Data Flow & Error Branches:
-    ```
-    [ Serial Port / RS-485 Interface ]
-                  │
-                  ▼
-              _serve()          ────► reads serial stream into byte buffer
-                  │
-                  ▼
-        _extract_next_frame()
-                  ├───[ ':' not in buffer ]───────────────► returns None (clears buffer, reads more)
-                  ├───[ '\r\n' not in buffer ]────────────► returns None (retains buffer, reads more)
-                  └───[ Frame found ]
-                            │
-                            ▼
-       _process_next_frame()
-                  │
-                  ├───[ frame size < 9 bytes ]────────────► returns (skips frame)
-                  ├───[ invalid hex characters ]──────────► returns (skips frame)
-                  ├───[ validate_lrc() fails ]────────────► returns (skips frame)
-                  ▼
-         _get_pdu_class() / decode_request()
-                  │
-                  ├───[ decoding fails ]──────────────────► responds with IllegalFunction
-                  └───[ Happy Path ]──────────────────────► routes, encodes response,
-                                                            calculates LRC & writes
-    ```
+    Incoming Data Flow & Error Branches::
+
+        [ Serial Port / RS-485 Interface ]
+                      │
+                      ▼
+                  _serve()          ────► reads serial stream into byte buffer
+                      │
+                      ▼
+            _extract_next_frame()
+                      ├───[ ':' not in buffer ]───────────────► returns None (clears buffer, reads more)
+                      ├───[ '\r\n' not in buffer ]────────────► returns None (retains buffer, reads more)
+                      └───[ Frame found ]
+                                │
+                                ▼
+           _process_next_frame()
+                      │
+                      ├───[ frame size < 9 bytes ]────────────► returns (skips frame)
+                      ├───[ invalid hex characters ]──────────► returns (skips frame)
+                      ├───[ validate_lrc() fails ]────────────► returns (skips frame)
+                      ▼
+             _get_pdu_class() / decode_request()
+                      │
+                      ├───[ decoding fails ]──────────────────► responds with IllegalFunction
+                      └───[ Happy Path ]──────────────────────► routes, encodes response,
+                                                                calculates LRC & writes
+
     """
 
     def __init__(

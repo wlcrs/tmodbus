@@ -1,17 +1,23 @@
-API
-===
+#####
+ API
+#####
 
-For general use, you can create an asynchronous Modbus client using one of the factory
-functions provided in the :mod:`tmodbus` module and use the functions of the returned
+For client use, you can create an asynchronous Modbus client using one of the factory
+functions provided in the :mod:`tmodbus` module and use the methods of the returned
 :class:`~tmodbus.client.AsyncModbusClient` instance to interact with a Modbus server.
+
+For server use, you can create an asynchronous Modbus server using one of the server
+classes in the :mod:`tmodbus.server` module, along with a custom handler. Refer to
+:doc:`Server <server>` for more details and examples.
 
 If your Modbus device uses non-standard function codes or requires special handling, you
 can create a custom PDU class by inheriting from :class:`~tmodbus.pdu.BaseClientPDU` and
 implementing the necessary methods. cfr. :doc:`Vendor functions <vendor_functions>` for
 more details.
 
-General
--------
+*********
+ General
+*********
 
 .. autofunction:: tmodbus.create_async_tcp_client
 
@@ -21,8 +27,9 @@ General
 
 .. autofunction:: tmodbus.create_async_rtu_over_tcp_client
 
-Client layer
-------------
+**************
+ Client layer
+**************
 
 The AsyncModbusClient class provides methods to interact with a Modbus server. It
 supports reading and writing coils, discrete inputs, holding registers, and input
@@ -41,20 +48,35 @@ additional methods for reading and writing structured data from/to holding regis
 .. autoclass:: tmodbus.pdu.holding_registers_struct.HoldingRegisterWriteMixin
     :members:
 
-Transport layer
----------------
+**************
+ Server layer
+**************
+
+The server classes listen for incoming Modbus requests, decode them into request PDUs,
+and delegate processing to a handler conforming to the
+:class:`~tmodbus.server.ModbusHandler` protocol.
+
+.. automodule:: tmodbus.server
+    :members:
+    :show-inheritance:
+
+*****************
+ Transport layer
+*****************
 
 .. automodule:: tmodbus.transport
     :members:
 
-PDU layer
----------
+***********
+ PDU layer
+***********
 
 .. automodule:: tmodbus.pdu
     :members:
 
-Exceptions
-----------
+************
+ Exceptions
+************
 
 When the server responds with an error, tModbus will raise the corresponding subclass of
 :class:`~tmodbus.exceptions.ModbusResponseError`:
