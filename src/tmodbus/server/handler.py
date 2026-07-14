@@ -148,11 +148,11 @@ class ModbusRequestRouter(ModbusHandler):
             func_handlers = self._handlers.get(None)
 
         if func_handlers is None:
-            raise IllegalFunctionError(ExceptionCode.ILLEGAL_FUNCTION, request.function_code)
+            raise IllegalFunctionError(request.function_code)
 
         handler = func_handlers.get(request.function_code)
         if handler is None:
-            raise IllegalFunctionError(ExceptionCode.ILLEGAL_FUNCTION, request.function_code)
+            raise IllegalFunctionError(request.function_code)
 
         return cast("T", await handler(unit_id, request))
 

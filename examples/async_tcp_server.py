@@ -22,7 +22,7 @@ async def handle_read_holding_registers(_unit_id: int, request: ReadHoldingRegis
     addr = request.start_address
     qty = request.quantity
     if addr + qty > len(REGISTER_STORE):
-        raise IllegalDataAddressError(2, request.function_code)
+        raise IllegalDataAddressError(request.function_code)
     return REGISTER_STORE[addr : addr + qty]
 
 
@@ -32,7 +32,7 @@ async def handle_write_single_register(_unit_id: int, request: WriteSingleRegist
     addr = request.address
     val = request.value
     if addr >= len(REGISTER_STORE):
-        raise IllegalDataAddressError(2, request.function_code)
+        raise IllegalDataAddressError(request.function_code)
     REGISTER_STORE[addr] = val
     return val
 
@@ -43,7 +43,7 @@ async def handle_write_multiple_registers(_unit_id: int, request: WriteMultipleR
     addr = request.start_address
     vals = request.values
     if addr + len(vals) > len(REGISTER_STORE):
-        raise IllegalDataAddressError(2, request.function_code)
+        raise IllegalDataAddressError(request.function_code)
     REGISTER_STORE[addr : addr + len(vals)] = vals
     return len(vals)
 

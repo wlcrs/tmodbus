@@ -69,7 +69,7 @@ async def test_handle_modbus_request_modbus_error() -> None:
 
     @router.register(ReadHoldingRegistersPDU)
     async def handle_read(_unit_id: int, request: ReadHoldingRegistersPDU) -> list[int]:
-        raise IllegalDataAddressError(2, request.function_code)
+        raise IllegalDataAddressError(request.function_code)
 
     req = ReadHoldingRegistersPDU(start_address=0, quantity=2)
     response_bytes = await handle_modbus_request(1, req, router)

@@ -103,17 +103,16 @@ class ModbusResponseError(TModbusError):
     """Base class for all Modbus exception response."""
 
     error_code: int
+    function_code: int
 
-    def __init__(self, error_code: int, function_code: int) -> None:
+    def __init__(self, function_code: int) -> None:
         """Initialize ModbusResponseError.
 
         Args:
-            error_code: Error code from the Modbus exception response
             function_code: Function code of the request that caused the exception
 
         """
-        super().__init__(f"Modbus Exception {error_code:#04x} for function code {function_code:#04x}")
-        assert self.error_code == error_code
+        super().__init__(f"Modbus Exception {self.error_code:#04x} for function code {function_code:#04x}")
         self.function_code = function_code
 
 
@@ -192,9 +191,8 @@ class UnknownModbusResponseError(ModbusResponseError):
             function_code: Function code of the request that caused the exception
 
         """
-        # do not call super() as we want to override the error_code
-        self.function_code = function_code
-        self.error_code = error_code  # Override with actual unknown error code
+        self.error_code = error_code
+        super().__init__(function_code)
 
 
 error_code_to_exception_map: dict[int, type[ModbusResponseError]] = {

@@ -50,7 +50,9 @@ Here is a complete example of setting up a TCP server using `ModbusRequestRouter
         addr = request.start_address
         qty = request.quantity
         if addr + qty > len(REGISTER_STORE):
-            raise IllegalDataAddressError(2, request.function_code)
+            # pass the function code into the exception, as it must be
+            # encoded into the Modbus response PDU.
+            raise IllegalDataAddressError(request.function_code)
         return REGISTER_STORE[addr : addr + qty]
 
 
@@ -62,7 +64,7 @@ Here is a complete example of setting up a TCP server using `ModbusRequestRouter
         addr = request.address
         val = request.value
         if addr >= len(REGISTER_STORE):
-            raise IllegalDataAddressError(2, request.function_code)
+            raise IllegalDataAddressError(request.function_code)
         REGISTER_STORE[addr] = val
         return val
 
@@ -139,7 +141,6 @@ to unit ID 1.
 .. code-block:: python
 
     from typing import Any
-    from tmodbus.const import ExceptionCode
     from tmodbus.exceptions import IllegalFunctionError
     from tmodbus.pdu import BasePDU, ReadHoldingRegistersPDU
 
@@ -150,7 +151,7 @@ to unit ID 1.
             return [42] * request.quantity
 
         # Raise exception for unsupported function codes
-        raise IllegalFunctionError(ExceptionCode.ILLEGAL_FUNCTION, request.function_code)
+        raise IllegalFunctionError(request.function_code)
 
 
     # Attach the unit ID support check to the function (crucial for serial lines)
@@ -165,8 +166,7 @@ process different request types inside a single function handler.
 .. code-block:: python
 
     from typing import Any
-    from tmodbus.const import ExceptionCode
-    from tmodbus.exceptions import IllegalFunctionError
+    from tmodbus.exceptions import IllegalDataAddressError, IllegalFunctionError
     from tmodbus.pdu import (
         BasePDU,
         ReadHoldingRegistersPDU,
@@ -181,23 +181,19 @@ process different request types inside a single function handler.
         match request:
             case ReadHoldingRegistersPDU(start_address=addr, quantity=qty):
                 if addr + qty > len(registers):
-                    from tmodbus.exceptions import IllegalDataAddressError
-
-                    raise IllegalDataAddressError(2, request.function_code)
+                    # pass the function code into the exception, as it must be
+                    # encoded into the Modbus response PDU.
+                    raise IllegalDataAddressError(request.function_code)
                 return registers[addr : addr + qty]
 
             case WriteSingleRegisterPDU(address=addr, value=val):
                 if addr >= len(registers):
-                    from tmodbus.exceptions import IllegalDataAddressError
-
-                    raise IllegalDataAddressError(2, request.function_code)
+                    raise IllegalDataAddressError(request.function_code)
                 registers[addr] = val
                 return val
 
             case _:
-                raise IllegalFunctionError(
-                    ExceptionCode.ILLEGAL_FUNCTION, request.function_code
-                )
+                raise IllegalFunctionError(request.function_code)
 
 
     # Attach the unit ID check. Here we support unit IDs 1, 2, and 3
