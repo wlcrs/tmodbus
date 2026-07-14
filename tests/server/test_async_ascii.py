@@ -532,7 +532,7 @@ async def test_ascii_server_multiple_frames_and_overrun() -> None:
 
 
 async def test_ascii_server_multiple_colons() -> None:
-    """Test that ASCII server correctly extracts a frame containing multiple colons by looking backward from \\r\\n."""
+    r"""Test that ASCII server correctly extracts a frame containing multiple colons by looking backward from \r\n."""
     router = ModbusRequestRouter()
     received_regs = []
 
