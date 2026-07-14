@@ -109,6 +109,15 @@ class AsyncAsciiServer(AsyncBaseServer):
         with contextlib.suppress(asyncio.CancelledError):
             await self._task
 
+    def _recover_from_overrun(self, buffer: bytearray, discard_len: int) -> tuple[bytes | None, bytearray]:
+        """Recover from an ASCII frame overrun by searching for the next colon."""
+        next_colon = buffer.find(b":", 1)
+        if next_colon != -1:
+            log_raw_traffic("recv", bytes(buffer[:next_colon]), is_error=True)
+            return self._extract_next_frame(buffer[next_colon:])
+        log_raw_traffic("recv", bytes(buffer[:discard_len]), is_error=True)
+        return self._extract_next_frame(buffer[discard_len:])
+
     def _extract_next_frame(self, buffer: bytearray) -> tuple[bytes | None, bytearray]:
         """Extract the next complete frame from the buffer if available."""
         try:
@@ -126,10 +135,18 @@ class AsyncAsciiServer(AsyncBaseServer):
         try:
             end_idx = buffer.index(b"\r\n")
         except ValueError:
+            # If no \r\n but the buffer is already > 513 bytes, the frame is too long
+            if len(buffer) > 513:
+                return self._recover_from_overrun(buffer, len(buffer))
             return None, buffer
 
-        frame = bytes(buffer[: end_idx + 2])
-        remaining = buffer[end_idx + 2 :]
+        frame_len = end_idx + 2
+        if frame_len > 515:
+            # The frame starting at 0 is too long. Recover from the next colon.
+            return self._recover_from_overrun(buffer, frame_len)
+
+        frame = bytes(buffer[:frame_len])
+        remaining = buffer[frame_len:]
         return frame, remaining
 
     async def _process_next_frame(self, frame: bytes) -> Literal["ignored", "success", "error"]:
@@ -199,12 +216,6 @@ class AsyncAsciiServer(AsyncBaseServer):
                     if not data:
                         continue
                     buffer.extend(data)
-
-                    if len(buffer) > 513:
-                        logger.warning("ASCII buffer exceeded maximum frame size, clearing")
-                        log_raw_traffic("recv", bytes(buffer), is_error=True)
-                        buffer.clear()
-                        continue
 
                     while True:
                         frame, remaining = self._extract_next_frame(buffer)

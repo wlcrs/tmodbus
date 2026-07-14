@@ -139,6 +139,42 @@ async def test_ascii_server_buffer_overrun_dos() -> None:
     await server.stop()
 
 
+async def test_ascii_server_buffer_overrun_recovery() -> None:
+    """Test that ASCII server recovers from a buffer overrun by keeping subsequent valid frames."""
+    router = ModbusRequestRouter()
+
+    @router.register(ReadHoldingRegistersPDU)
+    async def handle_read(_unit_id: int, _request: ReadHoldingRegistersPDU) -> list[int]:
+        return [0x1234]
+
+    server = AsyncAsciiServer(port="/dev/ttyUSB0", handler=router)
+    await server.start()
+
+    mock_serial_inst = cast("MockSerial", server._reader)
+    assert mock_serial_inst is not None
+
+    # Build a valid frame: unit_id=1, fc=3, start_address=0, quantity=1
+    bin_data = b"\x01\x03\x00\x00\x00\x01"
+    lrc = calculate_lrc(bin_data)
+    valid_frame = b":" + (bin_data + bytes([lrc])).hex().upper().encode("ascii") + b"\r\n"
+
+    # Send a buffer starting with a colon and growing > 513 bytes, with a second colon starting a valid frame.
+    # Total length of buffer will exceed 513 bytes.
+    # E.g. b":" + b"A"*512 + valid_frame
+    large_garbage = b":" + b"A" * 512
+    await mock_serial_inst.read_queue.put(large_garbage + valid_frame)
+
+    await asyncio.sleep(0.05)
+
+    # Server should process the valid frame and write the response
+    assert len(mock_serial_inst.write_calls) == 1
+    resp = mock_serial_inst.write_calls[0]
+    assert resp.startswith(b":")
+    assert resp.endswith(b"\r\n")
+
+    await server.stop()
+
+
 async def test_ascii_server_invalid_hex() -> None:
     """Test that ASCII server discards frames with invalid hex characters."""
     router = ModbusRequestRouter()
@@ -414,5 +450,57 @@ async def test_ascii_server_broadcast() -> None:
     assert called is True
     # Should NOT have sent any response
     assert len(mock_serial_inst.write_calls) == 0
+
+    await server.stop()
+
+
+async def test_ascii_server_multiple_frames_and_overrun() -> None:
+    """Test multiple frames and overrun handling.
+
+    Test that ASCII server correctly extracts and processes multiple valid frames
+    received at once, and correctly recovers if there is an overrun in between.
+    """
+    router = ModbusRequestRouter()
+    received_regs = []
+
+    @router.register(ReadHoldingRegistersPDU)
+    async def handle_read(_unit_id: int, request: ReadHoldingRegistersPDU) -> list[int]:
+        received_regs.append(request.start_address)
+        return [request.start_address]
+
+    server = AsyncAsciiServer(port="/dev/ttyUSB0", handler=router)
+    await server.start()
+
+    mock_serial_inst = cast("MockSerial", server._reader)
+    assert mock_serial_inst is not None
+
+    # Build valid frames:
+    # 1. Start address 0x01
+    bin1 = b"\x01\x03\x00\x01\x00\x01"
+    frame1 = b":" + (bin1 + bytes([calculate_lrc(bin1)])).hex().upper().encode("ascii") + b"\r\n"
+    # 2. Start address 0x02
+    bin2 = b"\x01\x03\x00\x02\x00\x01"
+    frame2 = b":" + (bin2 + bytes([calculate_lrc(bin2)])).hex().upper().encode("ascii") + b"\r\n"
+    # 3. Start address 0x03
+    bin3 = b"\x01\x03\x00\x03\x00\x01"
+    frame3 = b":" + (bin3 + bytes([calculate_lrc(bin3)])).hex().upper().encode("ascii") + b"\r\n"
+
+    # Scenario A: Put two valid frames in the queue at once
+    await mock_serial_inst.read_queue.put(frame1 + frame2)
+    await asyncio.sleep(0.05)
+
+    assert received_regs == [1, 2]
+    assert len(mock_serial_inst.write_calls) == 2
+    mock_serial_inst.write_calls.clear()
+    received_regs.clear()
+
+    # Scenario B: Put multiple frames with a large overrun in between
+    # frame1 + garbage (starts with ':' and > 513 bytes) + frame3
+    large_garbage = b":" + b"A" * 520
+    await mock_serial_inst.read_queue.put(frame1 + large_garbage + frame3)
+    await asyncio.sleep(0.05)
+
+    assert received_regs == [1, 3]
+    assert len(mock_serial_inst.write_calls) == 2
 
     await server.stop()
