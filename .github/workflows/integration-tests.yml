@@ -1,0 +1,42 @@
+---
+name: Integration Testing
+
+on: [push, pull_request, workflow_call] # yamllint disable rule:truthy
+
+permissions:
+  contents: read
+
+env:
+  DEFAULT_PYTHON: "3.12"
+
+jobs:
+  pytest:
+    name: Python ${{ matrix.python }}
+    runs-on: ubuntu-latest
+    strategy:
+      matrix:
+        python: ["3.12", "3.13", "3.14", "3.15"]
+    steps:
+      - name: Harden the runner (Audit all outbound calls)
+        uses: step-security/harden-runner@bf7454d06d71f1098171f2acdf0cd4708d7b5920 # v2.20.0
+        with:
+          egress-policy: audit
+
+      - name: ⤵️ Check out code from GitHub
+        uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v7.0.0
+      - name: 🏗 Set up uv
+        uses: astral-sh/setup-uv@11f9893b081a58869d3b5fccaea48c9e9e46f990 # v8.3.2
+        with:
+          enable-cache: true
+          python-version: ${{ matrix.python }}
+      - name: 🏗 Install dependencies
+        run: uv sync --all-extras --frozen --no-default-groups --group test
+      - name: Install system dependencies (socat)
+        run: sudo apt-get update && sudo apt-get install -y socat
+      - name: 🏗 Compile integration test binaries
+        run: |
+          cd integration_tests/tokio && ./compile.sh && cd ../..
+          cd integration_tests/rmodbus && ./compile.sh && cd ../..
+          cd integration_tests/simonvetter && ./compile.sh && cd ../..
+      - name: 🚀 Run pytest
+        run: uv run --no-sync pytest integration_tests
