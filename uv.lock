@@ -954,20 +954,20 @@ wheels = [
 
 [[package]]
 name = "serialx"
-version = "1.5.0"
+version = "1.8.2"
 source = { registry = "https://pypi.org/simple" }
 dependencies = [
     { name = "pywin32", marker = "sys_platform == 'win32'" },
     { name = "typing-extensions" },
 ]
-sdist = { url = "https://files.pythonhosted.org/packages/89/0f/d4785b09a62dbfa876bf9dc4e26e1ac8a03a97c198d7e2eef37f94f1ade2/serialx-1.5.0.tar.gz", hash = "sha256:72330a5f987d80f88ecc1584a288b3a8abf6e4de08ba7d17b6c5a2cd25f50fb2", size = 537456, upload-time = "2026-04-23T17:30:09.247Z" }
+sdist = { url = "https://files.pythonhosted.org/packages/cf/80/778c6da23924b718c282024bcde331cf8e417ec1274d2f198f65cff7503a/serialx-1.8.2.tar.gz", hash = "sha256:90c912ec8ceb4ae26a7dca158ca21e5bd8d73ddfc93c5e8d8b101a22ddccbb9a", size = 695526, upload-time = "2026-06-12T16:06:57.055Z" }
 wheels = [
-    { url = "https://files.pythonhosted.org/packages/1b/d8/d69499729556525ef99d94fb912dc2829361fc61d1449f5d7ebc7f266503/serialx-1.5.0-cp310-abi3-macosx_10_12_x86_64.whl", hash = "sha256:d2a9acac95779c0e5d1e257acbee1d1e58df937b538db1ee73d2688403ec1291", size = 278819, upload-time = "2026-04-23T17:29:58.887Z" },
-    { url = "https://files.pythonhosted.org/packages/11/8b/b5fdbbf69e64bcd666b80cf39186025302440c48c77bc18c3009a8a69571/serialx-1.5.0-cp310-abi3-macosx_11_0_arm64.whl", hash = "sha256:f6f5c1d1388147e92975103144a5235554f92e4d1c909acf6fa603aac7041fa8", size = 276386, upload-time = "2026-04-23T17:30:00.83Z" },
-    { url = "https://files.pythonhosted.org/packages/34/98/bc3f93774840abbb9ab6369e3ad249d21f83d65db64c48d49c0b6189eac1/serialx-1.5.0-cp310-abi3-win32.whl", hash = "sha256:7cc7d8c897456b29d41a1fa4761b1f374a6fa36d567ec4f494ab2e98b6752849", size = 177810, upload-time = "2026-04-23T17:30:02.761Z" },
-    { url = "https://files.pythonhosted.org/packages/3e/02/c17f5fd8c028feb75aa102887fa91aec9b00dc7427eb6996400e4ec9559f/serialx-1.5.0-cp310-abi3-win_amd64.whl", hash = "sha256:0ccfb1697b0a06c09d05b81e87e27d914d436e748af4c84733e8d996f56105ee", size = 183802, upload-time = "2026-04-23T17:30:04.45Z" },
-    { url = "https://files.pythonhosted.org/packages/98/cb/0e8a39260d1371020f28d51e592fd478c1283d925c4024a201c34965730d/serialx-1.5.0-cp310-abi3-win_arm64.whl", hash = "sha256:9614e0a25c4ff837713ebd40d6bef5d78008d054417aebfdd4631c94a771ff9d", size = 180111, upload-time = "2026-04-23T17:30:06.31Z" },
-    { url = "https://files.pythonhosted.org/packages/3c/52/9fdacf14de98f1bdd38585ecfc10a2efa245968e02d03856cbf1f5824124/serialx-1.5.0-py3-none-any.whl", hash = "sha256:b292fff52f4ee10e6f6e9fb38619420b0503baead62e5802c57751c1c17b5ca5", size = 60359, upload-time = "2026-04-23T17:30:07.622Z" },
+    { url = "https://files.pythonhosted.org/packages/4f/4b/b4c05bfbe7021874f4f8b007d0057bf50e92854d63bb1dab07fd3677e376/serialx-1.8.2-cp310-abi3-macosx_10_12_x86_64.whl", hash = "sha256:d2904605e59357b9815aaa70828f28429767821638fceef228f32b8fca9ffb5c", size = 285301, upload-time = "2026-06-12T16:06:48.23Z" },
+    { url = "https://files.pythonhosted.org/packages/38/32/e6998be005770fbefd71bd3b9e095eb3a4fc055649967dcf82a6747fb6dc/serialx-1.8.2-cp310-abi3-macosx_11_0_arm64.whl", hash = "sha256:abaee5c042194eaf95466e8e5eec6920af2eb0dbc00b91f1d765a0602bfd0d23", size = 282856, upload-time = "2026-06-12T16:06:49.91Z" },
+    { url = "https://files.pythonhosted.org/packages/c6/d5/598fc77e904c584e4420cc4be7878292f595f40e6f32092649d7cd580f28/serialx-1.8.2-cp310-abi3-win32.whl", hash = "sha256:42cd054add10e390856608a6b0abb3bdf1b8aa078f26f60d7fcd852603f91417", size = 183863, upload-time = "2026-06-12T16:06:51.191Z" },
+    { url = "https://files.pythonhosted.org/packages/65/1d/8dfbd66cdf4129d991574c4ebcd502636b178e408a41cdf8ebc04353cab5/serialx-1.8.2-cp310-abi3-win_amd64.whl", hash = "sha256:3e098c502639c7b220c419634101f28b9878a82fcee0cf06e074abb3e97f2c3e", size = 189886, upload-time = "2026-06-12T16:06:52.792Z" },
+    { url = "https://files.pythonhosted.org/packages/85/b9/138584b89a109f4e4ce82176380b44a748808033d55c9cbb1b39de0f52eb/serialx-1.8.2-cp310-abi3-win_arm64.whl", hash = "sha256:36f82e21c9b0215beae4c983d221071a44ecdcf2f7a98c659af596ff7adbaa65", size = 186459, upload-time = "2026-06-12T16:06:54.283Z" },
+    { url = "https://files.pythonhosted.org/packages/f0/90/9cd83042a221756e41ed8c018344e8833788c16e9bac144dab3292f9fa3c/serialx-1.8.2-py3-none-any.whl", hash = "sha256:6e6cffc1caec242fb06d8e16dd7880c8ba53c366ee2c43045fc38e8935ac8a6d", size = 66674, upload-time = "2026-06-12T16:06:55.724Z" },
 ]
 
 [[package]]
