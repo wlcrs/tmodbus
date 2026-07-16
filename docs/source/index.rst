@@ -1,5 +1,6 @@
-tModbus
-=======
+#########
+ tModbus
+#########
 
 .. image:: https://img.shields.io/badge/Homepage-2088ff?logo=github&logoColor=white
     :target: https://github.com/wlcrs/tmodbus
@@ -32,8 +33,9 @@ Modbus is based on the `master/slave
 pattern. We choose to use the terminology *client* and *server* instead, as it is more
 clear.
 
-A simple example
-----------------
+*************************
+ A simple client example
+*************************
 
 .. code-block:: python
 
@@ -57,6 +59,7 @@ A simple example
     :caption: Contents:
 
     api
+    server
     architecture
     examples
 

@@ -287,8 +287,9 @@ class ModbusTcpProtocol(asyncio.Protocol):
             function_code = response.pdu_bytes[0] & 0x7F  # Remove exception flag bit
             exception_code = response.pdu_bytes[1] if len(response.pdu_bytes) > 1 else 0
 
-            error_class = error_code_to_exception_map.get(exception_code, UnknownModbusResponseError)
-            raise error_class(exception_code, function_code)
+            if exception_code in error_code_to_exception_map:
+                raise error_code_to_exception_map[exception_code](function_code)
+            raise UnknownModbusResponseError(exception_code, function_code)
 
         return pdu.decode_response(response.pdu_bytes)
 

@@ -51,6 +51,18 @@ def test_log_raw_traffic_recv_error() -> None:
     assert args[4] == "[!]"
 
 
+def test_log_raw_traffic_recv_ignored() -> None:
+    """Test logging of received ignored traffic."""
+    dummy = _DummyLogger()
+    with patch("tmodbus.utils.raw_traffic_logger.raw_traffic_logger", dummy):
+        log_raw_traffic("rtu", "recv", b"\x01\x02", is_ignored=True)
+    args, _kwargs = dummy.records[-1]
+    assert args[1] == "rtu"
+    assert args[2] == "recv"
+    assert args[3] == "01 02"
+    assert args[4] == "[ignored]"
+
+
 def test_log_raw_traffic_skipped_when_disabled() -> None:
     """Nothing is logged (and no formatting happens) when debug logging is off."""
     dummy = _DummyLogger(enabled=False)

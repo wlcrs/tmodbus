@@ -10,6 +10,7 @@ class ReadExceptionStatusPDU(BasePDU[int]):
 
     function_code: int = FunctionCode.READ_EXCEPTION_STATUS
     rtu_response_data_length = 1  # a single status byte follows the function code
+    rtu_request_data_length = 0  # no data
 
     def encode_request(self) -> bytes:
         """Encode Read Exception Status request PDU.

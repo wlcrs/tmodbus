@@ -1,0 +1,199 @@
+"""Async Modbus TCP Server."""
+
+import asyncio
+import contextlib
+import logging
+import struct
+from functools import partial
+from typing import Any
+
+from tmodbus.const import ExceptionCode
+from tmodbus.exceptions import InvalidRequestError
+from tmodbus.utils.raw_traffic_logger import log_raw_traffic as base_log_raw_traffic
+
+from .base import AsyncBaseServer, get_server_pdu_class
+from .handler import ModbusHandler, handle_modbus_request
+
+logger = logging.getLogger(__name__)
+log_raw_traffic = partial(base_log_raw_traffic, "TCP-Server")
+
+
+class AsyncTcpServer(AsyncBaseServer):
+    """Async Modbus TCP Server.
+
+    Incoming Data Flow & Error Branches::
+
+        [ TCP Socket / Client Connection ]
+                      │
+                      ▼
+             handle_client()
+                      │ (reads 7-byte MBAP header)
+                      ├───[ IncompleteReadError ]─────────────► [ Terminate Connection ]
+                      ▼
+           _handle_single_request()
+                      │
+                      ├───[ Protocol ID != 0 ]────────────────► [ Terminate Connection ] (returns False)
+                      ├───[ PDU Length invalid ]──────────────► [ Terminate Connection ] (returns False)
+                      │ (reads PDU bytes)
+                      ├───[ IncompleteReadError ]─────────────► [ Terminate Connection ]
+                      ▼
+             _get_pdu_class()
+                      │
+                      ├───[ Unsupported Code / Not Server PDU ]
+                      │   (ValueError) ──► Responds with IllegalFunction PDU ──► [ Continue Loop ] (returns True)
+                      ▼
+             PDU.decode_request()
+                      │
+                      ├───[ Malformed Request ]
+                      │   (InvalidRequestError) ──► Responds with IllegalFunction ──► [ Continue Loop ] (returns True)
+                      ▼
+            handle_modbus_request()  ────► routes to ModbusHandler/router
+                      │ (normal case: executes handler, encodes response)
+                      ▼
+                 [ TCP Write ]       ────► prepends response MBAP and sends (returns True)
+
+    """
+
+    def __init__(
+        self,
+        host: str,
+        handler: ModbusHandler,
+        port: int = 502,
+        *,
+        unregistered_unit_id_exception_code: int = ExceptionCode.GATEWAY_TARGET_DEVICE_FAILED_TO_RESPOND,
+        **server_kwargs: Any,
+    ) -> None:
+        """Initialize Async Modbus TCP Server.
+
+        Args:
+            host: Interface to bind to
+            port: Port to listen on (default: 502)
+            handler: User-defined async handler for processing requests
+            unregistered_unit_id_exception_code: Exception code returned when a request is received
+                for a Unit ID that is not registered in the handler (default: 0x0B).
+                Note that `ExceptionCode.GATEWAY_PATH_UNAVAILABLE` (0x0A) is preferred if the server
+                is acting as a gateway.
+            server_kwargs: Additional arguments for `asyncio.start_server`
+
+        """
+        self.host = host
+        self.handler = handler
+        self.port = port
+        self.unregistered_unit_id_exception_code = unregistered_unit_id_exception_code
+        self.server_kwargs = server_kwargs
+        self._server: asyncio.Server | None = None
+
+    async def start(self) -> None:
+        """Start the server."""
+        self._server = await asyncio.start_server(
+            self.handle_client,
+            self.host,
+            self.port,
+            **self.server_kwargs,
+        )
+        logger.info("Modbus TCP Server listening on %s:%d", self.host, self.port)
+
+    async def stop(self) -> None:
+        """Stop the server."""
+        if self._server:
+            self._server.close()
+            await self._server.wait_closed()
+            self._server = None
+            logger.info("Modbus TCP Server stopped")
+
+    async def serve_forever(self) -> None:
+        """Start the server and block until cancelled."""
+        await self.start()
+        assert self._server is not None
+        async with self._server:
+            await self._server.serve_forever()
+
+    async def _handle_single_request(
+        self,
+        reader: asyncio.StreamReader,
+        writer: asyncio.StreamWriter,
+        addr: Any,
+    ) -> bool:
+        """Handle a single Modbus TCP request from the reader and write to writer.
+
+        Returns True if handling should continue, False if connection should close.
+        """
+        mbap_header = b""
+        pdu_bytes = b""
+        try:
+            # Read MBAP header (7 bytes)
+            mbap_header = await reader.readexactly(7)
+            transaction_id, protocol_id, length, unit_id = struct.unpack(">HHHB", mbap_header)
+
+            if protocol_id != 0:
+                logger.warning("Invalid protocol ID from %s: %d", addr, protocol_id)
+                log_raw_traffic("recv", mbap_header, is_error=True)
+                return False
+
+            # Read PDU
+            pdu_length = length - 1  # Length includes unit_id
+            if pdu_length <= 0 or pdu_length > 253:
+                logger.warning("Invalid PDU length from %s: %d", addr, pdu_length)
+                log_raw_traffic("recv", mbap_header, is_error=True)
+                return False
+
+            pdu_bytes = await reader.readexactly(pdu_length)
+        except asyncio.IncompleteReadError as e:
+            received_bytes = mbap_header + e.partial
+            if received_bytes:
+                log_raw_traffic("recv", received_bytes, is_error=True)
+            raise
+        except Exception:
+            received_bytes = mbap_header + pdu_bytes
+            if received_bytes:
+                log_raw_traffic("recv", received_bytes, is_error=True)
+            raise
+
+        function_code = pdu_bytes[0]
+        is_error = False
+
+        if not self.handler.supports_unit_id(unit_id):
+            logger.warning("Request for unregistered unit ID %d from %s", unit_id, addr)
+            response_pdu_bytes = bytes([function_code | 0x80, self.unregistered_unit_id_exception_code])
+            is_error = True
+        else:
+            try:
+                raw_pdu_class = get_server_pdu_class(pdu_bytes)
+                request_pdu = raw_pdu_class.decode_request(pdu_bytes)
+            except (ValueError, InvalidRequestError) as e:
+                logger.warning("Invalid request from %s: %s", addr, e)
+                # Cannot respond if we don't even know the function code properly, or if unsupported
+                # We might reply with IllegalFunction if we at least have function_code
+                response_pdu_bytes = bytes([function_code | 0x80, 0x01])  # ILLEGAL_FUNCTION
+                is_error = True
+            else:
+                response_pdu_bytes = await handle_modbus_request(unit_id, request_pdu, self.handler)
+
+        log_raw_traffic("recv", mbap_header + pdu_bytes, is_error=is_error)
+
+        # Build MBAP header for response
+        resp_length = len(response_pdu_bytes) + 1
+        resp_mbap = struct.pack(">HHHB", transaction_id, protocol_id, resp_length, unit_id)
+
+        out_bytes = resp_mbap + response_pdu_bytes
+        writer.write(out_bytes)
+        log_raw_traffic("sent", out_bytes)
+        await writer.drain()
+        return True
+
+    async def handle_client(self, reader: asyncio.StreamReader, writer: asyncio.StreamWriter) -> None:
+        """Handle a single client connection."""
+        addr = writer.get_extra_info("peername")
+        logger.info("Client connected: %s", addr)
+
+        try:
+            while await self._handle_single_request(reader, writer, addr):
+                pass
+        except asyncio.IncompleteReadError:
+            logger.info("Client disconnected: %s", addr)
+        except Exception:
+            logger.exception("Error handling client %s", addr)
+        finally:
+            writer.close()
+            with contextlib.suppress(Exception):
+                await writer.wait_closed()

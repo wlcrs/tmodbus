@@ -4,7 +4,8 @@ import logging
 import struct
 
 import pytest
-from tmodbus.exceptions import InvalidResponseError
+from tmodbus.exceptions import InvalidRequestError, InvalidResponseError
+from tmodbus.pdu import ReadDeviceIdentificationResponse
 from tmodbus.pdu.device import (
     ConformityLevel,
     ReadDeviceIdentificationPDU,
@@ -417,3 +418,83 @@ class TestReadDeviceIdentificationPDUGetExpectedResponseDataLength:
         result2 = ReadDeviceIdentificationPDU.get_expected_response_data_length(data2)
 
         assert result1 == result2 == 6 + 2 + 4
+
+
+class TestReadDeviceIdentificationPDUServer:
+    """Test server-side methods of ReadDeviceIdentificationPDU."""
+
+    def test_decode_request_valid(self) -> None:
+        """Test decoding a valid request."""
+        # Function code (0x2B), Sub-function code (0x0E), Read device ID code (0x01), Object ID (0x00)
+        request = b"\x2b\x0e\x01\x00"
+        pdu = ReadDeviceIdentificationPDU.decode_request(request)
+        assert pdu.read_device_id_code == 0x01
+        assert pdu.object_id == 0x00
+
+    def test_decode_request_truncated_header(self) -> None:
+        """Test decoding a truncated request."""
+        request = b"\x2b\x0e\x01"
+        with pytest.raises(InvalidRequestError, match=r"Expected request to start with"):
+            ReadDeviceIdentificationPDU.decode_request(request)
+
+    def test_decode_request_invalid_function_code(self) -> None:
+        """Test decoding request with invalid function code."""
+        request = b"\x03\x0e\x01\x00"
+        with pytest.raises(InvalidRequestError, match=r"Invalid function code: expected 0x2b, received 0x03"):
+            ReadDeviceIdentificationPDU.decode_request(request)
+
+    def test_decode_request_invalid_sub_function_code(self) -> None:
+        """Test decoding request with invalid sub-function code."""
+        request = b"\x2b\x0f\x01\x00"
+        with pytest.raises(InvalidRequestError, match=r"Invalid sub function code: expected 0x0e, received 0x0f"):
+            ReadDeviceIdentificationPDU.decode_request(request)
+
+    def test_decode_request_invalid_device_id_code(self) -> None:
+        """Test decoding request with invalid device ID code."""
+        request = b"\x2b\x0e\x05\x00"
+        with pytest.raises(InvalidRequestError, match=r"Invalid read device ID code: 0x05"):
+            ReadDeviceIdentificationPDU.decode_request(request)
+
+    def test_decode_request_constructor_value_error(self, monkeypatch: pytest.MonkeyPatch) -> None:
+        """Test decoding request when constructor raises ValueError."""
+
+        def throw_error(_self: ReadDeviceIdentificationPDU) -> None:
+            msg = "mock error"
+            raise ValueError(msg)
+
+        monkeypatch.setattr(ReadDeviceIdentificationPDU, "__post_init__", throw_error)
+        request = b"\x2b\x0e\x01\x00"
+        with pytest.raises(InvalidRequestError, match="mock error"):
+            ReadDeviceIdentificationPDU.decode_request(request)
+
+    def test_encode_response(self) -> None:
+        """Test encoding a response."""
+        pdu = ReadDeviceIdentificationPDU(read_device_id_code=0x01, object_id=0x00)
+        response = ReadDeviceIdentificationResponse(
+            device_id_code=0x01,
+            conformity_level=ConformityLevel.BASIC,
+            more=False,
+            next_object_id=0x00,
+            number_of_objects=2,
+            objects={
+                0x00: b"Vendor",
+                0x01: b"Product",
+            },
+        )
+        encoded = pdu.encode_response(response)
+
+        # Expected header:
+        # - FC (hex: 0x2B)
+        # - SubFC (hex: 0x0E)
+        # - DeviceIDCode (hex: 0x01)
+        # - ConformityLevel (hex: 0x01)
+        # - More (hex: 0x00)
+        # - NextObjID (hex: 0x00)
+        # - NumObjects (hex: 0x02)
+        expected = b"\x2b\x0e\x01\x01\x00\x00\x02"
+        # Obj 0: ID=0x00, Length=6, Value="Vendor"
+        expected += b"\x00\x06" + b"Vendor"
+        # Obj 1: ID=0x01, Length=7, Value="Product"
+        expected += b"\x01\x07" + b"Product"
+
+        assert encoded == expected

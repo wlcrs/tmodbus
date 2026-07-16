@@ -7,12 +7,12 @@ import logging
 import struct
 from dataclasses import dataclass
 from enum import IntEnum
-from typing import Literal
+from typing import Literal, Self
 
 from tmodbus.const import FunctionCode
-from tmodbus.exceptions import InvalidResponseError
+from tmodbus.exceptions import InvalidRequestError, InvalidResponseError
 
-from .base import BaseSubFunctionClientPDU
+from .base import BaseSubFunctionPDU
 
 logger = logging.getLogger(__name__)
 
@@ -63,10 +63,11 @@ class ReadDeviceIdentificationResponse:
 
 
 @dataclass(frozen=True)
-class ReadDeviceIdentificationPDU(BaseSubFunctionClientPDU[ReadDeviceIdentificationResponse]):
+class ReadDeviceIdentificationPDU(BaseSubFunctionPDU[ReadDeviceIdentificationResponse]):
     """Modbus Request to read a device identifier."""
 
     function_code = FunctionCode.ENCAPSULATED_INTERFACE_TRANSPORT
+    rtu_request_data_length = 3  # MEI Type (1) + Read Device ID code (1) + Object ID (1)
 
     sub_function_code = 0x0E
     read_device_id_code: Literal[0x01, 0x02, 0x03, 0x04]
@@ -87,6 +88,69 @@ class ReadDeviceIdentificationPDU(BaseSubFunctionClientPDU[ReadDeviceIdentificat
             self.read_device_id_code,
             self.object_id,
         )
+
+    @classmethod
+    def decode_request(cls, request: bytes) -> Self:
+        """Decode Read Device Identification Request PDU.
+
+        Args:
+            request: The request bytes.
+
+        Returns:
+            ReadDeviceIdentificationPDU instance created from the request.
+
+        """
+        try:
+            function_code, sub_function_code, read_device_id_code, object_id = struct.unpack(">BBBB", request)
+        except struct.error as e:
+            msg = "Expected request to start with function code, sub-function code, device ID code, and object ID"
+            raise InvalidRequestError(msg, request_bytes=request) from e
+
+        if function_code != cls.function_code:
+            msg = f"Invalid function code: expected {cls.function_code:#04x}, received {function_code:#04x}"
+            raise InvalidRequestError(msg, request_bytes=request)
+
+        if sub_function_code != cls.sub_function_code:
+            msg = f"Invalid sub function code: expected {cls.sub_function_code:#04x}, received {sub_function_code:#04x}"
+            raise InvalidRequestError(msg, request_bytes=request)
+
+        if read_device_id_code not in (0x01, 0x02, 0x03, 0x04):
+            msg = f"Invalid read device ID code: {read_device_id_code:#04x}"
+            raise InvalidRequestError(msg, request_bytes=request)
+
+        try:
+            return cls(
+                read_device_id_code=read_device_id_code,
+                object_id=object_id,
+            )
+        except ValueError as e:
+            raise InvalidRequestError(str(e), request_bytes=request) from e
+
+    def encode_response(self, value: ReadDeviceIdentificationResponse) -> bytes:
+        """Convert the response value to bytes.
+
+        Args:
+            value: The value to encode in the response
+
+        Returns:
+            Bytes representation of the response PDU
+
+        """
+        header = struct.pack(
+            ">BBBBBBB",
+            self.function_code,
+            self.sub_function_code,
+            value.device_id_code,
+            int(value.conformity_level),
+            0xFF if value.more else 0x00,
+            value.next_object_id,
+            value.number_of_objects,
+        )
+        body = bytearray()
+        for obj_id, obj_bytes in value.objects.items():
+            body.extend(struct.pack(">BB", obj_id, len(obj_bytes)))
+            body.extend(obj_bytes)
+        return header + bytes(body)
 
     def decode_response(self, response: bytes) -> ReadDeviceIdentificationResponse:
         """Decode Device Identifier PDU response."""

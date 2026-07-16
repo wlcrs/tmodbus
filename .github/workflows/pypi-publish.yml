@@ -54,7 +54,7 @@ jobs:
   github-release:
     name: Create GitHub Release
     runs-on: ubuntu-latest
-    needs: publish-pypi  # Runs only after successful PyPI deployment
+    needs: pypi-publish  # Runs only after successful PyPI deployment
     permissions:
       contents: write      # Grants permission to create the release; no 'id-token: write' here!
     steps:

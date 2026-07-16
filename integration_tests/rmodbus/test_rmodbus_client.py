@@ -1,6 +1,7 @@
 """Integration tests against the Rust rmodbus server."""
 
 import subprocess
+import sys
 import time
 from collections.abc import Generator
 from pathlib import Path
@@ -10,6 +11,9 @@ from tmodbus.client import AsyncModbusClient
 from tmodbus.transport import AsyncRtuTransport, AsyncTcpTransport
 from tmodbus.transport.async_ascii import AsyncAsciiTransport
 from tmodbus.transport.async_base import AsyncBaseTransport
+
+sys.path.append(str(Path(__file__).parent.parent))
+from helpers import make_virtual_serial_ports
 
 
 @pytest.fixture
@@ -21,71 +25,43 @@ def log_traffic(caplog: pytest.LogCaptureFixture) -> None:
 @pytest.fixture(scope="session")
 def server() -> Generator[None]:
     """Start socat and server process."""
-    # Use socat to create a virtual serial port
-    socat_process = subprocess.Popen(
-        [
-            "/usr/bin/socat",
-            "-d",
-            "-d",
-            "-v",
-            "pty,rawer,echo=0,link=./server-socket",
-            "pty,rawer,echo=0,link=./client-socket",
-        ],
-        cwd=str(Path(__file__).parent),
-    )
+    server_path = Path(__file__).parent / "server-socket"
+    client_path = Path(__file__).parent / "client-socket"
+    with make_virtual_serial_ports(server_path, client_path):
+        # Start the server process and connect it to the socat server-socket
+        server_process = subprocess.Popen(  # noqa: S603
+            [
+                str(Path(__file__).parent / "target/release/server"),
+                str(server_path),
+            ],
+        )
 
-    time.sleep(0.05)  # allow the socat process to start
+        time.sleep(0.05)  # allow the server process to start
 
-    # Start the server process and connect it to the socat server-socket
-    server_process = subprocess.Popen(  # noqa: S603
-        [
-            str(Path(__file__).parent / "target/release/server"),
-            str(Path(__file__).with_name("server-socket")),
-        ],
-    )
-
-    time.sleep(0.05)  # allow the server process to start
-
-    yield
-    server_process.kill()
-    socat_process.terminate()
-    server_process.wait()
-    socat_process.wait()
+        yield
+        server_process.kill()
+        server_process.wait()
 
 
 @pytest.fixture(scope="session")
 def ascii_server() -> Generator[None]:
     """Start socat and server process."""
-    # Use socat to create a virtual serial port
-    socat_process = subprocess.Popen(
-        [
-            "/usr/bin/socat",
-            "-d",
-            "-d",
-            "-v",
-            "pty,rawer,echo=0,link=./ascii-server-socket",
-            "pty,rawer,echo=0,link=./ascii-client-socket",
-        ],
-        cwd=str(Path(__file__).parent),
-    )
+    server_path = Path(__file__).parent / "ascii-server-socket"
+    client_path = Path(__file__).parent / "ascii-client-socket"
+    with make_virtual_serial_ports(server_path, client_path):
+        # Start the server process and connect it to the socat server-socket
+        server_process = subprocess.Popen(  # noqa: S603
+            [
+                str(Path(__file__).parent / "target/release/ascii-server"),
+                str(server_path),
+            ],
+        )
 
-    time.sleep(0.05)  # allow the socat process to start
+        time.sleep(0.05)  # allow the server process to start
 
-    # Start the server process and connect it to the socat server-socket
-    server_process = subprocess.Popen(  # noqa: S603
-        [
-            str(Path(__file__).parent / "target/release/ascii-server"),
-            str(Path(__file__).with_name("ascii-server-socket")),
-        ],
-    )
-
-    time.sleep(0.05)  # allow the server process to start
-
-    yield
-    server_process.kill()
-    socat_process.terminate()
-    server_process.wait()
-    socat_process.wait()
+        yield
+        server_process.kill()
+        server_process.wait()
 
 
 @pytest.mark.parametrize(

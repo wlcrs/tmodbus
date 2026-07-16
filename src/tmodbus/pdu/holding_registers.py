@@ -14,6 +14,7 @@ class RawReadHoldingRegistersPDU(BasePDU[bytes]):
     """Read Holding Register as raw bytes PDU implementation."""
 
     function_code = FunctionCode.READ_HOLDING_REGISTERS
+    rtu_request_data_length = 4  # address (2) + quantity (2)
 
     def __init__(self, start_address: int, quantity: int) -> None:
         """Initialize Read Holding Registers PDU.
@@ -123,6 +124,7 @@ class ReadHoldingRegistersPDU(BasePDU[list[int]]):
     """Read Holding Register PDU."""
 
     function_code = FunctionCode.READ_HOLDING_REGISTERS
+    rtu_request_data_length = 4  # address (2) + quantity (2)
 
     def __init__(self, start_address: int, quantity: int) -> None:
         """Initialize Read Holding Registers PDU.
@@ -136,6 +138,8 @@ class ReadHoldingRegistersPDU(BasePDU[list[int]]):
 
         """
         self.raw_pdu = RawReadHoldingRegistersPDU(start_address, quantity)
+        self.start_address = start_address
+        self.quantity = quantity
 
     def encode_request(self) -> bytes:
         """Convert PDU to bytes.
@@ -223,7 +227,7 @@ class ReadInputRegistersPDU(ReadHoldingRegistersPDU):
     function_code = FunctionCode.READ_INPUT_REGISTERS
 
     def __init__(self, start_address: int, quantity: int) -> None:
-        """Initialize Read Holding Registers PDU.
+        """Initialize Read Input Registers PDU.
 
         Args:
             start_address: Starting address of the registers to read
@@ -233,7 +237,7 @@ class ReadInputRegistersPDU(ReadHoldingRegistersPDU):
             ValueError: If start_address or quantity is invalid
 
         """
-        super(ReadHoldingRegistersPDU, self).__init__()
+        super().__init__(start_address, quantity)
         self.raw_pdu = RawReadInputRegistersPDU(start_address, quantity)
 
     # decode_request and encode_response inherited from ReadHoldingRegistersPDU
@@ -244,6 +248,7 @@ class WriteSingleRegisterPDU(BasePDU[int]):
 
     function_code = FunctionCode.WRITE_SINGLE_REGISTER
     rtu_response_data_length = 4  # address (2) + value (2)
+    rtu_request_data_length = 4  # address (2) + value (2)
 
     def __init__(self, address: int, value: int) -> None:
         """Initialize Write Single Register PDU.
@@ -488,7 +493,7 @@ class WriteMultipleRegistersPDU(BasePDU[int]):
         if not (0 <= start_address < 65536):
             msg = "Address must be between 0 and 65535."
             raise ValueError(msg)
-        self.start_adress = start_address
+        self.start_address = start_address
 
         if not (1 <= len(values) <= 123):
             msg = "Number of registers must be between 1 and 123."
@@ -555,12 +560,21 @@ class WriteMultipleRegistersPDU(BasePDU[int]):
         """
         return self.raw_pdu.encode_response(value)
 
+    @classmethod
+    def get_expected_request_data_length(cls, data: bytes) -> int:
+        """Get the expected number of bytes for the data part of the request PDU."""
+        if len(data) < 5:
+            return 5  # wait for byte count
+        byte_count = data[4]
+        return 5 + byte_count
+
 
 class MaskWriteRegisterPDU(BasePDU[tuple[int, int]]):
     """Mask Write Register PDU."""
 
     function_code = FunctionCode.MASK_WRITE_REGISTER
     rtu_response_data_length = 6  # address (2) + AND mask (2) + OR mask (2)
+    rtu_request_data_length = 6  # address (2) + AND mask (2) + OR mask (2)
 
     def __init__(self, address: int, and_mask: int, or_mask: int) -> None:
         """Initialize Mask Write Register PDU.
@@ -692,6 +706,14 @@ class ReadWriteMultipleRegistersPDU(BasePDU[list[int]]):
     write_values: list[int]
 
     REQUEST_HEADER_STRUCT = struct.Struct(">BHHHHB")
+
+    @classmethod
+    def get_expected_request_data_length(cls, data: bytes) -> int:
+        """Get the expected number of bytes for the data part of the request PDU."""
+        if len(data) < 9:
+            return 9  # wait for write byte count
+        write_byte_count = data[8]
+        return 9 + write_byte_count
 
     def __post_init__(self) -> None:
         """Validate parameters after initialization."""

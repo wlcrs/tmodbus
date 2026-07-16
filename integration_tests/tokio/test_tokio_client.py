@@ -1,6 +1,7 @@
 """Integration tests against the Rust Tokio Modbus server."""
 
 import subprocess
+import sys
 import time
 from collections.abc import Generator
 from pathlib import Path
@@ -10,6 +11,12 @@ from tmodbus.client import AsyncModbusClient
 from tmodbus.transport import AsyncRtuOverTcpTransport, AsyncRtuTransport, AsyncTcpTransport
 from tmodbus.transport.async_base import AsyncBaseTransport
 
+sys.path.append(str(Path(__file__).parent.parent))
+from helpers import make_virtual_serial_ports
+
+server_socket_path = Path(__file__).with_name("tokio-server-socket")
+client_socket_path = Path(__file__).with_name("tokio-client-socket")
+
 
 @pytest.fixture
 def log_traffic(caplog: pytest.LogCaptureFixture) -> None:
@@ -17,43 +24,23 @@ def log_traffic(caplog: pytest.LogCaptureFixture) -> None:
     caplog.set_level("DEBUG", logger="tmodbus")
 
 
-server_socket_path = Path(__file__).with_name("tokio-server-socket")
-client_socket_path = Path(__file__).with_name("tokio-client-socket")
-
-
 @pytest.fixture(scope="session")
 def server() -> Generator[None]:
     """Start socat and server process."""
-    # Use socat to create a virtual serial port
-    socat_process = subprocess.Popen(  # noqa: S603
-        [
-            "/usr/bin/socat",
-            "-d",
-            "-d",
-            "-v",
-            f"pty,rawer,echo=0,link={server_socket_path}",
-            f"pty,rawer,echo=0,link={client_socket_path}",
-        ],
-        cwd=str(Path(__file__).parent),
-    )
+    with make_virtual_serial_ports(server_socket_path, client_socket_path):
+        # Start the server process and connect it to the socat server-socket
+        server_process = subprocess.Popen(  # noqa: S603
+            [
+                str(Path(__file__).parent / "target/release/tokio-server"),
+                str(server_socket_path),
+            ],
+        )
 
-    time.sleep(0.05)  # allow the socat process to start
+        time.sleep(0.05)  # allow the server process to start
 
-    # Start the server process and connect it to the socat server-socket
-    server_process = subprocess.Popen(  # noqa: S603
-        [
-            str(Path(__file__).parent / "target/release/tokio-server"),
-            str(server_socket_path),
-        ],
-    )
-
-    time.sleep(0.05)  # allow the server process to start
-
-    yield
-    server_process.kill()
-    socat_process.terminate()
-    server_process.wait()
-    socat_process.wait()
+        yield
+        server_process.kill()
+        server_process.wait()
 
 
 @pytest.mark.parametrize(
@@ -91,6 +78,14 @@ async def test_client(transport: AsyncBaseTransport) -> None:
     # Read the input registers
     ir0_1 = await client.read_input_registers(0, 2)
     assert ir0_1 == [1234, 5678]
+
+    # Read device identification
+    device_info = await client.read_device_identification(1, 0)
+    assert device_info == {
+        0: b"wlcrs",
+        1: b"TMB",
+        2: b"1.0",
+    }
 
     await client.disconnect()
 

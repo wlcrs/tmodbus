@@ -47,15 +47,19 @@ class AsyncModbusClient(HoldingRegisterReadMixin, HoldingRegisterWriteMixin):
     This class is agnostic to the transport layer: just pass the desired transport instance.
 
     Example:
-        >>> import asyncio
-        >>> from tmodbus import AsyncModbusClient, AsyncTcpTransport
-        >>> async def main():
-        ...     transport = AsyncTcpTransport('localhost', 502)
-        ...     client = AsyncModbusClient(transport, unit_id=1)
-        ...     async with client:
-        ...         print("Contents of register 0:", await client.read_holding_registers(0, 1))
-        ...
-        >>> asyncio.run(main())
+        .. code-block:: python
+
+            import asyncio
+            from tmodbus import AsyncModbusClient, AsyncTcpTransport
+
+            async def main():
+                transport = AsyncTcpTransport('localhost', 502)
+                client = AsyncModbusClient(transport, unit_id=1)
+                async with client:
+                    print("Contents of register 0:", await client.read_holding_registers(0, 1))
+
+            asyncio.run(main())
+
 
     """
 
@@ -143,8 +147,10 @@ class AsyncModbusClient(HoldingRegisterReadMixin, HoldingRegisterWriteMixin):
             InvalidResponseError: If response is invalid or does not match request
 
         Example:
-            >>> coils = await client.read_coils(0, 8)
-            [True, False, True, False, False, False, True, False]
+            .. code-block:: python
+
+                coils = await client.read_coils(0, 8)
+                # Returns [True, False, True, False, False, False, True, False]
 
         """
         return await self.execute(ReadCoilsPDU(start_address, quantity))
@@ -164,8 +170,10 @@ class AsyncModbusClient(HoldingRegisterReadMixin, HoldingRegisterWriteMixin):
             List of coil status, True for ON, False for OFF
 
         Example:
-            >>> inputs = await client.read_discrete_inputs(0, 8)
-            [True, False, True, False, False, False, True, False]
+            .. code-block:: python
+
+                inputs = await client.read_discrete_inputs(0, 8)
+                # Returns [True, False, True, False, False, False, True, False]
 
         """
         return await self.execute(ReadDiscreteInputsPDU(start_address, quantity))
@@ -186,8 +194,10 @@ class AsyncModbusClient(HoldingRegisterReadMixin, HoldingRegisterWriteMixin):
             List of register values, each value is a 16-bit unsigned integer (0-65535)
 
         Example:
-            >>> registers = await client.read_holding_registers(0, 4)  # Read holding registers 0, 1, 2, 3
-            [1234, 5678, 9012, 3456]
+            .. code-block:: python
+
+                registers = await client.read_holding_registers(0, 4)  # Read holding registers 0, 1, 2, 3
+                # Returns [1234, 5678, 9012, 3456]
 
         """
         return await self.execute(ReadHoldingRegistersPDU(start_address, quantity))
@@ -208,8 +218,10 @@ class AsyncModbusClient(HoldingRegisterReadMixin, HoldingRegisterWriteMixin):
             List of register values, each value is a 16-bit unsigned integer (0-65535)
 
         Example:
-            >>> registers = await client.read_input_registers(0, 4) # Read input registers 0, 1, 2, 3
-            [1234, 5678, 9012, 3456]
+            .. code-block:: python
+
+                registers = await client.read_input_registers(0, 4) # Read input registers 0, 1, 2, 3
+                # Returns [1234, 5678, 9012, 3456]
 
         """
         return await self.execute(ReadInputRegistersPDU(start_address, quantity))
@@ -230,7 +242,9 @@ class AsyncModbusClient(HoldingRegisterReadMixin, HoldingRegisterWriteMixin):
             The value that was written
 
         Example:
-            >>> await client.write_single_coil(0, True)  # Write ON to coil 0
+            .. code-block:: python
+
+                await client.write_single_coil(0, True)  # Write ON to coil 0
 
         """
         return await self.execute(WriteSingleCoilPDU(address, value))
@@ -250,7 +264,9 @@ class AsyncModbusClient(HoldingRegisterReadMixin, HoldingRegisterWriteMixin):
             the value that was written
 
         Example:
-            >>> await client.write_single_register(0, 1234)  # Write 1234 to register 0
+            .. code-block:: python
+
+                await client.write_single_register(0, 1234)  # Write 1234 to register 0
 
         """
         return await self.execute(WriteSingleRegisterPDU(address, value))
@@ -262,8 +278,10 @@ class AsyncModbusClient(HoldingRegisterReadMixin, HoldingRegisterWriteMixin):
             The exception status as an integer (0-255).
 
         Example:
-            >>> status = await client.read_exception_status()
-            >>> print("Exception Status:", status)
+            .. code-block:: python
+
+                status = await client.read_exception_status()
+                print("Exception Status:", status)
 
         """
         return await self.execute(ReadExceptionStatusPDU())
@@ -284,7 +302,9 @@ class AsyncModbusClient(HoldingRegisterReadMixin, HoldingRegisterWriteMixin):
             The number of coils that have been written to.
 
         Example:
-            >>> await client.write_multiple_coils(0, [True, False, True, False])
+            .. code-block:: python
+
+                await client.write_multiple_coils(0, [True, False, True, False])
 
         """
         return await self.execute(WriteMultipleCoilsPDU(start_address, values))
@@ -305,7 +325,9 @@ class AsyncModbusClient(HoldingRegisterReadMixin, HoldingRegisterWriteMixin):
             The number of registers that have been written to.
 
         Example:
-            >>> await client.write_multiple_registers(0, [1234, 5678, 9012])
+            .. code-block:: python
+
+                await client.write_multiple_registers(0, [1234, 5678, 9012])
 
         """
         return await self.execute(WriteMultipleRegistersPDU(start_address, values))
@@ -317,9 +339,11 @@ class AsyncModbusClient(HoldingRegisterReadMixin, HoldingRegisterWriteMixin):
             An instance of ServerIdResponse containing the server ID and run indicator status.
 
         Example:
-            >>> response = await client.read_server_id()
-            >>> print("Server ID:", response.server_id)
-            >>> print("Run Indicator Status:", response.run_indicator_status)
+            .. code-block:: python
+
+                response = await client.read_server_id()
+                print("Server ID:", response.server_id)
+                print("Run Indicator Status:", response.run_indicator_status)
 
         """
         return await self.execute(ReportServerIdPDU())
@@ -337,10 +361,12 @@ class AsyncModbusClient(HoldingRegisterReadMixin, HoldingRegisterWriteMixin):
             List of raw record payloads in the same order as the input requests.
 
         Example:
-            >>> from tmodbus.pdu import FileRecordRequest
-            >>> payloads = await client.read_file_records([
-            ...     FileRecordRequest(file_number=4, record_number=0, record_length=2),
-            ... ])
+            .. code-block:: python
+
+                from tmodbus.pdu import FileRecordRequest
+                payloads = await client.read_file_records([
+                    FileRecordRequest(file_number=4, record_number=0, record_length=2),
+                ])
 
         """
         return await self.execute(ReadFileRecordPDU(requests=requests))
@@ -354,8 +380,10 @@ class AsyncModbusClient(HoldingRegisterReadMixin, HoldingRegisterWriteMixin):
             record_length: Length of the record to read (in 16-bit words)
 
         Example:
-            >>> from tmodbus.pdu import FileRecordRequest
-            >>> payloads = await client.read_file_record(4, 0, 2)
+            .. code-block:: python
+
+                from tmodbus.pdu import FileRecordRequest
+                payloads = await client.read_file_record(4, 0, 2)
 
         """
         payloads = await self.read_file_records(
@@ -382,10 +410,12 @@ class AsyncModbusClient(HoldingRegisterReadMixin, HoldingRegisterWriteMixin):
             Echoed file records from the server.
 
         Example:
-            >>> from tmodbus.pdu import FileRecord
-            >>> written = await client.write_file_records([
-            ...     FileRecord(file_number=4, record_number=0, data=b"\x12\x34"),
-            ... ])
+            .. code-block:: python
+
+                from tmodbus.pdu import FileRecord
+                written = await client.write_file_records([
+                    FileRecord(file_number=4, record_number=0, data=b"\x12\x34"),
+                ])
 
         """
         return await self.execute(WriteFileRecordPDU(file_records=file_records))
@@ -407,8 +437,10 @@ class AsyncModbusClient(HoldingRegisterReadMixin, HoldingRegisterWriteMixin):
             Echoed file record from the server.
 
         Example:
-            >>> from tmodbus.pdu import FileRecord
-            >>> written = await client.write_file_record(4, 0, b"\x12\x34")
+            .. code-block:: python
+
+                from tmodbus.pdu import FileRecord
+                written = await client.write_file_record(4, 0, b"\x12\x34")
 
         """
         records = await self.write_file_records(
@@ -440,7 +472,9 @@ class AsyncModbusClient(HoldingRegisterReadMixin, HoldingRegisterWriteMixin):
             A tuple with the AND and OR masks that were written.
 
         Example:
-            >>> await client.mask_write_register(0, 0xFF00, 0x00FF)
+            .. code-block:: python
+
+                await client.mask_write_register(0, 0xFF00, 0x00FF)
 
         """
         return await self.execute(MaskWriteRegisterPDU(address, and_mask, or_mask))
@@ -464,7 +498,9 @@ class AsyncModbusClient(HoldingRegisterReadMixin, HoldingRegisterWriteMixin):
             A list of register values read from the device.
 
         Example:
-            >>> await client.read_write_multiple_registers(0, 1, 0, [1234])
+            .. code-block:: python
+
+                await client.read_write_multiple_registers(0, 1, 0, [1234])
 
         """
         return await self.execute(
@@ -489,8 +525,10 @@ class AsyncModbusClient(HoldingRegisterReadMixin, HoldingRegisterWriteMixin):
             List of register values in the FIFO queue, each value is a 16-bit unsigned integer (0-65535)
 
         Example:
-            >>> fifo_values = await client.read_fifo_queue(0)  # Read FIFO queue at address 0
-            [100, 200, 300, 400]
+            .. code-block:: python
+
+                fifo_values = await client.read_fifo_queue(0)  # Read FIFO queue at address 0
+                # Returns [100, 200, 300, 400]
 
         """
         return await self.execute(ReadFifoQueuePDU(address=address))
@@ -512,10 +550,12 @@ class AsyncModbusClient(HoldingRegisterReadMixin, HoldingRegisterWriteMixin):
             with the encoding the device documents (commonly ASCII).
 
         Example:
-            >>> device_info = await client.read_device_identification(1, 0)
-            {0: b'VendorName', 1: b'ProductCode', ...}
-            >>> device_info[0].decode("ascii")
-            'VendorName'
+            .. code-block:: python
+
+                device_info = await client.read_device_identification(1, 0)
+                # Returns {0: b'VendorName', 1: b'ProductCode', ...}
+                device_info[0].decode("ascii")
+                # Returns 'VendorName'
 
         """
         result: dict[int, bytes] = {}

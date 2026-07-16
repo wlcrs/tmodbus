@@ -111,6 +111,7 @@ warn_unused_ignores = true
 [tool.pytest.ini_options]
 #addopts = "--cov"
 asyncio_mode = "auto"
+testpaths = ["tests", "docs/source"]
 
 [tool.coverage.run]
 plugins = ["covdefaults"]
@@ -140,11 +141,12 @@ test = [
   "pytest==8.4.2",
   "pytest-asyncio==1.4.0",
   "pytest-cov==7.1.0",
+  "sybil>=6.0.3",
 ]
 dev = [
   { include-group = "test" },
   "codespell==2.4.2",
-  "docstrfmt>=1.11.1",
+  "docstrfmt>=2.2.0",
   "mypy==2.2.0",
   "pre-commit==4.3.0",
   "pre-commit-hooks==6.0.0",

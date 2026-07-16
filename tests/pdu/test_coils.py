@@ -236,6 +236,11 @@ class TestWriteSingleCoilPDU:
 class TestWriteMultipleCoilsPDU:
     """Test class for WriteMultipleCoilsPDU decode_request and encode_response methods."""
 
+    def test_get_expected_request_data_length(self) -> None:
+        """Test get_expected_request_data_length."""
+        assert WriteMultipleCoilsPDU.get_expected_request_data_length(b"\x00\x00\x00\x00") == 5
+        assert WriteMultipleCoilsPDU.get_expected_request_data_length(b"\x00\x00\x00\x00\x02") == 7
+
     def test_write_multiple_coils_validation(self) -> None:
         """Test validation of Write Multiple Coils PDU."""
         with pytest.raises(ValueError, match=r"Address must be between 0 and 65535\."):

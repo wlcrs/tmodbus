@@ -20,6 +20,7 @@ class ReadCoilsPDU(BasePDU[list[bool]]):
     """Read Coils PDU."""
 
     function_code = FunctionCode.READ_COILS
+    rtu_request_data_length = 4  # address (2) + quantity (2)
 
     def __init__(self, start_address: int, quantity: int) -> None:
         """Initialize Read Coils PDU.
@@ -146,6 +147,7 @@ class WriteSingleCoilPDU(BasePDU[bool]):
 
     function_code = FunctionCode.WRITE_SINGLE_COIL
     rtu_response_data_length = 4  # address (2) + value (2)
+    rtu_request_data_length = 4  # address (2) + value (2)
 
     def __init__(
         self,
@@ -379,3 +381,11 @@ class WriteMultipleCoilsPDU(BasePDU[int]):
             self.address,
             value,
         )
+
+    @classmethod
+    def get_expected_request_data_length(cls, data: bytes) -> int:
+        """Get the expected number of bytes for the data part of the request PDU."""
+        if len(data) < 5:
+            return 5  # wait for byte count
+        byte_count = data[4]
+        return 5 + byte_count

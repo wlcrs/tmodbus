@@ -1,23 +1,25 @@
-Architecture
-============
+##############
+ Architecture
+##############
 
 The architecture of the tModbus library was designed with simplicity and modularity in
 mind.
 
-The library consists out of the following layers:
+The library consists of the following layers:
 
-- **Client layer**: This layer provides the interface for users to interact with the
-  Modbus protocol. It includes functions for reading and writing data, as well as
-  managing connections.
-- **Transport layer**: This layer handles the communication between the client and the
-  Modbus server. It abstracts the details of the underlying transport protocol (e.g.,
-  TCP, RTU) and provides a consistent interface for the client layer.
-- **PDU layer**: This layer is responsible for constructing and parsing Modbus Protocol
-  Data Units (PDUs). It handles the encoding and decoding of Modbus messages, ensuring
-  that they conform to the Modbus specification.
+- **Client / Server layer**: This layer represents the two endpoints of Modbus
+  communication. Users can act as a **client** using convenience interfaces to read and
+  write data, or run a **server** to listen for and process incoming requests.
+- **Transport layer**: This layer handles communication over underlying protocols (e.g.,
+  TCP, RTU, ASCII) for both clients and servers, abstracting the stream/packet
+  transmission.
+- **PDU layer**: This layer is responsible for constructing, parsing, encoding, and
+  decoding Modbus Protocol Data Units (PDUs), ensuring conformity to the Modbus
+  specification.
 
-Diagram
--------
+*********
+ Diagram
+*********
 
 .. mermaid::
 
@@ -48,19 +50,26 @@ Diagram
              +decode_response(data: bytes) RT
          }
 
-Overview of the layers
-----------------------
+************************
+ Overview of the layers
+************************
 
-Client layer
-~~~~~~~~~~~~
+Client or Server layer
+======================
 
-The main client class is :class:`tmodbus.AsyncModbusClient`. It provides convenience
-methods for connecting to a Modbus server (which is actually handled by the transport
-layer) and for reading and writing data (which combines the functionality of the
-transport and PDU layers).
+tModbus supports both roles in the Modbus communication pattern:
+
+- **Client**: The main client class is :class:`tmodbus.AsyncModbusClient`. It provides
+  convenience methods for connecting to a Modbus server (handled by the transport layer)
+  and for reading and writing data (combining transport and PDU layer functionality).
+- **Server**: The server implementations (:class:`~tmodbus.server.AsyncTcpServer`,
+  :class:`~tmodbus.server.AsyncRtuServer`, etc.) act as the listener endpoint, receiving
+  requests from clients, decoding them via the PDU layer, delegating to a custom handler
+  conforming to the :class:`~tmodbus.server.ModbusHandler` protocol, and
+  encoding/sending the response.
 
 Transport layer
-~~~~~~~~~~~~~~~
+===============
 
 The transport layer is implemented in the :mod:`tmodbus.transport` module. It provides
 the :class:`tmodbus.transport.AsyncModbusTransport` base class, which defines the
@@ -82,7 +91,7 @@ the hood to provide this functionality and to make it easy for the end-user (you
 specify the retry- and stop-conditions.
 
 PDU layer
-~~~~~~~~~
+=========
 
 The PDU layer is responsible for constructing and parsing Modbus Protocol Data Units
 (PDUs). It handles the encoding and decoding of Modbus messages, ensuring that they
