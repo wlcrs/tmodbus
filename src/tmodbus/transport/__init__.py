@@ -6,6 +6,7 @@ from .async_rtu import AsyncRtuTransport
 from .async_rtu_over_tcp import AsyncRtuOverTcpTransport
 from .async_smart import AsyncSmartTransport
 from .async_tcp import AsyncTcpTransport
+from .async_udp import AsyncUdpTransport
 
 __all__ = [
     "AsyncAsciiTransport",
@@ -14,4 +15,5 @@ __all__ = [
     "AsyncRtuTransport",
     "AsyncSmartTransport",
     "AsyncTcpTransport",
+    "AsyncUdpTransport",
 ]

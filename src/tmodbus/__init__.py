@@ -10,6 +10,7 @@ from .transport import (
     AsyncRtuTransport,
     AsyncSmartTransport,
     AsyncTcpTransport,
+    AsyncUdpTransport,
 )
 from .transport.async_rtu import SerialXOptions
 
@@ -260,6 +261,69 @@ def create_async_rtu_over_tcp_client(  # noqa: PLR0913
     return AsyncModbusClient(smart_transport, unit_id=unit_id)
 
 
+def create_async_udp_client(  # noqa: PLR0913
+    host: str,
+    port: int = 502,
+    *,
+    unit_id: int,
+    timeout: float = 10.0,
+    connect_timeout: float = 10.0,
+    wait_between_requests: float = 0.0,
+    wait_after_connect: float = 0.0,
+    auto_reconnect: "bool | AsyncRetrying" = True,
+    on_reconnected: Callable[[], Awaitable[None] | None] | None = None,
+    on_connection_lost: Callable[[Exception | None], None] | None = None,
+    response_retry_strategy: "AsyncRetrying | None" = None,
+    retry_on_device_busy: bool = True,
+    retry_on_device_failure: bool = False,
+    **connection_kwargs: Any,
+) -> AsyncModbusClient:
+    """Create an asynchronous UDP Modbus client with automatic reconnect and request retry functionality.
+
+    Args:
+        host: The IP address or hostname of the Modbus server.
+        port: The port number of the Modbus server (default is 502).
+        unit_id: The unit ID to use for requests.
+        timeout: Timeout in seconds, default 10.0s
+        connect_timeout: Timeout for establishing connection, default 10.0s
+        wait_between_requests: Wait time between requests in seconds (default: 0.0s)
+        wait_after_connect: Wait time after connection establishment in seconds (default: 0.0s)
+        auto_reconnect: Whether to automatically reconnect on connection loss (default: True).
+                        Can be a custom AsyncRetrying instance when more control is needed.
+        on_reconnected: Callback to be called after a successful reconnection.
+        on_connection_lost: Callback invoked the moment the connection is lost, receiving the causing
+                            exception (or None on a clean close). Fires even when auto_reconnect is disabled.
+        response_retry_strategy: Retry strategy for handling failed requests (default: None).
+        retry_on_device_busy: Whether to retry on device busy errors (default: True).
+                              Can be a custom AsyncRetrying instance when more control is needed.
+        retry_on_device_failure: Whether to retry on device failure errors (default: False).
+                                 Can be a custom AsyncRetrying instance when more control is needed.
+        connection_kwargs: Additional connection parameters passed to `asyncio.create_datagram_endpoint`
+
+    Returns:
+        An instance of AsyncModbusClient configured for UDP transport.
+
+    """
+    smart_transport = AsyncSmartTransport(
+        AsyncUdpTransport(
+            host,
+            port,
+            timeout=timeout,
+            connect_timeout=connect_timeout,
+            **connection_kwargs,
+        ),
+        wait_between_requests=wait_between_requests,
+        wait_after_connect=wait_after_connect,
+        auto_reconnect=auto_reconnect,
+        on_reconnected=on_reconnected,
+        on_connection_lost=on_connection_lost,
+        response_retry_strategy=response_retry_strategy,
+        retry_on_device_busy=retry_on_device_busy,
+        retry_on_device_failure=retry_on_device_failure,
+    )
+    return AsyncModbusClient(smart_transport, unit_id=unit_id)
+
+
 __all__ = [
     "AsyncAsciiTransport",
     "AsyncModbusClient",
@@ -267,8 +331,10 @@ __all__ = [
     "AsyncRtuTransport",
     "AsyncSmartTransport",
     "AsyncTcpTransport",
+    "AsyncUdpTransport",
     "create_async_ascii_client",
     "create_async_rtu_client",
     "create_async_rtu_over_tcp_client",
     "create_async_tcp_client",
+    "create_async_udp_client",
 ]
