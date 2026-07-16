@@ -38,6 +38,23 @@ jobs:
         with:
           path: integration_tests/fieldtalk/diagslave
           key: diagslave-3.5-x86_64  # gitleaks:allow
+      - name: 📦 Cache simonvetter binaries
+        uses: actions/cache@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
+        with:
+          path: |
+            integration_tests/simonvetter/client
+            integration_tests/simonvetter/server
+          key: simonvetter-${{ hashFiles('integration_tests/simonvetter/go.sum', 'integration_tests/simonvetter/*.go') }}
+      - name: 📦 Cache rmodbus binaries
+        uses: actions/cache@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
+        with:
+          path: integration_tests/rmodbus/target/release
+          key: rmodbus-${{ hashFiles('integration_tests/rmodbus/Cargo.lock', 'integration_tests/rmodbus/*.rs') }}
+      - name: 📦 Cache tokio binaries
+        uses: actions/cache@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
+        with:
+          path: integration_tests/tokio/target/release
+          key: tokio-${{ hashFiles('integration_tests/tokio/Cargo.lock', 'integration_tests/tokio/*.rs') }}
       - name: 🏗 Compile integration test binaries
         run: |
           for dir in integration_tests/*/; do
