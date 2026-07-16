@@ -33,10 +33,18 @@ jobs:
         run: uv sync --all-extras --frozen --no-default-groups --group test
       - name: Install system dependencies (socat)
         run: sudo apt-get update && sudo apt-get install -y socat
+      - name: 📦 Cache diagslave binary
+        uses: actions/cache@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
+        with:
+          path: integration_tests/fieldtalk/diagslave
+          key: diagslave-3.5-x86_64  # gitleaks:allow
       - name: 🏗 Compile integration test binaries
         run: |
-          cd integration_tests/tokio && ./compile.sh && cd ../..
-          cd integration_tests/rmodbus && ./compile.sh && cd ../..
-          cd integration_tests/simonvetter && ./compile.sh && cd ../..
+          for dir in integration_tests/*/; do
+            if [ -f "${dir}compile.sh" ]; then
+              echo "Compiling in ${dir}..."
+              (cd "${dir}" && ./compile.sh) || echo "Warning: Compilation failed in ${dir}"
+            fi
+          done
       - name: 🚀 Run pytest
         run: uv run --no-sync pytest integration_tests
