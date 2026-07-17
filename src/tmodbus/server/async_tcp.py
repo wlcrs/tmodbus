@@ -33,8 +33,8 @@ class AsyncTcpServer(AsyncBaseServer):
     - The client's x.509v3 certificate is parsed after the handshake as a
       :class:`cryptography.x509.Certificate` when the ``cryptography``
       package is installed.
-    - The certificate is passed to every request handler that declares a
-      ``context`` parameter.
+    - The parsed certificate is supplied to any request handler that accepts
+      at least three positional parameters (via the connection's RequestContext).
 
     TLS compliance (mbaps) requires **mutual authentication** (R-06, R-41, R-44).
     Configure the :class:`ssl.SSLContext` as follows::

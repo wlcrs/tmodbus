@@ -53,7 +53,7 @@ type RouterHandler = Callable[[int, Any], Awaitable[Any]]
 
 @functools.cache
 def _is_context_aware(fn: Any) -> bool:
-    """Return ``True`` if *fn* declares a ``context`` parameter."""
+    """Return ``True`` if *fn* accepts at least three positional arguments."""
     try:
         sig = inspect.signature(fn)
     except (ValueError, TypeError):
@@ -63,17 +63,17 @@ def _is_context_aware(fn: Any) -> bool:
 
 
 def _handler_accepts_context(fn: Any) -> TypeIs[ContextAwareModbusHandler]:
-    """Return ``True`` if *fn* declares a ``context`` parameter.
+    """Return ``True`` if *fn* accepts a third positional parameter.
 
     Uses :func:`inspect.signature` to inspect the callable's parameter list at
-    runtime, enabling FastAPI-style automatic injection of
-    :class:`RequestContext` into handlers that opt in by declaring the parameter.
+    runtime, enabling automatic injection of :class:`RequestContext` into
+    handlers that accept it.
 
     Args:
         fn: Any callable (async function, class instance with ``__call__``, etc.)
 
     Returns:
-        ``True`` if a 3rd positional (``"context"``) appears in the callable's parameters.
+        ``True`` if at least three positional parameters appear in the callable's signature.
 
     """
     return _is_context_aware(fn)
@@ -125,11 +125,10 @@ class ModbusRequestRouter(ModbusHandler):
         It maps Modbus function codes to async handler functions with full static type
         safety.
 
-        Handlers registered with the router may optionally declare a ``context``
-        parameter (either positional or keyword) to receive connection metadata
-        like peer address and TLS certificate information. The router detects this
-        at registration time using signature inspection (FastAPI-style) and injects
-        it automatically.
+        Handlers registered with the router may optionally accept a third positional
+        parameter to receive connection metadata like peer address and TLS certificate
+        information. The router detects this at registration time using signature
+        inspection and injects it automatically.
 
         Examples:
             Creating and using a router for a Modbus server:
@@ -280,9 +279,9 @@ async def handle_modbus_request[T](
 ) -> bytes:
     """Handle a Modbus request using the given handler and encode the response.
 
-    Uses runtime signature inspection (FastAPI-style) to determine whether *handler*
-    accepts a ``context`` parameter. If so, the connection :class:`RequestContext`
-    is injected automatically.
+    Uses runtime signature inspection to determine whether *handler* accepts a
+    third positional parameter to receive context. If so, the connection
+    :class:`RequestContext` is injected automatically.
 
     Args:
         unit_id: The slave address / unit id
