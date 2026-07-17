@@ -14,7 +14,7 @@ from tmodbus.utils.raw_traffic_logger import log_raw_traffic as base_log_raw_tra
 
 from .base import AsyncBaseServer, get_server_pdu_class
 from .handler import AnyModbusHandler, RequestContext, handle_modbus_request, handler_supports_unit_id
-from .security import extract_client_cert_info
+from .security import extract_client_cert, extract_modbus_role
 
 logger = logging.getLogger(__name__)
 log_raw_traffic = partial(base_log_raw_traffic, "TCP-Server")
@@ -23,20 +23,18 @@ log_raw_traffic = partial(base_log_raw_traffic, "TCP-Server")
 class AsyncTcpServer(AsyncBaseServer):
     """Async Modbus TCP Server.
 
-    Supports both plain Modbus/TCP (port 502) and the secured Modbus/TCP
-    Security variant **mbaps** (port 802) when an :class:`ssl.SSLContext` is
-    provided.
+    This server implements Modbus/TCP framing and dispatching. It supports both
+    unencrypted TCP connections and encrypted Modbus/TCP Security (mbaps) over TLS.
 
     When ``ssl_context`` is set:
 
     - Connections are accepted over TLS; a full TLS handshake is performed
       before any data is read.
-    - The client's x.509v3 certificate is read after the handshake and a
-      :class:`~tmodbus.server.security.ClientCertInfo` is extracted, including
-      the Modbus role OID (``1.3.6.1.4.1.50316.802.1``) when the
-      ``cryptography`` package is installed.
-    - The :class:`ClientCertInfo` is passed to every request handler that
-      declares a ``cert_info`` keyword parameter (FastAPI-style injection).
+    - The client's x.509v3 certificate is parsed after the handshake as a
+      :class:`cryptography.x509.Certificate` when the ``cryptography``
+      package is installed.
+    - The certificate is passed to every request handler that declares a
+      ``context`` parameter.
 
     TLS compliance (mbaps) requires **mutual authentication** (R-06, R-41, R-44).
     Configure the :class:`ssl.SSLContext` as follows::
@@ -62,7 +60,7 @@ class AsyncTcpServer(AsyncBaseServer):
                       │
                       ▼
              handle_client()
-                      │ (extracts ClientCertInfo from TLS peer cert, once per conn)
+                      │ (extracts client certificate from TLS peer cert, once per conn)
                       │ (reads 7-byte MBAP header)
                       ├───[ IncompleteReadError ]─────────────► [ Terminate Connection ]
                       ▼
@@ -244,17 +242,18 @@ class AsyncTcpServer(AsyncBaseServer):
         addr = writer.get_extra_info("peername")
         logger.info("Client connected: %s", addr)
 
-        # Extract TLS client certificate info once per connection (R-30).
+        # Extract TLS client certificate once per connection (R-30).
         # Returns None for plain TCP connections or if the client sent no cert.
-        cert_info = extract_client_cert_info(writer)
-        if cert_info is not None:
+        client_cert = extract_client_cert(writer)
+        if client_cert is not None:
+            role = extract_modbus_role(client_cert)
             logger.debug(
                 "TLS client cert: subject=%s role=%s",
-                cert_info.subject,
-                cert_info.role,
+                client_cert.subject.rfc4514_string(),
+                role,
             )
 
-        context = RequestContext(peer_addr=addr, cert_info=cert_info)
+        context = RequestContext(peer_addr=addr, client_cert=client_cert)
 
         try:
             while await self._handle_single_request(reader, writer, addr, context):

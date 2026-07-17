@@ -11,7 +11,7 @@ from .handler import (
     ModbusRequestRouter,
     RequestContext,
 )
-from .security import ClientCertInfo
+from .security import extract_modbus_role
 
 __all__ = [
     "AnyModbusHandler",
@@ -20,8 +20,8 @@ __all__ = [
     "AsyncRtuServer",
     "AsyncTcpServer",
     "AsyncUdpServer",
-    "ClientCertInfo",
     "ModbusHandler",
     "ModbusRequestRouter",
     "RequestContext",
+    "extract_modbus_role",
 ]

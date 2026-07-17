@@ -14,9 +14,8 @@ from tmodbus.exceptions import IllegalFunctionError, ModbusResponseError
 from tmodbus.pdu import BaseClientPDU, BasePDU
 
 if TYPE_CHECKING:
+    from cryptography import x509
     from typing_extensions import TypeIs
-
-    from .security import ClientCertInfo
 
 logger = logging.getLogger(__name__)
 
@@ -40,8 +39,8 @@ class RequestContext:
     peer_addr: tuple[Any, ...] | None = None
     """The remote IP address and port of the client (if available)."""
 
-    cert_info: ClientCertInfo | None = None
-    """Identity and role information extracted from the TLS client certificate.
+    client_cert: x509.Certificate | None = None
+    """The parsed client TLS certificate (if available).
 
     Only populated when the connection is established over TLS (mbaps)
     with client certificate validation enabled.
@@ -153,13 +152,16 @@ class ModbusRequestRouter(ModbusHandler):
 
 
                 # Context-aware handler — receives client address and certs
+                from tmodbus.server.security import extract_modbus_role
+
                 @router.register(ReadHoldingRegistersPDU, unit_id=2)
                 async def handle_secure(
                     unit_id: int,
                     request: ReadHoldingRegistersPDU,
                     context: RequestContext,
                 ) -> list[int]:
-                    if context.cert_info is None or context.cert_info.role != "Operator":
+                    role = extract_modbus_role(context.client_cert) if context.client_cert else None
+                    if role != "Operator":
                         raise IllegalFunctionError(request.function_code)
                     print(f"Request from: {context.peer_addr}")
                     return [42] * request.quantity

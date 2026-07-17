@@ -18,7 +18,8 @@ from tmodbus.server.handler import _handler_accepts_context
 from tmodbus.server.security import (
     MODBUS_ROLE_OID,
     MODBUS_SECURITY_PORT,
-    extract_client_cert_info,
+    extract_client_cert,
+    extract_modbus_role,
 )
 
 if TYPE_CHECKING:
@@ -405,18 +406,20 @@ async def test_tls_server_cert_info_injected(
     context = captured[0]
     assert context is not None
     assert context.peer_addr is not None
-    cert_info = context.cert_info
-    assert cert_info is not None
-    assert "TestClient" in cert_info.subject
-    assert cert_info.role == "Operator"
-    assert "127.0.0.1" in cert_info.san_ips
+    client_cert = context.client_cert
+    assert client_cert is not None
+    assert "TestClient" in client_cert.subject.rfc4514_string()
+    assert extract_modbus_role(client_cert) == "Operator"
+    san_ext = client_cert.extensions.get_extension_for_class(x509.SubjectAlternativeName)
+    san_ips = [str(name.value) for name in san_ext.value if isinstance(name, x509.IPAddress)]
+    assert "127.0.0.1" in san_ips
 
 
 async def test_tls_server_cert_no_role(
     tls_server_with_rbac: tuple[AsyncTcpServer, list[RequestContext | None]],
     pki: dict[str, Path],
 ) -> None:
-    """Client cert without Modbus role OID results in cert_info.role == None (R-23)."""
+    """Client cert without Modbus role OID results in extract_modbus_role returning None (R-23)."""
     server, captured = tls_server_with_rbac
 
     await _send_read_holding_registers(
@@ -427,9 +430,9 @@ async def test_tls_server_cert_no_role(
     assert len(captured) == 1
     context = captured[0]
     assert context is not None
-    cert_info = context.cert_info
-    assert cert_info is not None
-    assert cert_info.role is None
+    client_cert = context.client_cert
+    assert client_cert is not None
+    assert extract_modbus_role(client_cert) is None
 
 
 async def test_tls_server_rbac_reject(pki: dict[str, Path]) -> None:
@@ -442,8 +445,9 @@ async def test_tls_server_rbac_reject(pki: dict[str, Path]) -> None:
         request: ReadHoldingRegistersPDU,
         context: RequestContext,
     ) -> list[int]:
-        cert_info = context.cert_info
-        if cert_info is None or cert_info.role != "Operator":
+        client_cert = context.client_cert
+        role = extract_modbus_role(client_cert) if client_cert else None
+        if role != "Operator":
             raise IllegalFunctionError(request.function_code)
         return [0x0001]
 
@@ -467,7 +471,7 @@ async def test_tls_server_rbac_reject(pki: dict[str, Path]) -> None:
 
 
 async def test_plain_tcp_context_is_populated() -> None:
-    """Plain TCP server passes context with peer_addr but cert_info=None."""
+    """Plain TCP server passes context with peer_addr but client_cert=None."""
     captured: list[RequestContext | None] = []
     router = ModbusRequestRouter()
 
@@ -500,7 +504,7 @@ async def test_plain_tcp_context_is_populated() -> None:
         context = captured[0]
         assert context is not None
         assert context.peer_addr is not None
-        assert context.cert_info is None
+        assert context.client_cert is None
     finally:
         await server.stop()
 
@@ -550,136 +554,107 @@ async def test_server_no_ssl_context_is_none() -> None:
 
 
 # ---------------------------------------------------------------------------
-# Tests: extract_client_cert_info on non-TLS writer
+# Certificate extraction and role extraction tests
 # ---------------------------------------------------------------------------
 
 
-async def test_extract_cert_info_plain_connection() -> None:
-    """extract_client_cert_info returns None for a plain (non-TLS) writer.
-
-    Verified by passing a mock writer whose get_extra_info("ssl_object") returns
-    None — the code path taken for all plain TCP connections.
-    """
+async def test_extract_client_cert_plain_connection() -> None:
+    """extract_client_cert returns None for a plain (non-TLS) writer."""
     mock_writer = MagicMock(spec=asyncio.StreamWriter)
     mock_writer.get_extra_info.return_value = None  # no ssl_object
 
-    result = extract_client_cert_info(mock_writer)
+    result = extract_client_cert(mock_writer)
     assert result is None
     mock_writer.get_extra_info.assert_called_once_with("ssl_object")
 
 
-async def test_extract_cert_info_cryptography_missing() -> None:
-    """extract_client_cert_info propagates ImportError when cryptography is not available."""
+async def test_extract_client_cert_cryptography_missing() -> None:
+    """extract_client_cert propagates ImportError when cryptography is not available."""
     mock_writer = MagicMock(spec=asyncio.StreamWriter)
     mock_ssl = MagicMock()
     mock_writer.get_extra_info.return_value = mock_ssl
-    mock_ssl.getpeercert.return_value = {"subject": (), "issuer": ()}
+    mock_ssl.getpeercert.return_value = b"some_fake_der_cert"
 
     with (
-        patch.dict("sys.modules", {"cryptography": None, "cryptography.x509": None, "cryptography.hazmat": None}),
+        patch.dict("sys.modules", {"cryptography": None, "cryptography.x509": None}),
         pytest.raises(ImportError, match="The 'cryptography' package is required"),
     ):
-        extract_client_cert_info(mock_writer)
+        extract_client_cert(mock_writer)
 
 
-async def test_extract_cert_info_malformed_asn1() -> None:
-    """extract_client_cert_info propagates ValueError when the OID extension is malformed."""
-    mock_writer = MagicMock(spec=asyncio.StreamWriter)
-    mock_ssl = MagicMock()
-    mock_writer.get_extra_info.return_value = mock_ssl
-    mock_ssl.getpeercert.side_effect = lambda binary_form=False: (
-        b"some_fake_der_cert" if binary_form else {"subject": (), "issuer": ()}
-    )
-
-    mock_cert = MagicMock(spec=x509.Certificate)
-    mock_ext = MagicMock()
-    mock_ext.value.value = b"\x02\x01\x01"  # non-string tag to trigger ValueError in decode_der
-
-    mock_cert.extensions.get_extension_for_oid.return_value = mock_ext
-
-    with (
-        patch("cryptography.x509.load_der_x509_certificate", return_value=mock_cert),
-        pytest.raises(ValueError, match="error parsing asn1 value"),
-    ):
-        extract_client_cert_info(mock_writer)
-
-
-async def test_extract_cert_info_no_peercert() -> None:
-    """extract_client_cert_info returns None if peercert is None."""
+async def test_extract_client_cert_no_peercert() -> None:
+    """extract_client_cert returns None if peercert is None."""
     mock_writer = MagicMock(spec=asyncio.StreamWriter)
     mock_ssl = MagicMock()
     mock_writer.get_extra_info.return_value = mock_ssl
     mock_ssl.getpeercert.return_value = None
 
-    result = extract_client_cert_info(mock_writer)
+    result = extract_client_cert(mock_writer)
     assert result is None
 
 
-async def test_extract_cert_info_no_binary_der_cert() -> None:
-    """extract_client_cert_info returns None if binary der_cert is empty/None."""
+async def test_extract_client_cert_no_binary_der_cert() -> None:
+    """extract_client_cert returns None if binary der_cert is empty/None."""
     mock_writer = MagicMock(spec=asyncio.StreamWriter)
     mock_ssl = MagicMock()
     mock_writer.get_extra_info.return_value = mock_ssl
     mock_ssl.getpeercert.side_effect = lambda binary_form=False: None if binary_form else {"subject": (), "issuer": ()}
 
-    result = extract_client_cert_info(mock_writer)
+    result = extract_client_cert(mock_writer)
     assert result is None
 
 
-async def test_extract_cert_info_non_ip_or_dns_san() -> None:
-    """extract_client_cert_info parses SANs correctly and ignores non-IP/DNS types."""
+async def test_extract_client_cert_success() -> None:
+    """extract_client_cert returns parsed certificate on success."""
     mock_writer = MagicMock(spec=asyncio.StreamWriter)
     mock_ssl = MagicMock()
     mock_writer.get_extra_info.return_value = mock_ssl
     mock_ssl.getpeercert.return_value = b"some_fake_der_cert"
 
     mock_cert = MagicMock(spec=x509.Certificate)
-    mock_cert.subject.rfc4514_string.return_value = "CN=TestClient"
-    mock_cert.issuer.rfc4514_string.return_value = "CN=TestCA"
-
-    # Mock the SAN extension
-    mock_san_ext = MagicMock()
-    mock_san_ext.value = [
-        x509.RFC822Name("test@example.com"),
-        x509.IPAddress(ipaddress.IPv4Address("127.0.0.1")),
-        x509.DNSName("localhost"),
-    ]
-    mock_cert.extensions.get_extension_for_class.return_value = mock_san_ext
-
-    mock_cert.extensions.get_extension_for_oid.side_effect = x509.ExtensionNotFound(
-        "Modbus role OID extension not found", x509.ObjectIdentifier(MODBUS_ROLE_OID)
-    )
 
     with patch("cryptography.x509.load_der_x509_certificate", return_value=mock_cert):
-        result = extract_client_cert_info(mock_writer)
+        result = extract_client_cert(mock_writer)
 
-    assert result is not None
-    assert result.role is None
-    assert result.san_ips == ["127.0.0.1"]
-    assert result.san_dns == ["localhost"]
+    assert result is mock_cert
 
 
-async def test_extract_cert_info_no_san_extension() -> None:
-    """extract_client_cert_info returns empty SAN lists when the extension is missing."""
-    mock_writer = MagicMock(spec=asyncio.StreamWriter)
-    mock_ssl = MagicMock()
-    mock_writer.get_extra_info.return_value = mock_ssl
-    mock_ssl.getpeercert.return_value = b"some_fake_der_cert"
-
+async def test_extract_modbus_role_success() -> None:
+    """extract_modbus_role decodes and returns the role string on success."""
     mock_cert = MagicMock(spec=x509.Certificate)
-    mock_cert.subject.rfc4514_string.return_value = "CN=TestClient"
-    mock_cert.issuer.rfc4514_string.return_value = "CN=TestCA"
+    mock_ext = MagicMock()
+    mock_ext.value.value = b"\x0c\x08Operator"  # DER UTF8String for "Operator"
+    mock_cert.extensions.get_extension_for_oid.return_value = mock_ext
 
-    mock_cert.extensions.get_extension_for_class.side_effect = x509.ExtensionNotFound(
-        "SubjectAlternativeName not found", x509.ObjectIdentifier("2.5.29.17")
-    )
+    role = extract_modbus_role(mock_cert)
+    assert role == "Operator"
+
+
+async def test_extract_modbus_role_not_found() -> None:
+    """extract_modbus_role returns None if the Modbus role OID is missing."""
+    mock_cert = MagicMock(spec=x509.Certificate)
     mock_cert.extensions.get_extension_for_oid.side_effect = x509.ExtensionNotFound(
         "Modbus role OID extension not found", x509.ObjectIdentifier(MODBUS_ROLE_OID)
     )
+    assert extract_modbus_role(mock_cert) is None
 
-    with patch("cryptography.x509.load_der_x509_certificate", return_value=mock_cert):
-        result = extract_client_cert_info(mock_writer)
 
-    assert result is not None
-    assert result.san_ips == []
-    assert result.san_dns == []
+async def test_extract_modbus_role_malformed_asn1() -> None:
+    """extract_modbus_role propagates ValueError when the OID extension is malformed."""
+    mock_cert = MagicMock(spec=x509.Certificate)
+    mock_ext = MagicMock()
+    mock_ext.value.value = b"\x02\x01\x01"  # non-string tag to trigger ValueError in decode_der
+    mock_cert.extensions.get_extension_for_oid.return_value = mock_ext
+
+    with pytest.raises(ValueError, match="error parsing asn1 value"):
+        extract_modbus_role(mock_cert)
+
+
+async def test_extract_modbus_role_cryptography_missing() -> None:
+    """extract_modbus_role propagates ImportError when cryptography is not available."""
+    mock_cert = MagicMock(spec=x509.Certificate)
+    with (
+        patch.dict("sys.modules", {"cryptography": None, "cryptography.x509": None, "cryptography.hazmat": None}),
+        pytest.raises(ImportError, match="The 'cryptography' package is required"),
+    ):
+        extract_modbus_role(mock_cert)

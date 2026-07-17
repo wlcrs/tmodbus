@@ -47,7 +47,6 @@ References:
 
 from __future__ import annotations
 
-import dataclasses
 import logging
 from typing import TYPE_CHECKING
 
@@ -55,11 +54,13 @@ if TYPE_CHECKING:
     import asyncio
     import ssl as _ssl
 
+    from cryptography import x509
+
 __all__ = [
     "MODBUS_ROLE_OID",
     "MODBUS_SECURITY_PORT",
-    "ClientCertInfo",
-    "extract_client_cert_info",
+    "extract_client_cert",
+    "extract_modbus_role",
 ]
 
 logger = logging.getLogger(__name__)
@@ -72,93 +73,30 @@ MODBUS_ROLE_OID: str = "1.3.6.1.4.1.50316.802.1"
 MODBUS_SECURITY_PORT: int = 802
 
 
-@dataclasses.dataclass(frozen=True)
-class ClientCertInfo:
-    """Identity and role information extracted from a client x.509v3 certificate.
-
-    Populated once per TLS connection during mutual authentication (R-02, R-03)
-    and made available to Modbus request handlers for role-based client
-    authorization (R-16 - R-31).
-
-    Handlers that wish to receive this information should declare a ``context``
-    parameter — the dispatcher detects and injects it automatically:
-
-    .. code-block:: python
-
-        from tmodbus.server import ModbusRequestRouter, RequestContext
-        from tmodbus.pdu import ReadHoldingRegistersPDU
-        from tmodbus.exceptions import IllegalFunctionError
-
-        router = ModbusRequestRouter()
-
-        @router.register(ReadHoldingRegistersPDU)
-        async def handle_read(
-            unit_id: int,
-            request: ReadHoldingRegistersPDU,
-            context: RequestContext,
-        ) -> list[int]:
-            cert_info = context.cert_info
-            if cert_info is None or cert_info.role not in {"Operator", "Admin"}:
-                raise IllegalFunctionError(request.function_code)  # R-31
-            return [42] * request.quantity
-
-    Handlers that do **not** declare ``context`` continue to work unchanged.
-
-    Note:
-        Per R-23, if the certificate does not contain the Modbus role OID
-        extension, :attr:`role` will be ``None``.
-
-        Per R-65, there MUST be only one role per certificate; only the first
-        occurrence of the OID extension is used.
-
-    """
-
-    subject: str
-    """Certificate subject Distinguished Name (e.g. ``"CN=ModbusSecurityClient, O=Org"``)."""
-
-    issuer: str
-    """Certificate issuer Distinguished Name."""
-
-    role: str | None
-    """Value of the Modbus role extension (OID ``1.3.6.1.4.1.50316.802.1``).
-
-    ``None`` when the extension is absent (R-23).
-    """
-
-    san_ips: list[str]
-    """IP addresses from the x.509v3 SubjectAltName extension."""
-
-    san_dns: list[str]
-    """DNS names from the x.509v3 SubjectAltName extension."""
-
-
 # ---------------------------------------------------------------------------
 # Internal helpers and extraction
 # ---------------------------------------------------------------------------
 
 
-def extract_client_cert_info(writer: asyncio.StreamWriter) -> ClientCertInfo | None:
-    """Extract certificate identity and role from an accepted TLS connection.
+def extract_client_cert(writer: asyncio.StreamWriter) -> x509.Certificate | None:
+    """Extract peer x.509 certificate from an accepted TLS connection.
 
     Reads the peer certificate from the TLS transport of *writer* and returns
-    a :class:`ClientCertInfo` containing the subject DN, issuer DN, Modbus
-    role (OID ``1.3.6.1.4.1.50316.802.1``), and Subject Alternative Names.
+    a :class:`cryptography.x509.Certificate`.
 
     Called **once per connection** by :class:`~tmodbus.server.AsyncTcpServer`
-    immediately after the TLS handshake, mirroring R-30 (role is extracted and
-    cached per TLS session).
+    immediately after the TLS handshake.
 
     Args:
         writer: The :class:`asyncio.StreamWriter` for an accepted connection.
 
     Returns:
-        A :class:`ClientCertInfo` instance, or ``None`` if the connection is
-        not TLS or the client did not present a certificate.
+        A :class:`cryptography.x509.Certificate` instance, or ``None`` if the
+        connection is not TLS or the client did not present a certificate.
 
     """
     try:
         from cryptography import x509  # noqa: PLC0415
-        from cryptography.hazmat import asn1  # noqa: PLC0415
     except ImportError as e:
         msg = (
             "The 'cryptography' package is required to extract Modbus roles "
@@ -174,40 +112,42 @@ def extract_client_cert_info(writer: asyncio.StreamWriter) -> ClientCertInfo | N
     if not der_cert:
         return None
 
-    cert = x509.load_der_x509_certificate(der_cert)
+    return x509.load_der_x509_certificate(der_cert)
 
-    subject = cert.subject.rfc4514_string()
-    issuer = cert.issuer.rfc4514_string()
 
-    san_ips: list[str] = []
-    san_dns: list[str] = []
+def extract_modbus_role(cert: x509.Certificate) -> str | None:
+    """Extract the Modbus role (OID ``1.3.6.1.4.1.50316.802.1``) from an x.509 certificate.
+
+    Per R-23, if the certificate does not contain the Modbus role OID
+    extension, returns ``None``.
+
+    Per R-65, there MUST be only one role per certificate; only the first
+    occurrence of the OID extension is used.
+
+    Args:
+        cert: The client's parsed :class:`cryptography.x509.Certificate`.
+
+    Returns:
+        The extracted role string, or ``None`` if not found.
+
+    """
     try:
-        san_ext = cert.extensions.get_extension_for_class(x509.SubjectAlternativeName)
-        for name in san_ext.value:
-            if isinstance(name, x509.IPAddress):
-                san_ips.append(str(name.value))
-            elif isinstance(name, x509.DNSName):
-                san_dns.append(str(name.value))
-    except x509.ExtensionNotFound:
-        pass
+        from cryptography import x509  # noqa: PLC0415
+        from cryptography.hazmat import asn1  # noqa: PLC0415
+    except ImportError as e:
+        msg = (
+            "The 'cryptography' package is required to extract Modbus roles "
+            "from TLS client certificates. Install with 'pip install tmodbus[security]'."
+        )
+        raise ImportError(msg) from e
 
-    # Extract role from MODBUS_ROLE_OID
     modbus_oid = x509.ObjectIdentifier(MODBUS_ROLE_OID)
-    role: str | None = None
     try:
         role_ext = cert.extensions.get_extension_for_oid(modbus_oid)
         if isinstance(role_ext.value, x509.UnrecognizedExtension):
             raw_value: bytes = role_ext.value.value
         else:
             raw_value = getattr(role_ext.value, "value", b"")
-        role = asn1.decode_der(str, raw_value).strip()
+        return asn1.decode_der(str, raw_value).strip()
     except x509.ExtensionNotFound:
-        pass
-
-    return ClientCertInfo(
-        subject=subject,
-        issuer=issuer,
-        role=role,
-        san_ips=san_ips,
-        san_dns=san_dns,
-    )
+        return None
