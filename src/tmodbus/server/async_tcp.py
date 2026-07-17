@@ -3,6 +3,7 @@
 import asyncio
 import contextlib
 import logging
+import ssl as _ssl
 import struct
 from functools import partial
 from typing import Any
@@ -12,7 +13,8 @@ from tmodbus.exceptions import InvalidRequestError
 from tmodbus.utils.raw_traffic_logger import log_raw_traffic as base_log_raw_traffic
 
 from .base import AsyncBaseServer, get_server_pdu_class
-from .handler import ModbusHandler, handle_modbus_request
+from .handler import AnyModbusHandler, RequestContext, handle_modbus_request, handler_supports_unit_id
+from .security import extract_client_cert_info
 
 logger = logging.getLogger(__name__)
 log_raw_traffic = partial(base_log_raw_traffic, "TCP-Server")
@@ -21,12 +23,46 @@ log_raw_traffic = partial(base_log_raw_traffic, "TCP-Server")
 class AsyncTcpServer(AsyncBaseServer):
     """Async Modbus TCP Server.
 
+    Supports both plain Modbus/TCP (port 502) and the secured Modbus/TCP
+    Security variant **mbaps** (port 802) when an :class:`ssl.SSLContext` is
+    provided.
+
+    When ``ssl_context`` is set:
+
+    - Connections are accepted over TLS; a full TLS handshake is performed
+      before any data is read.
+    - The client's x.509v3 certificate is read after the handshake and a
+      :class:`~tmodbus.server.security.ClientCertInfo` is extracted, including
+      the Modbus role OID (``1.3.6.1.4.1.50316.802.1``) when the
+      ``cryptography`` package is installed.
+    - The :class:`ClientCertInfo` is passed to every request handler that
+      declares a ``cert_info`` keyword parameter (FastAPI-style injection).
+
+    TLS compliance (mbaps) requires **mutual authentication** (R-06, R-41, R-44).
+    Configure the :class:`ssl.SSLContext` as follows::
+
+        import ssl
+
+        ctx = ssl.SSLContext(ssl.PROTOCOL_TLS_SERVER)
+        ctx.load_cert_chain("server.crt", "server.key")
+        ctx.load_verify_locations(cafile="ca.crt")
+        ctx.verify_mode = ssl.CERT_REQUIRED          # mandatory mutual auth
+        ctx.minimum_version = ssl.TLSVersion.TLSv1_2 # TLS >= 1.2 (R-32, R-34)
+
+        server = AsyncTcpServer(
+            host="0.0.0.0",
+            port=802,  # IANA port for mbaps
+            handler=router,
+            ssl_context=ctx,
+        )
+
     Incoming Data Flow & Error Branches::
 
         [ TCP Socket / Client Connection ]
                       │
                       ▼
              handle_client()
+                      │ (extracts ClientCertInfo from TLS peer cert, once per conn)
                       │ (reads 7-byte MBAP header)
                       ├───[ IncompleteReadError ]─────────────► [ Terminate Connection ]
                       ▼
@@ -48,6 +84,7 @@ class AsyncTcpServer(AsyncBaseServer):
                       │   (InvalidRequestError) ──► Responds with IllegalFunction ──► [ Continue Loop ] (returns True)
                       ▼
             handle_modbus_request()  ────► routes to ModbusHandler/router
+                      │                   (injects cert_info if handler declares it)
                       │ (normal case: executes handler, encodes response)
                       ▼
                  [ TCP Write ]       ────► prepends response MBAP and sends (returns True)
@@ -57,28 +94,36 @@ class AsyncTcpServer(AsyncBaseServer):
     def __init__(
         self,
         host: str,
-        handler: ModbusHandler,
+        handler: AnyModbusHandler,
         port: int = 502,
         *,
+        ssl_context: _ssl.SSLContext | None = None,
         unregistered_unit_id_exception_code: int = ExceptionCode.GATEWAY_TARGET_DEVICE_FAILED_TO_RESPOND,
         **server_kwargs: Any,
     ) -> None:
         """Initialize Async Modbus TCP Server.
 
         Args:
-            host: Interface to bind to
-            port: Port to listen on (default: 502)
-            handler: User-defined async handler for processing requests
+            host: Interface to bind to.
+            port: Port to listen on (default: 502 for plain TCP; use 802 for mbaps/TLS).
+            handler: User-defined async handler for processing requests.
+            ssl_context: Optional :class:`ssl.SSLContext` to enable TLS (mbaps).
+                When provided, all connections are wrapped in TLS.  For full mbaps
+                compliance (mutual authentication, TLS >= 1.2) configure the context
+                with ``verify_mode=ssl.CERT_REQUIRED`` and
+                ``minimum_version=ssl.TLSVersion.TLSv1_2``.
+                See :mod:`tmodbus.server.security` for details.
             unregistered_unit_id_exception_code: Exception code returned when a request is received
                 for a Unit ID that is not registered in the handler (default: 0x0B).
                 Note that `ExceptionCode.GATEWAY_PATH_UNAVAILABLE` (0x0A) is preferred if the server
                 is acting as a gateway.
-            server_kwargs: Additional arguments for `asyncio.start_server`
+            server_kwargs: Additional arguments for `asyncio.start_server`.
 
         """
         self.host = host
         self.handler = handler
         self.port = port
+        self.ssl_context = ssl_context
         self.unregistered_unit_id_exception_code = unregistered_unit_id_exception_code
         self.server_kwargs = server_kwargs
         self._server: asyncio.Server | None = None
@@ -89,9 +134,13 @@ class AsyncTcpServer(AsyncBaseServer):
             self.handle_client,
             self.host,
             self.port,
+            ssl=self.ssl_context,
             **self.server_kwargs,
         )
-        logger.info("Modbus TCP Server listening on %s:%d", self.host, self.port)
+        if self.ssl_context is not None:
+            logger.info("Modbus TCP Security (mbaps) Server listening on %s:%d (TLS)", self.host, self.port)
+        else:
+            logger.info("Modbus TCP Server listening on %s:%d", self.host, self.port)
 
     async def stop(self) -> None:
         """Stop the server."""
@@ -113,10 +162,19 @@ class AsyncTcpServer(AsyncBaseServer):
         reader: asyncio.StreamReader,
         writer: asyncio.StreamWriter,
         addr: Any,
+        context: RequestContext,
     ) -> bool:
         """Handle a single Modbus TCP request from the reader and write to writer.
 
-        Returns True if handling should continue, False if connection should close.
+        Args:
+            reader: Stream reader for the client connection.
+            writer: Stream writer for the client connection.
+            addr: Peer address (for logging).
+            context: RequestContext containing connection and client cert info.
+
+        Returns:
+            ``True`` if handling should continue, ``False`` if connection should close.
+
         """
         mbap_header = b""
         pdu_bytes = b""
@@ -152,7 +210,7 @@ class AsyncTcpServer(AsyncBaseServer):
         function_code = pdu_bytes[0]
         is_error = False
 
-        if not self.handler.supports_unit_id(unit_id):
+        if not handler_supports_unit_id(self.handler, unit_id):
             logger.warning("Request for unregistered unit ID %d from %s", unit_id, addr)
             response_pdu_bytes = bytes([function_code | 0x80, self.unregistered_unit_id_exception_code])
             is_error = True
@@ -167,7 +225,7 @@ class AsyncTcpServer(AsyncBaseServer):
                 response_pdu_bytes = bytes([function_code | 0x80, 0x01])  # ILLEGAL_FUNCTION
                 is_error = True
             else:
-                response_pdu_bytes = await handle_modbus_request(unit_id, request_pdu, self.handler)
+                response_pdu_bytes = await handle_modbus_request(unit_id, request_pdu, self.handler, context=context)
 
         log_raw_traffic("recv", mbap_header + pdu_bytes, is_error=is_error)
 
@@ -186,8 +244,20 @@ class AsyncTcpServer(AsyncBaseServer):
         addr = writer.get_extra_info("peername")
         logger.info("Client connected: %s", addr)
 
+        # Extract TLS client certificate info once per connection (R-30).
+        # Returns None for plain TCP connections or if the client sent no cert.
+        cert_info = extract_client_cert_info(writer)
+        if cert_info is not None:
+            logger.debug(
+                "TLS client cert: subject=%s role=%s",
+                cert_info.subject,
+                cert_info.role,
+            )
+
+        context = RequestContext(peer_addr=addr, cert_info=cert_info)
+
         try:
-            while await self._handle_single_request(reader, writer, addr):
+            while await self._handle_single_request(reader, writer, addr, context):
                 pass
         except asyncio.IncompleteReadError:
             logger.info("Client disconnected: %s", addr)

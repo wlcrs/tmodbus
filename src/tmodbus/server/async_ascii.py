@@ -13,7 +13,7 @@ from tmodbus.utils.lrc import calculate_lrc, validate_lrc
 from tmodbus.utils.raw_traffic_logger import log_raw_traffic as base_log_raw_traffic
 
 from .base import AsyncBaseServer, get_server_pdu_class
-from .handler import ModbusHandler, handle_modbus_request
+from .handler import ModbusHandler, handle_modbus_request, handler_supports_unit_id
 
 logger = logging.getLogger(__name__)
 log_raw_traffic = partial(base_log_raw_traffic, "ASCII-Server")
@@ -184,7 +184,7 @@ class AsyncAsciiServer(AsyncBaseServer):
             return "error"
 
         unit_id = bin_data[0]
-        if not self.handler.supports_unit_id(unit_id):
+        if not handler_supports_unit_id(self.handler, unit_id):
             return "ignored"
 
         function_code = bin_data[1]

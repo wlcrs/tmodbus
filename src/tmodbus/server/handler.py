@@ -1,12 +1,22 @@
 """Modbus Server Handler Protocol."""
 
+from __future__ import annotations
+
+import dataclasses
+import functools
+import inspect
 import logging
 from collections.abc import Awaitable, Callable, Iterable
-from typing import Any, Protocol, TypeGuard, cast
+from typing import TYPE_CHECKING, Any, Protocol, TypeGuard, cast
 
 from tmodbus.const import ExceptionCode
 from tmodbus.exceptions import IllegalFunctionError, ModbusResponseError
 from tmodbus.pdu import BaseClientPDU, BasePDU
+
+if TYPE_CHECKING:
+    from typing_extensions import TypeIs
+
+    from .security import ClientCertInfo
 
 logger = logging.getLogger(__name__)
 
@@ -16,16 +26,64 @@ def is_server_pdu_class(pdu_class: type[BaseClientPDU[Any]]) -> TypeGuard[type[B
     return issubclass(pdu_class, BasePDU)
 
 
+@dataclasses.dataclass(frozen=True)
+class RequestContext:
+    """Metadata about the incoming Modbus request and its transport connection.
+
+    Passed to handlers that implement the :class:`ContextAwareModbusHandler` protocol
+    (i.e. handlers that declare a ``context`` parameter).
+
+    This context container is designed to be extensible, allowing for both security
+    and non-security metadata (e.g. peer IP address) to be passed cleanly.
+    """
+
+    peer_addr: tuple[Any, ...] | None = None
+    """The remote IP address and port of the client (if available)."""
+
+    cert_info: ClientCertInfo | None = None
+    """Identity and role information extracted from the TLS client certificate.
+
+    Only populated when the connection is established over TLS (mbaps)
+    with client certificate validation enabled.
+    """
+
+
 # A type alias for the type-erased underlying handler callable.
-# We use `Any` because each Modbus function code handles a different PDU class
-# and returns a different payload type, and function parameters are contravariant.
 type RouterHandler = Callable[[int, Any], Awaitable[Any]]
+
+
+@functools.cache
+def _is_context_aware(fn: Any) -> bool:
+    """Return ``True`` if *fn* declares a ``context`` parameter."""
+    try:
+        sig = inspect.signature(fn)
+    except (ValueError, TypeError):
+        return False
+    else:
+        return len(sig.parameters) >= 3
+
+
+def _handler_accepts_context(fn: Any) -> TypeIs[ContextAwareModbusHandler]:
+    """Return ``True`` if *fn* declares a ``context`` parameter.
+
+    Uses :func:`inspect.signature` to inspect the callable's parameter list at
+    runtime, enabling FastAPI-style automatic injection of
+    :class:`RequestContext` into handlers that opt in by declaring the parameter.
+
+    Args:
+        fn: Any callable (async function, class instance with ``__call__``, etc.)
+
+    Returns:
+        ``True`` if a 3rd positional (``"context"``) appears in the callable's parameters.
+
+    """
+    return _is_context_aware(fn)
 
 
 # A ModbusHandler is a protocol representing a callable that processes a request PDU
 # and returns the response payload of the matching type.
 class ModbusHandler(Protocol):
-    """Protocol for Modbus request handlers."""
+    """Protocol for plain Modbus request handlers."""
 
     def __call__[T](self, unit_id: int, request: BasePDU[T], /) -> Awaitable[T]:
         """Process a Modbus request and return the response value."""
@@ -34,6 +92,28 @@ class ModbusHandler(Protocol):
     def supports_unit_id(self, _unit_id: int, /) -> bool:
         """Check if the handler supports the given unit ID."""
         return True
+
+
+class ContextAwareModbusHandler(Protocol):
+    """Protocol for Modbus request handlers that require transport/context details."""
+
+    def __call__[T](
+        self,
+        unit_id: int,
+        request: BasePDU[T],
+        context: RequestContext,
+        /,
+    ) -> Awaitable[T]:
+        """Process a Modbus request with transport context and return the response value."""
+        ...
+
+    def supports_unit_id(self, _unit_id: int, /) -> bool:
+        """Check if the handler supports the given unit ID."""
+        return True
+
+
+#: Union type accepting either standard or context-aware request handlers.
+type AnyModbusHandler = ModbusHandler | ContextAwareModbusHandler
 
 
 class ModbusRequestRouter(ModbusHandler):
@@ -46,6 +126,12 @@ class ModbusRequestRouter(ModbusHandler):
         It maps Modbus function codes to async handler functions with full static type
         safety.
 
+        Handlers registered with the router may optionally declare a ``context``
+        parameter (either positional or keyword) to receive connection metadata
+        like peer address and TLS certificate information. The router detects this
+        at registration time using signature inspection (FastAPI-style) and injects
+        it automatically.
+
         Examples:
             Creating and using a router for a Modbus server:
 
@@ -53,17 +139,29 @@ class ModbusRequestRouter(ModbusHandler):
 
                 from tmodbus.pdu import ReadHoldingRegistersPDU
                 from tmodbus.server import AsyncTcpServer, ModbusRequestRouter
+                from tmodbus.server.handler import RequestContext
 
                 router = ModbusRequestRouter()
 
 
-                # Register handler for specific Modbus requests
+                # Plain handler — works for both plain TCP and TLS
                 @router.register(ReadHoldingRegistersPDU)
                 async def handle_read_holding_registers(
                     unit_id: int, request: ReadHoldingRegistersPDU
                 ) -> list[int]:
-                    # Implement holding registers reading logic
-                    # Must return a list of integers corresponding to registers
+                    return [42] * request.quantity
+
+
+                # Context-aware handler — receives client address and certs
+                @router.register(ReadHoldingRegistersPDU, unit_id=2)
+                async def handle_secure(
+                    unit_id: int,
+                    request: ReadHoldingRegistersPDU,
+                    context: RequestContext,
+                ) -> list[int]:
+                    if context.cert_info is None or context.cert_info.role != "Operator":
+                        raise IllegalFunctionError(request.function_code)
+                    print(f"Request from: {context.peer_addr}")
                     return [42] * request.quantity
 
 
@@ -78,7 +176,7 @@ class ModbusRequestRouter(ModbusHandler):
         #   Outer Key: `int | None` representing the unit ID (slave address).
         #              `None` acts as a wildcard fallback key for any unit ID.
         #   Inner Key: `int` representing the Modbus function code (e.g. 0x03).
-        #   Value:     `RouterHandler` async callable.
+        #   Value:     `RouterHandler` mapping the function code to the handler.
         self._handlers: dict[int | None, dict[int, RouterHandler]] = {}
 
     def supports_unit_id(self, unit_id: int, /) -> bool:
@@ -90,8 +188,11 @@ class ModbusRequestRouter(ModbusHandler):
         pdu_class: type[PDU],
         *,
         unit_id: int | Iterable[int] | None = None,
-    ) -> Callable[[Callable[[int, PDU], Awaitable[T]]], Callable[[int, PDU], Awaitable[T]]]:
+    ) -> Callable[[Callable[..., Awaitable[T]]], Callable[..., Awaitable[T]]]:
         """Register a handler for a specific request PDU class and optional unit ID(s).
+
+        The handler's signature is inspected dynamically on dispatch to determine
+        whether to inject the :class:`RequestContext`.
 
         Note:
             For Modbus RTU/ASCII (serial line), to handle broadcast requests, a handler
@@ -100,7 +201,7 @@ class ModbusRequestRouter(ModbusHandler):
 
         """
 
-        def decorator(handler: Callable[[int, PDU], Awaitable[T]]) -> Callable[[int, PDU], Awaitable[T]]:
+        def decorator(handler: Callable[..., Awaitable[T]]) -> Callable[..., Awaitable[T]]:
             # Ensure pdu_class has function_code (since it should be a BasePDU subclass)
             func_code = pdu_class.function_code
 
@@ -125,12 +226,19 @@ class ModbusRequestRouter(ModbusHandler):
 
         return decorator
 
-    async def __call__[T](self, unit_id: int, request: BasePDU[T]) -> T:
+    async def __call__[T](
+        self,
+        unit_id: int,
+        request: BasePDU[T],
+        /,
+        context: RequestContext | None = None,
+    ) -> T:
         """Route the incoming Modbus request to its registered handler.
 
         Args:
             unit_id: The slave address / unit ID of the target device.
             request: The parsed Modbus request PDU.
+            context: Optional connection and transport context details.
 
         Returns:
             The output payload returned by the registered handler, typed
@@ -154,27 +262,42 @@ class ModbusRequestRouter(ModbusHandler):
         if handler is None:
             raise IllegalFunctionError(request.function_code)
 
+        if _handler_accepts_context(handler):
+            # Inject context
+            ctx = context or RequestContext()
+            return cast("T", await handler(unit_id, request, ctx))
         return cast("T", await handler(unit_id, request))
 
 
 async def handle_modbus_request[T](
     unit_id: int,
     request: BasePDU[T],
-    handler: ModbusHandler,
+    handler: AnyModbusHandler,
+    *,
+    context: RequestContext | None = None,
 ) -> bytes:
     """Handle a Modbus request using the given handler and encode the response.
+
+    Uses runtime signature inspection (FastAPI-style) to determine whether *handler*
+    accepts a ``context`` parameter. If so, the connection :class:`RequestContext`
+    is injected automatically.
 
     Args:
         unit_id: The slave address / unit id
         request: The parsed request PDU
-        handler: The user-defined handler function
+        handler: The user-defined handler function or :class:`ModbusRequestRouter`
+        context: Optional connection and request context details.
 
     Returns:
         The encoded response PDU (either normal or exception)
 
     """
     try:
-        response_data = await handler(unit_id, request)
+        if _handler_accepts_context(handler):
+            ctx = context or RequestContext()
+            response_data = await handler(unit_id, request, ctx)
+        else:
+            response_data = await handler(unit_id, request)
         return request.encode_response(response_data)
     except ModbusResponseError as e:
         logger.warning(
@@ -189,3 +312,15 @@ async def handle_modbus_request[T](
         logger.exception("Unexpected error in Modbus handler for unit_id %d", unit_id)
         # For completely unexpected errors, we default to returning ServerDeviceFailure
         return bytes([request.function_code | 0x80, ExceptionCode.SERVER_DEVICE_FAILURE])
+
+
+def handler_supports_unit_id(handler: AnyModbusHandler, unit_id: int) -> bool:
+    """Return ``True`` if *handler* supports the given *unit_id*.
+
+    If the handler does not have a ``supports_unit_id`` method, it is assumed
+    to support all unit IDs (returns ``True``).
+
+    """
+    if hasattr(handler, "supports_unit_id"):
+        return bool(handler.supports_unit_id(unit_id))
+    return True

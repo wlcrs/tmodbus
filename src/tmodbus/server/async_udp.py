@@ -11,7 +11,7 @@ from tmodbus.exceptions import InvalidRequestError
 from tmodbus.utils.raw_traffic_logger import log_raw_traffic as base_log_raw_traffic
 
 from .base import AsyncBaseServer, get_server_pdu_class
-from .handler import ModbusHandler, handle_modbus_request
+from .handler import AnyModbusHandler, RequestContext, handle_modbus_request, handler_supports_unit_id
 
 logger = logging.getLogger(__name__)
 log_raw_traffic = partial(base_log_raw_traffic, "UDP-Server")
@@ -23,7 +23,7 @@ class AsyncUdpServer(AsyncBaseServer):
     def __init__(
         self,
         host: str,
-        handler: ModbusHandler,
+        handler: AnyModbusHandler,
         port: int = 502,
         *,
         unregistered_unit_id_exception_code: int = ExceptionCode.GATEWAY_TARGET_DEVICE_FAILED_TO_RESPOND,
@@ -96,7 +96,7 @@ class ModbusUdpServerProtocol(asyncio.DatagramProtocol):
 
     def __init__(
         self,
-        handler: ModbusHandler,
+        handler: AnyModbusHandler,
         unregistered_unit_id_exception_code: int,
     ) -> None:
         """Initialize Modbus UDP Server Protocol."""
@@ -150,7 +150,7 @@ class ModbusUdpServerProtocol(asyncio.DatagramProtocol):
             function_code = pdu_bytes[0]
             is_error = False
 
-            if not self.handler.supports_unit_id(unit_id):
+            if not handler_supports_unit_id(self.handler, unit_id):
                 logger.warning("Request for unregistered unit ID %d from %s", unit_id, addr)
                 response_pdu_bytes = bytes([function_code | 0x80, self.unregistered_unit_id_exception_code])
                 is_error = True
@@ -163,7 +163,10 @@ class ModbusUdpServerProtocol(asyncio.DatagramProtocol):
                     response_pdu_bytes = bytes([function_code | 0x80, 0x01])  # ILLEGAL_FUNCTION
                     is_error = True
                 else:
-                    response_pdu_bytes = await handle_modbus_request(unit_id, request_pdu, self.handler)
+                    context = RequestContext(peer_addr=addr)
+                    response_pdu_bytes = await handle_modbus_request(
+                        unit_id, request_pdu, self.handler, context=context
+                    )
 
             log_raw_traffic("recv", data, is_error=is_error)
 
