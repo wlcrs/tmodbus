@@ -27,14 +27,13 @@ updates:
       dependencies:
         patterns:
           - '*'
-        test-dependencies:
-          patterns:
-            - "covdefaults"
-            - "coverage"
-            - "pytest"
-            - "pytest-*"
-            - "sybil"
-      # 2. Development & Quality Tooling (Excludes the test dependencies above)
+      test-dependencies:
+        patterns:
+          - "covdefaults"
+          - "coverage"
+          - "pytest"
+          - "pytest-*"
+          - "sybil"
       dev-dependencies:
         patterns:
           - "codespell"
@@ -44,8 +43,6 @@ updates:
           - "pre-commit-hooks"
           - "ruff"
           - "yamllint"
-
-      # 3. Documentation Generation
       docs-dependencies:
         patterns:
           - "sphinx"
