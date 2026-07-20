@@ -4,7 +4,7 @@ updates:
   - package-ecosystem: github-actions
     directory: /
     schedule:
-      interval: weekly
+      interval: quarterly 
     groups:
       dependencies:
         patterns:
@@ -13,19 +13,58 @@ updates:
   - package-ecosystem: pre-commit
     directory: /
     schedule:
-      interval: weekly
+      interval: quarterly 
+    groups:
+      dependencies:
+        patterns:
+          - '*'
 
   - package-ecosystem: uv
     directory: /
     schedule:
-      interval: weekly
+      interval: monthly
+    groups:
+      dependencies:
+        patterns:
+          - '*'
+        test-dependencies:
+          patterns:
+            - "covdefaults"
+            - "coverage"
+            - "pytest"
+            - "pytest-*"
+            - "sybil"
+      # 2. Development & Quality Tooling (Excludes the test dependencies above)
+      dev-dependencies:
+        patterns:
+          - "codespell"
+          - "docstrfmt"
+          - "mypy"
+          - "pre-commit"
+          - "pre-commit-hooks"
+          - "ruff"
+          - "yamllint"
 
+      # 3. Documentation Generation
+      docs-dependencies:
+        patterns:
+          - "sphinx"
+          - "sphinx-*"
+          - "sphinxcontrib-*"
   - package-ecosystem: cargo
     directory: /integration_tests/rmodbus
     schedule:
-      interval: weekly
+      interval: quarterly 
+    groups:
+      dependencies:
+        patterns:
+          - '*'
 
   - package-ecosystem: cargo
     directory: /integration_tests/tokio
     schedule:
-      interval: weekly
+      interval: quarterly 
+    groups:
+      dependencies:
+        patterns:
+          - '*'
