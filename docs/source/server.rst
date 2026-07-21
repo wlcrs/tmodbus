@@ -198,3 +198,115 @@ process different request types inside a single function handler.
 
     # Attach the unit ID check. Here we support unit IDs 1, 2, and 3
     match_case_handler.supports_unit_id = lambda unit_id: unit_id in (1, 2, 3)
+
+***************************************
+ Request Context & Connection Metadata
+***************************************
+
+When handling requests, you might need information about the client connection that
+isn't included in the standard Modbus frame (for example, the client's network IP
+address or their TLS certificate).
+
+tModbus supports automatically passing connection and request metadata to your handlers.
+If a registered router handler or custom callable accepts at least three positional
+arguments, the server will automatically pass a :class:`~tmodbus.server.RequestContext`
+object as the third argument:
+
+.. code-block:: python
+
+    from tmodbus.server import RequestContext, ModbusRequestRouter
+    from tmodbus.pdu import ReadHoldingRegistersPDU
+
+    router = ModbusRequestRouter()
+
+
+    @router.register(ReadHoldingRegistersPDU)
+    async def handle_read(
+        unit_id: int,
+        request: ReadHoldingRegistersPDU,
+        context: RequestContext,  # Automatically injected
+    ) -> list[int]:
+        # Access connection metadata
+        if context.peer_addr:
+            ip, port = context.peer_addr[:2]
+            print(f"Request from client {ip}:{port}")
+        return [42] * request.quantity
+
+The `RequestContext` object has the following fields:
+
+- ``peer_addr``: A tuple containing client IP address and port (e.g. ``("127.0.0.1",
+  54321)``) if available.
+- ``client_cert``: A :class:`cryptography.x509.Certificate` containing the parsed client
+  x.509 certificate when connected over TLS.
+
+*************************************************
+ Modbus/TCP Security (mbaps) & Mutual TLS (mTLS)
+*************************************************
+
+The standard Modbus/TCP Security protocol (**mbaps**), defined in the
+*MB-TCP-Security-v36_2021-07-30* specification, secures Modbus communication by running
+the protocol over TLS (using the standard port **802**).
+
+To build a specification-compliant secure server, you must configure an
+:class:`ssl.SSLContext` that requires **mutual TLS (mTLS)** and minimum TLS version 1.2.
+
+Setting up a Secure Server
+==========================
+
+Here is a complete setup for a secure server utilizing mutual TLS and role validation:
+
+.. code-block:: python
+
+    import ssl
+    from tmodbus.pdu import ReadHoldingRegistersPDU
+    from tmodbus.server import AsyncTcpServer, ModbusRequestRouter, RequestContext
+    from tmodbus.server.security import extract_modbus_role
+    from tmodbus.exceptions import IllegalFunctionError
+
+    router = ModbusRequestRouter()
+
+
+    @router.register(ReadHoldingRegistersPDU)
+    async def handle_secure_read(
+        unit_id: int,
+        request: ReadHoldingRegistersPDU,
+        context: RequestContext,
+    ) -> list[int]:
+        # 1. Access the raw cryptography client cert from context
+        cert = context.client_cert
+        if not cert:
+            raise IllegalFunctionError(request.function_code)
+
+        # 2. Use tModbus helper to extract the role extension OID 1.3.6.1.4.1.50316.802.1
+        role = extract_modbus_role(cert)
+
+        # 3. Perform Role-Based Access Control (RBAC)
+        if role not in {"Operator", "Admin"}:
+            # R-31: Specification requires raising Illegal Function (0x01) for unauthorized access
+            raise IllegalFunctionError(request.function_code)
+
+        return [1, 2, 3]
+
+
+    async def main() -> None:
+        # Build TLS Server Context requiring mutual authentication
+        ctx = ssl.SSLContext(ssl.PROTOCOL_TLS_SERVER)
+        ctx.load_cert_chain(certfile="server.crt", keyfile="server.key")
+        ctx.load_verify_locations(cafile="ca.crt")
+
+        ctx.verify_mode = ssl.CERT_REQUIRED  # Enforce mTLS client cert validation
+        ctx.minimum_version = ssl.TLSVersion.TLSv1_2  # Mandate TLS version >= 1.2
+
+        # Start secure server on Standard Security Port 802
+        server = AsyncTcpServer(host="0.0.0.0", port=802, handler=router, ssl_context=ctx)
+        await server.serve_forever()
+
+Role-Based Authorization (RBAC)
+===============================
+
+Under the mbaps specification, client roles are stored in the client certificate as a
+custom x.509 extension with the Modbus.org Private Enterprise OID
+``1.3.6.1.4.1.50316.802.1`` encoded as an ASN.1 UTF8String.
+
+The :func:`~tmodbus.server.security.extract_modbus_role` utility extracts this role
+value. If the extension is absent, it returns ``None``.

@@ -1,12 +1,22 @@
 """Tests for server handler and router implementation."""
 
 from collections.abc import Awaitable
-from typing import Any
+from typing import Any, cast
 
 import pytest
 from tmodbus.exceptions import IllegalDataAddressError, IllegalFunctionError
 from tmodbus.pdu import BasePDU, ReadHoldingRegistersPDU, WriteSingleRegisterPDU
-from tmodbus.server import ModbusHandler, ModbusRequestRouter, handle_modbus_request
+from tmodbus.server import (
+    AnyModbusHandler,
+    ModbusHandler,
+    ModbusRequestRouter,
+    RequestContext,
+)
+from tmodbus.server.handler import (
+    ContextAwareModbusHandler,
+    handle_modbus_request,
+    handler_supports_unit_id,
+)
 
 
 async def test_default_supports_unit_id() -> None:
@@ -16,7 +26,12 @@ async def test_default_supports_unit_id() -> None:
         def __call__(self, unit_id: int, request: BasePDU[Any]) -> Awaitable[Any]:
             raise NotImplementedError
 
+    class MyContextHandler(ContextAwareModbusHandler):
+        def __call__(self, unit_id: int, request: BasePDU[Any], context: RequestContext) -> Awaitable[Any]:
+            raise NotImplementedError
+
     assert MyHandler().supports_unit_id(1) is True
+    assert MyContextHandler().supports_unit_id(1) is True
 
 
 async def test_router_registration_and_dispatch() -> None:
@@ -160,3 +175,63 @@ async def test_router_unit_id_routing() -> None:
     assert strict_router.supports_unit_id(2) is True
     assert strict_router.supports_unit_id(3) is False
     assert strict_router.supports_unit_id(0) is False
+
+
+async def test_router_context_passing() -> None:
+    """Test that RequestContext is successfully passed to context-aware handlers."""
+    router = ModbusRequestRouter()
+    captured: list[RequestContext | None] = []
+
+    @router.register(ReadHoldingRegistersPDU)
+    async def handle_read(_unit_id: int, _request: ReadHoldingRegistersPDU, context: RequestContext) -> list[int]:
+        captured.append(context)
+        return [42]
+
+    ctx = RequestContext(peer_addr=("127.0.0.1", 12345))
+    req = ReadHoldingRegistersPDU(start_address=0, quantity=1)
+    await router(1, req, context=ctx)
+
+    assert len(captured) == 1
+    assert captured[0] is ctx
+    assert captured[0].peer_addr == ("127.0.0.1", 12345)
+
+
+async def test_handle_modbus_request_plain_handler() -> None:
+    """Test handle_modbus_request with a plain handler that does not accept context."""
+
+    async def plain_handler(unit_id: int, request: BasePDU[Any]) -> list[int]:
+        _ = unit_id, request
+        return [99]
+
+    req = ReadHoldingRegistersPDU(start_address=0, quantity=1)
+    response_bytes = await handle_modbus_request(1, req, cast("AnyModbusHandler", plain_handler))
+    assert response_bytes == b"\x03\x02\x00\x63"
+
+
+async def test_router_ctx_parameter_name_passing() -> None:
+    """Test that RequestContext is successfully passed to a handler naming the parameter 'ctx'."""
+    router = ModbusRequestRouter()
+    captured: list[RequestContext | None] = []
+
+    @router.register(ReadHoldingRegistersPDU)
+    async def handle_read(_unit_id: int, _request: ReadHoldingRegistersPDU, ctx: RequestContext) -> list[int]:
+        captured.append(ctx)
+        return [42]
+
+    ctx = RequestContext(peer_addr=("127.0.0.1", 12345))
+    req = ReadHoldingRegistersPDU(start_address=0, quantity=1)
+    await router(1, req, context=ctx)
+
+    assert len(captured) == 1
+    assert captured[0] is ctx
+    assert captured[0].peer_addr == ("127.0.0.1", 12345)
+
+
+def test_handler_supports_unit_id_plain() -> None:
+    """Test handler_supports_unit_id with a plain function/callable."""
+
+    async def plain_func(unit_id: int, request: BasePDU[Any]) -> list[int]:
+        _ = unit_id, request
+        return []
+
+    assert handler_supports_unit_id(cast("AnyModbusHandler", plain_func), 1) is True

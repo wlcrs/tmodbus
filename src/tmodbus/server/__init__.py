@@ -5,9 +5,16 @@ from .async_rtu import AsyncRtuServer
 from .async_rtu_over_tcp import AsyncRtuOverTcpServer
 from .async_tcp import AsyncTcpServer
 from .async_udp import AsyncUdpServer
-from .handler import ModbusHandler, ModbusRequestRouter, handle_modbus_request, is_server_pdu_class
+from .handler import (
+    AnyModbusHandler,
+    ModbusHandler,
+    ModbusRequestRouter,
+    RequestContext,
+)
+from .security import extract_modbus_role
 
 __all__ = [
+    "AnyModbusHandler",
     "AsyncAsciiServer",
     "AsyncRtuOverTcpServer",
     "AsyncRtuServer",
@@ -15,6 +22,6 @@ __all__ = [
     "AsyncUdpServer",
     "ModbusHandler",
     "ModbusRequestRouter",
-    "handle_modbus_request",
-    "is_server_pdu_class",
+    "RequestContext",
+    "extract_modbus_role",
 ]

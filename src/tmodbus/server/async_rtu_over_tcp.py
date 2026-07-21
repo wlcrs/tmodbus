@@ -12,7 +12,7 @@ from tmodbus.utils.crc import calculate_crc16, validate_crc16
 from tmodbus.utils.raw_traffic_logger import log_raw_traffic as base_log_raw_traffic
 
 from .base import AsyncBaseServer, get_server_pdu_class_from_buffer
-from .handler import ModbusHandler, handle_modbus_request
+from .handler import ModbusHandler, handle_modbus_request, handler_supports_unit_id
 
 logger = logging.getLogger(__name__)
 log_raw_traffic = partial(base_log_raw_traffic, "RTU-over-TCP-Server")
@@ -139,7 +139,7 @@ class AsyncRtuOverTcpServer(AsyncBaseServer):
 
         is_error = False
 
-        if not self.handler.supports_unit_id(unit_id):
+        if not handler_supports_unit_id(self.handler, unit_id):
             logger.warning("Request for unregistered unit ID %d from %s", unit_id, addr)
             response_pdu_bytes = bytes([function_code | 0x80, self.unregistered_unit_id_exception_code])
             is_error = True

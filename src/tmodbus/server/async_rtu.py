@@ -13,7 +13,7 @@ from tmodbus.utils.crc import calculate_crc16, validate_crc16
 from tmodbus.utils.raw_traffic_logger import log_raw_traffic as base_log_raw_traffic
 
 from .base import AsyncBaseServer, get_server_pdu_class_from_buffer
-from .handler import ModbusHandler, handle_modbus_request
+from .handler import ModbusHandler, handle_modbus_request, handler_supports_unit_id
 
 logger = logging.getLogger(__name__)
 log_raw_traffic = partial(base_log_raw_traffic, "RTU-Server")
@@ -151,7 +151,7 @@ class AsyncRtuServer(AsyncBaseServer):
         Returns "ignored", "success", or "error".
         """
         unit_id = frame[0]
-        if not self.handler.supports_unit_id(unit_id):
+        if not handler_supports_unit_id(self.handler, unit_id):
             return "ignored"
 
         function_code = frame[1]

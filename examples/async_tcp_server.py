@@ -1,11 +1,12 @@
 """Example of an Async TCP Modbus Server."""
 
 import asyncio
+import ipaddress
 import logging
 
 from tmodbus.exceptions import IllegalDataAddressError
 from tmodbus.pdu import ReadHoldingRegistersPDU, WriteMultipleRegistersPDU, WriteSingleRegisterPDU
-from tmodbus.server import AsyncTcpServer, ModbusRequestRouter
+from tmodbus.server import AsyncTcpServer, ModbusRequestRouter, RequestContext
 
 # Set up logging to see the server output
 logging.basicConfig(level=logging.INFO)
@@ -24,6 +25,36 @@ async def handle_read_holding_registers(_unit_id: int, request: ReadHoldingRegis
     if addr + qty > len(REGISTER_STORE):
         raise IllegalDataAddressError(request.function_code)
     return REGISTER_STORE[addr : addr + qty]
+
+
+@router.register(ReadHoldingRegistersPDU, unit_id=2)
+async def handle_read_client_ip(
+    _unit_id: int,
+    request: ReadHoldingRegistersPDU,
+    context: RequestContext,
+) -> list[int]:
+    """Handle incoming request to read the client's IP address.
+
+    This context-aware handler reads the peer address from RequestContext,
+    encodes the IP bytes into 16-bit register values, and returns them.
+    (e.g., "127.0.0.1" is packed as [32512, 1] which is 0x7f00, 0x0001).
+    """
+    ip_str = "127.0.0.1"
+    if context.peer_addr:
+        ip_str = context.peer_addr[0]
+
+    try:
+        ip_obj = ipaddress.ip_address(ip_str)
+        packed_bytes = list(ip_obj.packed)
+        # Pack every 2 bytes into a 16-bit register
+        registers = [(packed_bytes[i] << 8) | packed_bytes[i + 1] for i in range(0, len(packed_bytes), 2)]
+
+        # Match the requested quantity by padding or slicing
+        if len(registers) < request.quantity:
+            registers.extend([0] * (request.quantity - len(registers)))
+        return registers[: request.quantity]
+    except ValueError:
+        return [0] * request.quantity
 
 
 @router.register(WriteSingleRegisterPDU, unit_id=1)

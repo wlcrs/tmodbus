@@ -18,8 +18,9 @@ We choose to use the terminology _client_ and _server_ instead, as it is more cl
 - Pure Python library with minimal dependencies
 - Fully **t**yped
 - Full **t**est coverage
-- Support for Modbus TCP, RTU, ASCII and RTU-over-TCP clients
-- Support for TCP over SSL connections
+- Support for Modbus TCP, RTU, ASCII, RTU-over-TCP and UDP clients
+- Support for Modbus TCP, RTU, ASCII, RTU-over-TCP and UDP servers
+- Support for TCP over SSL/TLS client and server connections, including Modbus/TCP Security (mbaps) with mutual authentication and role-based access control (RBAC)
 - Auto reconnect and retry functionality (which can be enabled optionally)
 - Extensible with custom Modbus functions and exception codes
 - Open source (BSD)
@@ -65,7 +66,7 @@ if __name__ == "__main__":
 
 ```
 
-Various examples for Modbus RTU and TCP can be found in the [examples](./examples) folder.
+Various client and server examples (including Modbus Security) can be found in the [examples](./examples) folder.
 
 ## Dependencies
 
