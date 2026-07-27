@@ -1314,6 +1314,9 @@ wheels = [
 [[package]]
 name = "tmodbus"
 source = { editable = "." }
+dependencies = [
+    { name = "tenacity" },
+]
 
 [package.optional-dependencies]
 async-serial = [
@@ -1321,9 +1324,6 @@ async-serial = [
 ]
 security = [
     { name = "cryptography" },
-]
-smart = [
-    { name = "tenacity" },
 ]
 
 [package.dev-dependencies]
@@ -1362,9 +1362,9 @@ test = [
 requires-dist = [
     { name = "cryptography", marker = "extra == 'security'", specifier = ">=38.0" },
     { name = "serialx", marker = "extra == 'async-serial'" },
-    { name = "tenacity", marker = "extra == 'smart'", specifier = ">=8.2.0,!=8.4.0" },
+    { name = "tenacity", specifier = ">=8.2.0,!=8.4.0" },
 ]
-provides-extras = ["async-serial", "security", "smart"]
+provides-extras = ["async-serial", "security"]
 
 [package.metadata.requires-dev]
 dev = [
