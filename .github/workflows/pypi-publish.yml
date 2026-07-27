@@ -5,8 +5,10 @@ on: # yamllint disable rule:truthy
   push:
     tags: ["v[0-9]+.[0-9]+.[0-9]+"]
 
-# Set global permissions to nothing, then explicitly grant them per job
-permissions: {}
+# Set global permissions to read-only contents for reusable workflow calls,
+# then explicitly grant additional permissions per job.
+permissions:
+  contents: read
 
 jobs:
   tests:
