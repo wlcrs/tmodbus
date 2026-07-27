@@ -79,7 +79,7 @@ def _make_ca_cert(key: rsa.RSAPrivateKey) -> x509.Certificate:
     )
 
 
-def _make_end_cert(  # noqa: PLR0913
+def _make_end_cert(  # noqa: PLR0913, PLR0917
     key: rsa.RSAPrivateKey,
     ca_cert: x509.Certificate,
     ca_key: rsa.RSAPrivateKey,

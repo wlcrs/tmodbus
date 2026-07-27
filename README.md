@@ -63,7 +63,6 @@ async def main() -> None:
 
 if __name__ == "__main__":
     asyncio.run(main())
-
 ```
 
 Various client and server examples (including Modbus Security) can be found in the [examples](./examples) folder.
