@@ -28,7 +28,9 @@ classifiers = [
 
 dynamic = ["version"]
 
-dependencies = []
+dependencies = [
+  "tenacity>=8.2.0,!=8.4.0"
+]
 
 [project.urls]
 HomePage = "https://github.com/wlcrs/tmodbus"
@@ -40,7 +42,6 @@ Changelog = "https://github.com/wlcrs/tmodbus/releases"
 [project.optional-dependencies]
 
 async-serial = ["serialx"]
-smart = ["tenacity>=8.2.0,!=8.4.0"]
 security = ["cryptography>=38.0"]
 
 [build-system]

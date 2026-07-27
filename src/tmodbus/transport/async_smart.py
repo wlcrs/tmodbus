@@ -14,21 +14,17 @@ import time
 from collections.abc import Awaitable, Callable
 from typing import TYPE_CHECKING, TypeVar
 
-try:
-    from tenacity import (
-        AsyncRetrying,
-        RetryCallState,
-        RetryError,
-        retry_any,
-        retry_if_exception_type,
-        stop_after_delay,
-        stop_never,
-        wait_exponential,
-        wait_none,
-    )
-except ImportError as ex:  # pragma: no cover
-    msg = "tenacity is required for Smart Transport functionality.Install with 'pip install tmodbus[smart]'"
-    raise ImportError(msg) from ex
+from tenacity import (
+    AsyncRetrying,
+    RetryCallState,
+    RetryError,
+    retry_any,
+    retry_if_exception_type,
+    stop_after_delay,
+    stop_never,
+    wait_exponential,
+    wait_none,
+)
 
 from tmodbus.exceptions import (
     ModbusConnectionError,
