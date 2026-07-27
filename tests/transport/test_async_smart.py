@@ -4,7 +4,15 @@ import time
 from unittest.mock import AsyncMock, MagicMock, patch
 
 import pytest
-from tenacity import AsyncRetrying, Future, RetryCallState, retry_if_exception_type, stop_after_attempt
+from tenacity import (
+    AsyncRetrying,
+    Future,
+    RetryCallState,
+    retry_if_exception_type,
+    stop_after_attempt,
+    stop_never,
+    wait_none,
+)
 from tmodbus.exceptions import ModbusConnectionError, RequestRetryFailedError
 from tmodbus.pdu.base import BaseClientPDU
 from tmodbus.transport import async_smart as async_smart_module
@@ -596,3 +604,24 @@ async def test_retry_with_new_connection_if_needed_returns_false_different_excep
     # Should return False since it's not a ModbusConnectionError
     assert result is False
     assert not t._must_reconnect
+
+
+async def test_retry_strategy_force_sane_defaults(
+    base_transport_mock: AsyncBaseTransport,
+    caplog: pytest.LogCaptureFixture,
+) -> None:
+    """Test that response_retry_strategy with stop_never and wait_none is overridden to sane defaults."""
+    # Create a custom strategy with stop_never and wait_none
+    custom_strategy = AsyncRetrying()
+
+    with caplog.at_level("DEBUG", logger="tmodbus.transport.async_smart"):
+        t = AsyncSmartTransport(
+            base_transport_mock,
+            response_retry_strategy=custom_strategy,
+        )
+
+    assert any("Reverting to tmodbus stop/wait default values instead" in record.message for record in caplog.records)
+
+    # The resulting strategy should not have stop_never and wait_none
+    assert t.response_retry_strategy.stop != stop_never
+    assert not isinstance(t.response_retry_strategy.wait, wait_none)
