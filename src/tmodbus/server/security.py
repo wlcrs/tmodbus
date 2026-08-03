@@ -103,8 +103,6 @@ def extract_client_cert(writer: asyncio.StreamWriter) -> x509.Certificate | None
     if not der_cert:
         return None
 
-    # Imported only once there is a certificate to parse, so that plain TCP
-    # servers do not require the optional ``security`` extra.
     try:
         from cryptography import x509  # noqa: PLC0415
     except ImportError as e:
