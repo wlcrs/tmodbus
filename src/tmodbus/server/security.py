@@ -95,6 +95,14 @@ def extract_client_cert(writer: asyncio.StreamWriter) -> x509.Certificate | None
         connection is not TLS or the client did not present a certificate.
 
     """
+    ssl_object: _ssl.SSLObject | None = writer.get_extra_info("ssl_object")
+    if ssl_object is None:
+        return None
+
+    der_cert: bytes | None = ssl_object.getpeercert(binary_form=True)
+    if not der_cert:
+        return None
+
     try:
         from cryptography import x509  # noqa: PLC0415
     except ImportError as e:
@@ -103,14 +111,6 @@ def extract_client_cert(writer: asyncio.StreamWriter) -> x509.Certificate | None
             "from TLS client certificates. Install with 'pip install tmodbus[security]'."
         )
         raise ImportError(msg) from e
-
-    ssl_object: _ssl.SSLObject | None = writer.get_extra_info("ssl_object")
-    if ssl_object is None:
-        return None
-
-    der_cert: bytes | None = ssl_object.getpeercert(binary_form=True)
-    if not der_cert:
-        return None
 
     return x509.load_der_x509_certificate(der_cert)
 
