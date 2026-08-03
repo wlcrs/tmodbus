@@ -568,6 +568,31 @@ async def test_extract_client_cert_plain_connection() -> None:
     mock_writer.get_extra_info.assert_called_once_with("ssl_object")
 
 
+async def test_extract_client_cert_plain_connection_without_cryptography() -> None:
+    """A plain (non-TLS) writer needs no cryptography package.
+
+    ``AsyncTcpServer.handle_client`` calls this for *every* accepted connection,
+    including plain TCP ones, so importing cryptography here would make the
+    optional ``security`` extra mandatory for any server.
+    """
+    mock_writer = MagicMock(spec=asyncio.StreamWriter)
+    mock_writer.get_extra_info.return_value = None  # no ssl_object
+
+    with patch.dict("sys.modules", {"cryptography": None, "cryptography.x509": None}):
+        assert extract_client_cert(mock_writer) is None
+
+
+async def test_extract_client_cert_no_peercert_without_cryptography() -> None:
+    """A TLS client that presented no certificate needs no cryptography package."""
+    mock_writer = MagicMock(spec=asyncio.StreamWriter)
+    mock_ssl = MagicMock()
+    mock_writer.get_extra_info.return_value = mock_ssl
+    mock_ssl.getpeercert.return_value = None
+
+    with patch.dict("sys.modules", {"cryptography": None, "cryptography.x509": None}):
+        assert extract_client_cert(mock_writer) is None
+
+
 async def test_extract_client_cert_cryptography_missing() -> None:
     """extract_client_cert propagates ImportError when cryptography is not available."""
     mock_writer = MagicMock(spec=asyncio.StreamWriter)
