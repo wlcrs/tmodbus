@@ -82,6 +82,9 @@ class SerialXOptions(TypedDict):
     parity: NotRequired["Parity"]
     stopbits: NotRequired["StopBits"]
     bytesize: NotRequired[int]  # data bits per character: 7 for ASCII, 8 for RTU
+    # Honoured by the URL-based transports (socket://, tcp://, rfc2217://,
+    # esphome://), which bound establishing the connection by it.
+    connect_timeout: NotRequired[float]
     xonxoff: NotRequired[bool]
     rtscts: NotRequired[bool]
     exclusive: NotRequired[bool]
