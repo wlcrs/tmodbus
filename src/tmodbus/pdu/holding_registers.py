@@ -5,7 +5,7 @@ from dataclasses import dataclass
 from typing import Self
 
 from tmodbus.const import FunctionCode
-from tmodbus.exceptions import InvalidRequestError, InvalidResponseError
+from tmodbus.exceptions import FunctionCodeError, InvalidRequestError, InvalidResponseError
 
 from .base import BasePDU
 
@@ -57,7 +57,8 @@ class RawReadHoldingRegistersPDU(BasePDU[bytes]):
             List of boolean values representing the coil states
 
         Raises:
-            ValueError: If response format is invalid
+            FunctionCodeError: If function code is incorrect
+            InvalidResponseError: If response format is invalid
 
         """
         # response format: function code + byte count + data
@@ -69,7 +70,7 @@ class RawReadHoldingRegistersPDU(BasePDU[bytes]):
 
         if function_code != self.function_code:
             msg = f"Invalid function code: expected {self.function_code:#04x}, received {function_code:#04x}"
-            raise InvalidResponseError(msg, response_bytes=response)
+            raise FunctionCodeError(msg, response_bytes=response)
 
         if len(response) != 2 + byte_count:
             msg = f"Invalid response PDU length: expected {2 + byte_count}, got {len(response)}"
@@ -623,6 +624,7 @@ class MaskWriteRegisterPDU(BasePDU[tuple[int, int]]):
 
         Raises:
             InvalidResponseError: If response format is invalid
+            FunctionCodeError: If function code is incorrect
 
         """
         try:
@@ -633,7 +635,7 @@ class MaskWriteRegisterPDU(BasePDU[tuple[int, int]]):
 
         if function_code != self.function_code:
             msg = f"Invalid function code: expected {self.function_code:#04x}, received {function_code:#04x}"
-            raise InvalidResponseError(msg, response_bytes=response)
+            raise FunctionCodeError(msg, response_bytes=response)
 
         if address != self.address:
             msg = f"Invalid address: expected {self.address}, received {address}"
@@ -771,6 +773,7 @@ class ReadWriteMultipleRegistersPDU(BasePDU[list[int]]):
 
         Raises:
             InvalidResponseError: If response format is invalid
+            FunctionCodeError: If function code is incorrect
 
         """
         # response format: function code + byte count + data
@@ -782,7 +785,7 @@ class ReadWriteMultipleRegistersPDU(BasePDU[list[int]]):
 
         if function_code != self.function_code:
             msg = f"Invalid function code: expected {self.function_code:#04x}, received {function_code:#04x}"
-            raise InvalidResponseError(msg, response_bytes=response)
+            raise FunctionCodeError(msg, response_bytes=response)
 
         if len(response) != 2 + byte_count:
             msg = f"Invalid response PDU length: expected {2 + byte_count}, got {len(response)}"

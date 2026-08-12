@@ -13,7 +13,7 @@ from typing import TypeVar, Unpack
 
 from tmodbus.exceptions import (
     ASCIIFrameError,
-    InvalidResponseError,
+    FunctionCodeError,
     LRCError,
     ModbusConnectionError,
     UnknownModbusResponseError,
@@ -207,7 +207,7 @@ class ModbusAsciiProtocol(asyncio.Protocol):
         response_function_code = response.pdu_bytes[0]
         if response_function_code != pdu.function_code:
             msg = f"Function code mismatch: expected {pdu.function_code}, received {response_function_code}"
-            raise InvalidResponseError(msg, response_bytes=response.bytes)
+            raise FunctionCodeError(msg, response_bytes=response.bytes)
 
         # 8. Return decoded response
         return pdu.decode_response(response.pdu_bytes)

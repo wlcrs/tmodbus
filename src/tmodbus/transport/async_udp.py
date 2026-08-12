@@ -12,7 +12,7 @@ from functools import partial
 from typing import Any, TypeVar
 
 from tmodbus.exceptions import (
-    InvalidResponseError,
+    HeaderMismatchError,
     ModbusConnectionError,
     UnknownModbusResponseError,
     error_code_to_exception_map,
@@ -251,7 +251,7 @@ class ModbusUdpProtocol(asyncio.DatagramProtocol):
 
         if response.unit_id != unit_id:
             msg = f"Unit ID mismatch: expected {unit_id:#04x}, received {response.unit_id:#04x}"
-            raise InvalidResponseError(msg, response_bytes=response.bytes)
+            raise HeaderMismatchError(msg, response_bytes=response.bytes)
 
         if len(response.pdu_bytes) > 0 and response.pdu_bytes[0] & 0x80:  # Exception response
             function_code = response.pdu_bytes[0] & 0x7F

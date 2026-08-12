@@ -5,7 +5,7 @@ from dataclasses import dataclass
 from typing import Self
 
 from tmodbus.const import FunctionCode
-from tmodbus.exceptions import InvalidRequestError, InvalidResponseError
+from tmodbus.exceptions import FunctionCodeError, InvalidRequestError, InvalidResponseError
 from tmodbus.pdu.base import BasePDU
 
 
@@ -120,6 +120,7 @@ class ReadFifoQueuePDU(BasePDU[list[int]]):
             List of values from the FIFO queue
 
         Raises:
+            FunctionCodeError: If function code is incorrect
             InvalidResponseError: If data length is incorrect or count doesn't match values
 
         """
@@ -133,7 +134,7 @@ class ReadFifoQueuePDU(BasePDU[list[int]]):
 
         if function_code != self.function_code:
             msg = f"Invalid function code: {function_code:#04x}. Expected {self.function_code:#04x}."
-            raise InvalidResponseError(msg, response_bytes=data)
+            raise FunctionCodeError(msg, response_bytes=data)
 
         if byte_count != len(data) - 3:
             msg = f"Byte count {byte_count} does not match actual data length {len(data) - 3}."

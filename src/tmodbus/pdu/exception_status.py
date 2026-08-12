@@ -1,7 +1,7 @@
 """Exception status PDU Module (serial line only)."""
 
 from tmodbus.const import FunctionCode
-from tmodbus.exceptions import InvalidRequestError, InvalidResponseError
+from tmodbus.exceptions import FunctionCodeError, InvalidRequestError, InvalidResponseError
 from tmodbus.pdu.base import BasePDU
 
 
@@ -87,6 +87,6 @@ class ReadExceptionStatusPDU(BasePDU[int]):
 
         if function_code != self.function_code:
             msg = f"Invalid function code: {function_code:#04x}. Expected {self.function_code:#04x}."
-            raise InvalidResponseError(msg, response_bytes=data)
+            raise FunctionCodeError(msg, response_bytes=data)
 
         return status
