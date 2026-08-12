@@ -9,10 +9,7 @@ import time
 from collections.abc import Callable
 from dataclasses import dataclass
 from functools import partial
-from typing import TYPE_CHECKING, NotRequired, TypedDict, TypeVar, Unpack
-
-if TYPE_CHECKING:
-    from serialx import Parity, StopBits
+from typing import TypeVar, Unpack
 
 from tmodbus.exceptions import (
     ASCIIFrameError,
@@ -27,6 +24,7 @@ from tmodbus.utils.lrc import calculate_lrc, validate_lrc
 from tmodbus.utils.raw_traffic_logger import log_raw_traffic as base_log_raw_traffic
 
 from .async_base import AsyncBaseTransport
+from .async_rtu import SerialXOptions
 
 logger = logging.getLogger(__name__)
 log_raw_traffic = partial(base_log_raw_traffic, "ASCII")
@@ -34,17 +32,6 @@ RT = TypeVar("RT")
 
 DEFAULT_TIMEOUT = 10.0  # Default timeout in seconds for async operations
 MIN_INTERFRAME_GAP = 0.001  # Minimum gap between frames in seconds (1ms)
-
-
-class SerialXOptions(TypedDict):
-    """Options for the SerialX connection."""
-
-    baudrate: int
-    parity: NotRequired["Parity"]
-    stopbits: NotRequired["StopBits"]
-    xonxoff: NotRequired[bool]
-    rtscts: NotRequired[bool]
-    exclusive: NotRequired[bool]
 
 
 ASCII_FRAME_START = b":"

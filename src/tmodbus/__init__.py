@@ -90,6 +90,7 @@ def create_async_rtu_client(  # noqa: PLR0913
     port: str,
     *,
     unit_id: int,
+    timeout: float | None = None,
     wait_between_requests: float = 0.0,
     wait_after_connect: float = 0.0,
     auto_reconnect: "bool | AsyncRetrying" = True,
@@ -106,7 +107,6 @@ def create_async_rtu_client(  # noqa: PLR0913
         port: The port number of the Modbus server (default is 502).
         unit_id: The unit ID to use for requests.
         timeout: Timeout in seconds, default 10.0s
-        connect_timeout: Timeout for establishing connection, default 10.0s
         wait_between_requests: Wait time between requests in seconds (default: 0.0s)
         wait_after_connect: Wait time after connection establishment in seconds (default: 0.0s)
         auto_reconnect: Whether to automatically reconnect on connection loss (default: True).
@@ -128,6 +128,7 @@ def create_async_rtu_client(  # noqa: PLR0913
     smart_transport = AsyncSmartTransport(
         AsyncRtuTransport(
             port,
+            timeout=timeout,
             **serialx_options,
         ),
         wait_between_requests=wait_between_requests,
@@ -146,6 +147,7 @@ def create_async_ascii_client(  # noqa: PLR0913
     port: str,
     *,
     unit_id: int,
+    timeout: float | None = None,
     wait_between_requests: float = 0.0,
     wait_after_connect: float = 0.0,
     auto_reconnect: "bool | AsyncRetrying" = True,
@@ -162,7 +164,6 @@ def create_async_ascii_client(  # noqa: PLR0913
         port: The port number of the Modbus server (default is 502).
         unit_id: The unit ID to use for requests.
         timeout: Timeout in seconds, default 10.0s
-        connect_timeout: Timeout for establishing connection, default 10.0s
         wait_between_requests: Wait time between requests in seconds (default: 0.0s)
         wait_after_connect: Wait time after connection establishment in seconds (default: 0.0s)
         auto_reconnect: Whether to automatically reconnect on connection loss (default: True).
@@ -184,6 +185,7 @@ def create_async_ascii_client(  # noqa: PLR0913
     smart_transport = AsyncSmartTransport(
         AsyncAsciiTransport(
             port,
+            timeout=timeout,
             **serialx_options,
         ),
         wait_between_requests=wait_between_requests,
