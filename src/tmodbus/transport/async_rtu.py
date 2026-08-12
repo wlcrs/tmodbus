@@ -79,11 +79,9 @@ class SerialXOptions(TypedDict):
     """Options for the SerialX connection."""
 
     baudrate: int
-    # serialx normalises the plain str/float forms, and accepts bytesize as a
-    # pyserial-compatibility keyword.
-    parity: NotRequired["Parity | str"]
-    stopbits: NotRequired["StopBits | float"]
-    bytesize: NotRequired[int]
+    parity: NotRequired["Parity"]
+    stopbits: NotRequired["StopBits"]
+    bytesize: NotRequired[int]  # data bits per character: 7 for ASCII, 8 for RTU
     xonxoff: NotRequired[bool]
     rtscts: NotRequired[bool]
     exclusive: NotRequired[bool]
