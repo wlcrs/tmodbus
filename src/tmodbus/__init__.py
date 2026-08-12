@@ -107,8 +107,7 @@ def create_async_rtu_client(  # noqa: PLR0913
         port: The port number of the Modbus server (default is 502).
         unit_id: The unit ID to use for requests.
         timeout: Timeout in seconds, default 10.0s
-        connect_timeout: Timeout for establishing connection, on the URL-based transports.
-                         Defaults to the transport's own: 10.0s, or 5.0s for rfc2217://
+        connect_timeout: Timeout for establishing connection, default 10.0s
         wait_between_requests: Wait time between requests in seconds (default: 0.0s)
         wait_after_connect: Wait time after connection establishment in seconds (default: 0.0s)
         auto_reconnect: Whether to automatically reconnect on connection loss (default: True).
@@ -166,8 +165,7 @@ def create_async_ascii_client(  # noqa: PLR0913
         port: The port number of the Modbus server (default is 502).
         unit_id: The unit ID to use for requests.
         timeout: Timeout in seconds, default 10.0s
-        connect_timeout: Timeout for establishing connection, on the URL-based transports.
-                         Defaults to the transport's own: 10.0s, or 5.0s for rfc2217://
+        connect_timeout: Timeout for establishing connection, default 10.0s
         wait_between_requests: Wait time between requests in seconds (default: 0.0s)
         wait_after_connect: Wait time after connection establishment in seconds (default: 0.0s)
         auto_reconnect: Whether to automatically reconnect on connection loss (default: True).
