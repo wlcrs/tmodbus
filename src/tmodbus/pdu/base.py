@@ -3,7 +3,7 @@
 from abc import ABC, abstractmethod
 from typing import Self, TypeVar
 
-from tmodbus.exceptions import InvalidRequestError, InvalidResponseError
+from tmodbus.exceptions import FunctionCodeError, InvalidRequestError
 
 RT = TypeVar("RT")
 
@@ -128,7 +128,7 @@ class BaseSubFunctionClientPDU[RT](BaseClientPDU[RT]):
         # Always assume that the first byte of the data-part of the frame contains the sub-function code
         if data[0] != cls.sub_function_code:
             msg = f"Expected sub-function code {cls.sub_function_code}, got {data[0]}"
-            raise InvalidResponseError(msg, response_bytes=data)
+            raise FunctionCodeError(msg, response_bytes=data)
 
         # if a fixed length is defined for the response PDU, return it
         if cls.rtu_response_data_length is not None:
@@ -164,7 +164,7 @@ class BaseSubFunctionPDU[RT](BaseSubFunctionClientPDU[RT], BasePDU[RT]):
         # Always assume that the first byte of the data-part of the frame contains the sub-function code
         if data[0] != cls.sub_function_code:
             msg = f"Expected sub-function code {cls.sub_function_code}, got {data[0]}"
-            raise InvalidResponseError(msg, response_bytes=data)
+            raise FunctionCodeError(msg, response_bytes=data)
 
         # if a fixed length is defined for the response PDU, return it
         if cls.rtu_response_data_length is not None:

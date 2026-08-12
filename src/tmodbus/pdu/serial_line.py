@@ -4,7 +4,7 @@ import struct
 from dataclasses import dataclass
 from typing import Self
 
-from tmodbus.exceptions import InvalidRequestError, InvalidResponseError
+from tmodbus.exceptions import FunctionCodeError, InvalidRequestError, InvalidResponseError
 
 from .base import BasePDU
 
@@ -51,6 +51,7 @@ class ReportServerIdPDU(BasePDU[ServerIdResponse]):
 
         Raises:
             InvalidResponseError: If the response is invalid.
+            FunctionCodeError: If function code is incorrect.
 
         """
         # response format: function code (1 byte) + byte count (1 byte) + server ID + status (1 byte)
@@ -66,7 +67,7 @@ class ReportServerIdPDU(BasePDU[ServerIdResponse]):
 
         if function_code != self.function_code:
             msg = f"Invalid function code: expected {self.function_code:#04x}, received {function_code:#04x}"
-            raise InvalidResponseError(msg, response_bytes=response)
+            raise FunctionCodeError(msg, response_bytes=response)
 
         if len(response) != 2 + byte_count:
             msg = f"Response length {len(response)} does not match expected {2 + byte_count}"

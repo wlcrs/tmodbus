@@ -10,7 +10,7 @@ from enum import IntEnum
 from typing import Literal, Self
 
 from tmodbus.const import FunctionCode
-from tmodbus.exceptions import InvalidRequestError, InvalidResponseError
+from tmodbus.exceptions import FunctionCodeError, InvalidRequestError, InvalidResponseError
 
 from .base import BaseSubFunctionPDU
 
@@ -171,13 +171,13 @@ class ReadDeviceIdentificationPDU(BaseSubFunctionPDU[ReadDeviceIdentificationRes
 
         if function_code != self.function_code:
             msg = f"Invalid function code: expected {self.function_code:#04x}, received {function_code:#04x}"
-            raise InvalidResponseError(msg, response_bytes=response)
+            raise FunctionCodeError(msg, response_bytes=response)
 
         if sub_function_code != self.sub_function_code:
             msg = (
                 f"Invalid sub function code: expected {self.sub_function_code:#04x}, received {sub_function_code:#04x}"
             )
-            raise InvalidResponseError(msg, response_bytes=response)
+            raise FunctionCodeError(msg, response_bytes=response)
 
         if more not in (0x00, 0xFF):
             msg = f"Invalid 'more' value: {more:#04x}"

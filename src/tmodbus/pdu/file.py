@@ -4,7 +4,7 @@ import struct
 from dataclasses import dataclass
 from typing import Self
 
-from tmodbus.exceptions import InvalidRequestError, InvalidResponseError
+from tmodbus.exceptions import FunctionCodeError, InvalidRequestError, InvalidResponseError
 
 from .base import BasePDU
 
@@ -117,6 +117,7 @@ class ReadFileRecordPDU(BasePDU[list[bytes]]):
 
         Raises:
             InvalidResponseError: If the response is invalid.
+            FunctionCodeError: If function code is incorrect.
 
         """
         # response format: function code (1 byte) + byte count (1 byte)
@@ -130,7 +131,7 @@ class ReadFileRecordPDU(BasePDU[list[bytes]]):
 
         if function_code != self.function_code:
             msg = f"Invalid function code: expected {self.function_code:#04x}, received {function_code:#04x}"
-            raise InvalidResponseError(msg, response_bytes=response)
+            raise FunctionCodeError(msg, response_bytes=response)
 
         if len(response) - 2 != byte_count:
             msg = f"Response length {len(response)} is not equal to expected {2 + byte_count}"
@@ -311,6 +312,7 @@ class WriteFileRecordPDU(BasePDU[list[FileRecord]]):
 
         Raises:
             InvalidResponseError: If the response is invalid.
+            FunctionCodeError: If function code is incorrect.
 
         """
         try:
@@ -321,7 +323,7 @@ class WriteFileRecordPDU(BasePDU[list[FileRecord]]):
 
         if function_code != cls.function_code:
             msg = f"Invalid function code: expected {cls.function_code:#04x}, received {function_code:#04x}"
-            raise InvalidResponseError(msg, response_bytes=response)
+            raise FunctionCodeError(msg, response_bytes=response)
 
         if len(response) - 2 != byte_count:
             msg = f"Response length {len(response)} is not equal to expected {2 + byte_count}"

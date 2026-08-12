@@ -4,7 +4,7 @@ import struct
 from typing import Self
 
 from tmodbus.const import FunctionCode
-from tmodbus.exceptions import InvalidRequestError, InvalidResponseError
+from tmodbus.exceptions import FunctionCodeError, InvalidRequestError, InvalidResponseError
 
 from .base import BasePDU
 
@@ -62,7 +62,8 @@ class ReadCoilsPDU(BasePDU[list[bool]]):
             List of boolean values representing the coil states
 
         Raises:
-            ValueError: If response format is invalid
+            InvalidResponseError: If response format is invalid
+            FunctionCodeError: If function code is incorrect
 
         """
         # response format: function code + byte count + data
@@ -74,7 +75,7 @@ class ReadCoilsPDU(BasePDU[list[bool]]):
 
         if function_code != self.function_code:
             msg = f"Invalid function code: expected {self.function_code:#04x}, received {function_code:#04x}"
-            raise InvalidResponseError(msg, response_bytes=response)
+            raise FunctionCodeError(msg, response_bytes=response)
 
         if len(response) != 2 + byte_count:
             msg = f"Invalid response PDU length: expected {2 + byte_count}, got {len(response)}"
@@ -303,6 +304,7 @@ class WriteMultipleCoilsPDU(BasePDU[int]):
 
         Raises:
             InvalidResponseError: If response format is invalid
+            FunctionCodeError: If function code is incorrect
 
         """
         # Verify response: function code + starting address + quantity
