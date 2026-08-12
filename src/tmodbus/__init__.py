@@ -90,6 +90,7 @@ def create_async_rtu_client(  # noqa: PLR0913
     port: str,
     *,
     unit_id: int,
+    timeout: float | None = None,
     wait_between_requests: float = 0.0,
     wait_after_connect: float = 0.0,
     auto_reconnect: "bool | AsyncRetrying" = True,
@@ -128,6 +129,7 @@ def create_async_rtu_client(  # noqa: PLR0913
     smart_transport = AsyncSmartTransport(
         AsyncRtuTransport(
             port,
+            timeout=timeout,
             **serialx_options,
         ),
         wait_between_requests=wait_between_requests,
@@ -146,6 +148,7 @@ def create_async_ascii_client(  # noqa: PLR0913
     port: str,
     *,
     unit_id: int,
+    timeout: float | None = None,
     wait_between_requests: float = 0.0,
     wait_after_connect: float = 0.0,
     auto_reconnect: "bool | AsyncRetrying" = True,
@@ -184,6 +187,7 @@ def create_async_ascii_client(  # noqa: PLR0913
     smart_transport = AsyncSmartTransport(
         AsyncAsciiTransport(
             port,
+            timeout=timeout,
             **serialx_options,
         ),
         wait_between_requests=wait_between_requests,
