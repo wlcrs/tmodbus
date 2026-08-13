@@ -343,13 +343,13 @@ Listen-Only mode:
 
 .. code-block:: python
 
-    from typing import Any
+    from typing import cast
     from tmodbus.exceptions import SuppressResponseError
     from tmodbus.pdu import (
         BasePDU,
         DiagnosticsForceListenOnlyModePDU,
         DiagnosticsRestartCommunicationsOptionPDU,
-        ReadHoldingRegistersPDU,
+        WriteSingleRegisterPDU,
     )
     from tmodbus.server import ModbusRequestRouter
 
@@ -361,7 +361,7 @@ Listen-Only mode:
             self.inner_router = inner_router
             self.listen_only_mode = False
 
-        async def __call__(self, unit_id: int, request: BasePDU[Any]) -> Any:
+        async def __call__[T](self, unit_id: int, request: BasePDU[T]) -> T:
             # 1. Handle Force Listen Only Mode (FC08 sub 4)
             if isinstance(request, DiagnosticsForceListenOnlyModePDU):
                 self.listen_only_mode = True
@@ -371,7 +371,7 @@ Listen-Only mode:
             if isinstance(request, DiagnosticsRestartCommunicationsOptionPDU):
                 self.listen_only_mode = False
                 # Echo data (0x0000 or 0xFF00) back to client
-                return request.data
+                return cast(T, request.data)
 
             # 3. Delegate to standard request router
             response = await self.inner_router(unit_id, request)
