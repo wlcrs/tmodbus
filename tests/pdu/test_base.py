@@ -390,3 +390,36 @@ class TestBaseSubFunctionPDU:
         # First byte is different value
         with pytest.raises(InvalidRequestError):
             TestPDU.get_expected_request_data_length(b"\x0d")
+
+    def test_get_expected_request_data_length_custom_sub_function_length(self) -> None:
+        """Test sub_function_code_length larger than 2 bytes."""
+
+        class TestLargeSubFuncPDU(BaseSubFunctionPDU[int]):
+            function_code = 0x64
+            sub_function_code = 0x12345678
+            sub_function_code_length = 4
+            rtu_request_data_length = 8
+            rtu_response_data_length = 8
+
+            def encode_request(self) -> bytes:
+                return b""
+
+            def decode_response(self, _response: bytes) -> int:
+                return 0
+
+            @classmethod
+            def decode_request(cls, _request: bytes) -> "TestLargeSubFuncPDU":
+                return cls()
+
+            def encode_response(self, _value: int) -> bytes:
+                return b""
+
+        # 4-byte sub-function match (0x12345678)
+        data = b"\x12\x34\x56\x78\x00\x00\x00\x00"
+        assert TestLargeSubFuncPDU.get_expected_request_data_length(data) == 8
+        assert TestLargeSubFuncPDU.get_expected_response_data_length(data) == 8
+
+        # Short data
+        assert TestLargeSubFuncPDU.get_expected_response_data_length(b"\x12\x34") is None
+        with pytest.raises(InvalidRequestError):
+            TestLargeSubFuncPDU.get_expected_request_data_length(b"\x12\x34")

@@ -28,7 +28,29 @@ from tmodbus.pdu import (
 )
 from tmodbus.pdu.fifo import ReadFifoQueuePDU
 from tmodbus.pdu.holding_registers_struct import HoldingRegisterReadMixin, HoldingRegisterWriteMixin
-from tmodbus.pdu.serial_line import ReportServerIdPDU, ServerIdResponse
+from tmodbus.pdu.serial_line import (
+    CommEventCounterResponse,
+    CommEventLogResponse,
+    DiagnosticsBusCharacterOverrunCountPDU,
+    DiagnosticsBusCommunicationErrorCountPDU,
+    DiagnosticsBusExceptionErrorCountPDU,
+    DiagnosticsBusMessageCountPDU,
+    DiagnosticsChangeAsciiInputDelimiterPDU,
+    DiagnosticsClearCountersAndRegisterPDU,
+    DiagnosticsClearOverrunCounterAndFlagPDU,
+    DiagnosticsDiagnosticRegisterPDU,
+    DiagnosticsForceListenOnlyModePDU,
+    DiagnosticsQueryDataPDU,
+    DiagnosticsRestartCommunicationsOptionPDU,
+    DiagnosticsServerBusyCountPDU,
+    DiagnosticsServerMessageCountPDU,
+    DiagnosticsServerNakCountPDU,
+    DiagnosticsServerNoResponseCountPDU,
+    GetCommEventCounterPDU,
+    GetCommEventLogPDU,
+    ReportServerIdPDU,
+    ServerIdResponse,
+)
 from tmodbus.transport.async_base import AsyncBaseTransport
 
 logger = logging.getLogger(__name__)
@@ -347,6 +369,169 @@ class AsyncModbusClient(HoldingRegisterReadMixin, HoldingRegisterWriteMixin):
 
         """
         return await self.execute(ReportServerIdPDU())
+
+    async def diag_read_query_data(self, data: bytes = b"\x00\x00") -> bytes:
+        """Diagnostics sub-function 0x0000: Return Query Data.
+
+        Args:
+            data: Data bytes to loop back (must be an even number of bytes).
+
+        Returns:
+            The looped back data bytes.
+
+        """
+        return await self.execute(DiagnosticsQueryDataPDU(data=data))
+
+    async def diag_restart_communications_option(
+        self,
+        clear_event_log: bool = False,  # noqa: FBT001, FBT002
+    ) -> bool:
+        """Diagnostics sub-function 0x0001: Restart Communications Option.
+
+        Args:
+            clear_event_log: Whether to clear the communications event log.
+
+        Returns:
+            Boolean status indicating if event log was cleared.
+
+        """
+        return await self.execute(DiagnosticsRestartCommunicationsOptionPDU(clear_event_log=clear_event_log))
+
+    async def diag_read_diagnostic_register(self) -> int:
+        """Diagnostics sub-function 0x0002: Return Diagnostic Register.
+
+        Returns:
+            16-bit diagnostic register value.
+
+        """
+        return await self.execute(DiagnosticsDiagnosticRegisterPDU())
+
+    async def diag_change_ascii_input_delimiter(self, delimiter: int = 0x0A) -> int:
+        """Diagnostics sub-function 0x0003: Change ASCII Input Delimiter.
+
+        Args:
+            delimiter: ASCII delimiter character code (0-255).
+
+        Returns:
+            The delimiter character code.
+
+        """
+        return await self.execute(DiagnosticsChangeAsciiInputDelimiterPDU(delimiter=delimiter))
+
+    async def diag_force_listen_only_mode(self) -> None:
+        """Diagnostics sub-function 0x0004: Force Listen Only Mode."""
+        return await self.execute(DiagnosticsForceListenOnlyModePDU())
+
+    async def diag_clear_counters_and_register(self) -> None:
+        """Diagnostics sub-function 0x000A: Clear Counters and Diagnostic Register."""
+        return await self.execute(DiagnosticsClearCountersAndRegisterPDU())
+
+    async def diag_read_bus_message_count(self) -> int:
+        """Diagnostics sub-function 0x000B: Return Bus Message Count.
+
+        Returns:
+            Total message count.
+
+        """
+        return await self.execute(DiagnosticsBusMessageCountPDU())
+
+    async def diag_read_bus_communication_error_count(self) -> int:
+        """Diagnostics sub-function 0x000C: Return Bus Communication Error Count.
+
+        Returns:
+            CRC error count.
+
+        """
+        return await self.execute(DiagnosticsBusCommunicationErrorCountPDU())
+
+    async def diag_read_bus_exception_error_count(self) -> int:
+        """Diagnostics sub-function 0x000D: Return Bus Exception Error Count.
+
+        Returns:
+            Exception error count.
+
+        """
+        return await self.execute(DiagnosticsBusExceptionErrorCountPDU())
+
+    async def diag_read_server_message_count(self) -> int:
+        """Diagnostics sub-function 0x000E: Return Server Message Count.
+
+        Returns:
+            Server message count.
+
+        """
+        return await self.execute(DiagnosticsServerMessageCountPDU())
+
+    async def diag_read_server_no_response_count(self) -> int:
+        """Diagnostics sub-function 0x000F: Return Server No Response Count.
+
+        Returns:
+            Server no response count.
+
+        """
+        return await self.execute(DiagnosticsServerNoResponseCountPDU())
+
+    async def diag_read_server_nak_count(self) -> int:
+        """Diagnostics sub-function 0x0010: Return Server NAK Count.
+
+        Returns:
+            Server NAK count.
+
+        """
+        return await self.execute(DiagnosticsServerNakCountPDU())
+
+    async def diag_read_server_busy_count(self) -> int:
+        """Diagnostics sub-function 0x0011: Return Server Busy Count.
+
+        Returns:
+            Server busy count.
+
+        """
+        return await self.execute(DiagnosticsServerBusyCountPDU())
+
+    async def diag_read_bus_character_overrun_count(self) -> int:
+        """Diagnostics sub-function 0x0012: Return Bus Character Overrun Count.
+
+        Returns:
+            Character overrun count.
+
+        """
+        return await self.execute(DiagnosticsBusCharacterOverrunCountPDU())
+
+    async def diag_clear_overrun_counter_and_flag(self) -> None:
+        """Diagnostics sub-function 0x0014: Clear Overrun Counter and Flag."""
+        return await self.execute(DiagnosticsClearOverrunCounterAndFlagPDU())
+
+    async def get_comm_event_counter(self) -> CommEventCounterResponse:
+        """Get Comm Event Counter (Function Code 0x0B).
+
+        Returns:
+            An instance of CommEventCounterResponse containing status and event_count.
+
+        Example:
+            .. code-block:: python
+
+                response = await client.get_comm_event_counter()
+                print("Event Count:", response.event_count)
+
+        """
+        return await self.execute(GetCommEventCounterPDU())
+
+    async def get_comm_event_log(self) -> CommEventLogResponse:
+        """Get Comm Event Log (Function Code 0x0C).
+
+        Returns:
+            An instance of CommEventLogResponse containing status, event_count, message_count, and events bytes.
+
+        Example:
+            .. code-block:: python
+
+                response = await client.get_comm_event_log()
+                print("Message Count:", response.message_count)
+                print("Events:", response.events)
+
+        """
+        return await self.execute(GetCommEventLogPDU())
 
     async def read_file_records(
         self,

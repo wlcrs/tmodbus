@@ -6,8 +6,10 @@ from tmodbus.pdu import (
     BaseClientPDU,
     BaseSubFunctionClientPDU,
     get_pdu_class,
+    get_subfunction_code_length,
     get_subfunction_pdu_class,
     register_pdu_class,
+    sub_function_code_to_pdu_map,
 )
 
 
@@ -155,6 +157,40 @@ class TestRegisterPDUClass:
         ):
             register_pdu_class(CustomSubFunctionPDU2)
 
+    def test_register_different_length_sub_function_pdu_class(self) -> None:
+        """Test registering a different length sub-function code raises ValueError."""
+
+        class CustomSubFunctionPDU1(BaseSubFunctionClientPDU[int]):
+            function_code = 0xE3
+            sub_function_code = 0x01
+
+            def encode_request(self) -> bytes:
+                return b""
+
+            def decode_response(self, _response: bytes) -> int:
+                return 0
+
+        class CustomSubFunctionPDU2(BaseSubFunctionClientPDU[int]):
+            function_code = 0xE3
+            sub_function_code = 0x02
+            sub_function_code_length = 2
+
+            def encode_request(self) -> bytes:
+                return b""
+
+            def decode_response(self, _response: bytes) -> int:
+                return 0
+
+        # Register first sub-function PDU
+        register_pdu_class(CustomSubFunctionPDU1)
+
+        # Try to register duplicate
+        with pytest.raises(
+            ValueError,
+            match=r"Subfunction code length for function code 0xe3 must be 1, but got 2",
+        ):
+            register_pdu_class(CustomSubFunctionPDU2)
+
     def test_register_sub_function_pdu_when_normal_exists(self) -> None:
         """Test registering a sub-function PDU when a normal PDU already exists."""
 
@@ -268,3 +304,19 @@ class TestRegisterPDUClass:
         pdu_class_b = get_subfunction_pdu_class(0xF6, 0x02)
         assert pdu_class_a == SubFunctionPDUA
         assert pdu_class_b == SubFunctionPDUB
+
+    def test_get_subfunction_code_length_for_undefined_function_code(self) -> None:
+        """Test get_subfunction_code_length for undefined function code raises ValueError."""
+        with pytest.raises(
+            ValueError,
+            match=r"Unsupported function code 0xf7",
+        ):
+            get_subfunction_code_length(0xF7)
+
+        sub_function_code_to_pdu_map[0xF7] = {}
+
+        with pytest.raises(
+            ValueError,
+            match=r"No sub-function PDU classes registered for function code 0xf7",
+        ):
+            get_subfunction_code_length(0xF7)
