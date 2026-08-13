@@ -387,6 +387,10 @@ class WriteFileRecordPDU(BasePDU[list[FileRecord]]):
         """
         return WriteFileRecordPDU._decode(response)
 
+    def get_broadcast_response(self) -> list[FileRecord]:
+        """Return dummy response for a broadcast request."""
+        return self.file_records
+
     def encode_response(self, value: list[FileRecord]) -> bytes:
         """Encode the response PDU.
 

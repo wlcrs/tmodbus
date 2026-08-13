@@ -2,6 +2,8 @@
 
 from enum import IntEnum
 
+BROADCAST_UNIT_ID = 0
+
 
 class FunctionCode(IntEnum):
     """Modbus Function Codes."""

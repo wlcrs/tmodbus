@@ -8,6 +8,7 @@ from typing import Any, Literal
 
 from serialx import open_serial_connection
 
+from tmodbus.const import BROADCAST_UNIT_ID
 from tmodbus.exceptions import InvalidRequestError
 from tmodbus.utils.lrc import calculate_lrc, validate_lrc
 from tmodbus.utils.raw_traffic_logger import log_raw_traffic as base_log_raw_traffic
@@ -201,7 +202,7 @@ class AsyncAsciiServer(AsyncBaseServer):
         else:
             response_pdu_bytes = await handle_modbus_request(unit_id, request_pdu, self.handler)
 
-        if unit_id != 0:
+        if unit_id != BROADCAST_UNIT_ID:
             out_bin = bytearray([unit_id]) + response_pdu_bytes
             lrc = calculate_lrc(bytes(out_bin))
             out_bin.append(lrc)
@@ -215,6 +216,8 @@ class AsyncAsciiServer(AsyncBaseServer):
             else:
                 logger.warning("No writer available to send ASCII response; dropping frame")
                 log_raw_traffic("sent", out_frame, is_error=True)
+        else:
+            logger.debug("Response ignored for broadcast request (unit ID %d)", unit_id)
 
         return "error" if is_error else "success"
 
