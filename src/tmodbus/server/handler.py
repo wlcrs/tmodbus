@@ -10,7 +10,7 @@ from collections.abc import Awaitable, Callable, Iterable
 from typing import TYPE_CHECKING, Any, Protocol, TypeGuard, cast
 
 from tmodbus.const import EXCEPTION_RESPONSE_BIT, ExceptionCode
-from tmodbus.exceptions import IllegalFunctionError, ModbusResponseError
+from tmodbus.exceptions import IllegalFunctionError, ModbusResponseError, SuppressResponseError
 from tmodbus.pdu import BaseClientPDU, BasePDU
 
 if TYPE_CHECKING:
@@ -306,6 +306,13 @@ async def handle_modbus_request[T](
         else:
             response_data = await handler(unit_id, request)
         return request.encode_response(response_data)
+    except SuppressResponseError:
+        logger.debug(
+            "Response explicitly suppressed by handler for unit_id %d, function %s",
+            unit_id,
+            request.function_code,
+        )
+        return b""
     except ModbusResponseError as e:
         logger.warning(
             "Modbus Exception %s (%s) for unit_id %d, function %s",

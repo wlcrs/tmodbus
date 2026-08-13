@@ -311,3 +311,90 @@ custom x.509 extension with the Modbus.org Private Enterprise OID
 
 The :func:`~tmodbus.server.security.extract_modbus_role` utility extracts this role
 value. If the extension is absent, it returns ``None``.
+
+*********************************************************************
+ Response Suppression & Listen-Only Mode (Serial Line / Diagnostics)
+*********************************************************************
+
+On Modbus serial networks (RS-485 / RS-232), slave devices can be commanded into
+**Listen-Only Mode** via Diagnostics (Function Code 0x08, Sub-function ``0x0004`` -
+:class:`~tmodbus.pdu.DiagnosticsForceListenOnlyModePDU`).
+
+While in Listen-Only mode, a Modbus device:
+
+1. Continues to process incoming traffic and update internal states or diagnostic
+   counters.
+2. Must **suppress sending any response frames** back over the serial bus.
+3. Resumes normal response transmission only upon receiving a **Restart Communications
+   Option** request (Sub-function ``0x0001`` -
+   :class:`~tmodbus.pdu.DiagnosticsRestartCommunicationsOptionPDU`).
+
+To signal to serial server transports (:class:`~tmodbus.server.AsyncRtuServer`,
+:class:`~tmodbus.server.AsyncAsciiServer`, and
+:class:`~tmodbus.server.AsyncRtuOverTcpServer`) that a response should be suppressed,
+handlers can raise :exc:`~tmodbus.exceptions.SuppressResponseError`.
+
+Sample Handler Implementation
+=============================
+
+Below is a sample handler wrapper class that tracks Listen-Only mode, handles diagnostic
+force/restart PDUs, and suppresses responses for all incoming requests while in
+Listen-Only mode:
+
+.. code-block:: python
+
+    from typing import Any
+    from tmodbus.exceptions import SuppressResponseError
+    from tmodbus.pdu import (
+        BasePDU,
+        DiagnosticsForceListenOnlyModePDU,
+        DiagnosticsRestartCommunicationsOptionPDU,
+        ReadHoldingRegistersPDU,
+    )
+    from tmodbus.server import ModbusRequestRouter
+
+
+    class ListenOnlyAwareHandler:
+        """Handler wrapper that implements Modbus Listen-Only mode state tracking."""
+
+        def __init__(self, inner_router: ModbusRequestRouter) -> None:
+            self.inner_router = inner_router
+            self.listen_only_mode = False
+
+        async def __call__(self, unit_id: int, request: BasePDU[Any]) -> Any:
+            # 1. Handle Force Listen Only Mode (FC08 sub 4)
+            if isinstance(request, DiagnosticsForceListenOnlyModePDU):
+                self.listen_only_mode = True
+                raise SuppressResponseError
+
+            # 2. Handle Restart Communications Option (FC08 sub 1)
+            if isinstance(request, DiagnosticsRestartCommunicationsOptionPDU):
+                self.listen_only_mode = False
+                # Echo data (0x0000 or 0xFF00) back to client
+                return request.data
+
+            # 3. Delegate to standard request router
+            response = await self.inner_router(unit_id, request)
+
+            # 4. If currently in Listen Only mode, suppress response
+            if self.listen_only_mode:
+                raise SuppressResponseError
+
+            # 5. Return the response for normal operation
+            return response
+
+
+    # Setup request router for normal operations
+    router = ModbusRequestRouter()
+
+
+    @router.register(WriteSingleRegisterPDU)
+    async def handle_write_single_register(
+        _unit_id: int, _request: WriteSingleRegisterPDU
+    ) -> int:
+        # Do something useful here
+        return _request.value
+
+
+    # Wrap the router with ListenOnlyAwareHandler
+    handler = ListenOnlyAwareHandler(router)

@@ -183,7 +183,7 @@ class AsyncRtuServer(AsyncBaseServer):
         else:
             response_pdu_bytes = await handle_modbus_request(unit_id, request_pdu, self.handler)
 
-        if is_error or (unit_id != BROADCAST_UNIT_ID and request_pdu.expects_response):
+        if response_pdu_bytes and (is_error or (unit_id != BROADCAST_UNIT_ID and request_pdu.expects_response)):
             out_frame = bytearray([unit_id]) + response_pdu_bytes
             crc = calculate_crc16(bytes(out_frame))
             out_frame.extend(crc)

@@ -9,6 +9,15 @@ class TModbusError(Exception):
     """Base exception class for tModbus library."""
 
 
+class SuppressResponseError(TModbusError):
+    """Exception raised by a server handler to explicitly suppress sending a response frame.
+
+    When caught by the server request handler dispatcher, the server will process the request
+    (e.g., executing side effects or state updates) but will omit sending any response bytes
+    back to the client.
+    """
+
+
 class ModbusConnectionError(TModbusError):
     """Connection error exception.
 
