@@ -9,6 +9,7 @@ from typing import Any, Literal
 from tmodbus.const import BROADCAST_UNIT_ID, ExceptionCode
 from tmodbus.exceptions import InvalidRequestError
 from tmodbus.utils.crc import calculate_crc16, validate_crc16
+from tmodbus.utils.raw_traffic_logger import format_bytes
 from tmodbus.utils.raw_traffic_logger import log_raw_traffic as base_log_raw_traffic
 
 from .base import AsyncBaseServer, get_server_pdu_class_from_buffer
@@ -164,7 +165,10 @@ class AsyncRtuOverTcpServer(AsyncBaseServer):
             log_raw_traffic("sent", bytes(out_frame))
             await writer.drain()
         else:
-            logger.debug("Response ignored for broadcast request (unit ID %d)", unit_id)
+            logger.debug(
+                "Response ignored for broadcast request. Not sending response bytes: %s",
+                format_bytes(response_pdu_bytes),
+            )
         return not is_error
 
     async def _process_next_frame(
