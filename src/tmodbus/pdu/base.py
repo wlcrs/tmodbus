@@ -34,6 +34,11 @@ class BaseClientPDU[RT](ABC):
 
         """
 
+    def get_broadcast_response(self) -> RT:
+        """Get the response for a broadcast PDU."""
+        msg = f"Function code {self.function_code:#04x} does not support broadcasting."
+        raise InvalidRequestError(msg)
+
     @classmethod
     def get_expected_response_data_length(cls, data: bytes) -> int | None:
         """Get the expected number of bytes for the data part of the response PDU.

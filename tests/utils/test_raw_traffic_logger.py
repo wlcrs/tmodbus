@@ -3,7 +3,7 @@
 from typing import Any
 from unittest.mock import patch
 
-from tmodbus.utils.raw_traffic_logger import _format_bytes, log_raw_traffic
+from tmodbus.utils.raw_traffic_logger import format_bytes, log_raw_traffic
 
 
 class _DummyLogger:
@@ -20,9 +20,9 @@ class _DummyLogger:
 
 def test_format_bytes() -> None:
     """Test formatting of bytes to hex string."""
-    assert _format_bytes(b"\x01\x02\xab") == "01 02 AB"
-    assert _format_bytes(b"") == ""
-    assert _format_bytes(b"\x00\xff") == "00 FF"
+    assert format_bytes(b"\x01\x02\xab") == "01 02 AB"
+    assert format_bytes(b"") == ""
+    assert format_bytes(b"\x00\xff") == "00 FF"
 
 
 def test_log_raw_traffic_sent() -> None:

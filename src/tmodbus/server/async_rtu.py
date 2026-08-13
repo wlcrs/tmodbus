@@ -8,8 +8,10 @@ from typing import Any, Literal
 
 from serialx import open_serial_connection
 
+from tmodbus.const import BROADCAST_UNIT_ID
 from tmodbus.exceptions import InvalidRequestError
 from tmodbus.utils.crc import calculate_crc16, validate_crc16
+from tmodbus.utils.raw_traffic_logger import format_bytes
 from tmodbus.utils.raw_traffic_logger import log_raw_traffic as base_log_raw_traffic
 
 from .base import AsyncBaseServer, get_server_pdu_class_from_buffer
@@ -170,7 +172,7 @@ class AsyncRtuServer(AsyncBaseServer):
         else:
             response_pdu_bytes = await handle_modbus_request(unit_id, request_pdu, self.handler)
 
-        if unit_id != 0:
+        if unit_id != BROADCAST_UNIT_ID:
             out_frame = bytearray([unit_id]) + response_pdu_bytes
             crc = calculate_crc16(bytes(out_frame))
             out_frame.extend(crc)
@@ -185,6 +187,11 @@ class AsyncRtuServer(AsyncBaseServer):
             else:
                 logger.warning("No writer available to send RTU response; dropping frame")
                 log_raw_traffic("sent", bytes(out_frame), is_error=True)
+        else:
+            logger.debug(
+                "Response ignored for broadcast request. Not sending response bytes: %s",
+                format_bytes(response_pdu_bytes),
+            )
 
         return "error" if is_error else "success"
 

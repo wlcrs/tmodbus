@@ -299,6 +299,10 @@ class WriteSingleRegisterPDU(BasePDU[int]):
             raise InvalidResponseError(msg, response_bytes=response)
         return self.value
 
+    def get_broadcast_response(self) -> int:
+        """Return dummy response for a broadcast request."""
+        return self.value
+
     @classmethod
     def decode_request(cls, request: bytes) -> Self:
         """Decode Write Single Register Request PDU.
@@ -418,6 +422,10 @@ class RawWriteMultipleRegistersPDU(BasePDU[int]):
             raise InvalidResponseError(msg, response_bytes=response)
         return len(self.content) // 2  # Return number of registers written
 
+    def get_broadcast_response(self) -> int:
+        """Return dummy response for a broadcast request."""
+        return len(self.content) // 2
+
     @classmethod
     def decode_request(cls, request: bytes) -> Self:
         """Decode Write Multiple Registers Request PDU.
@@ -532,6 +540,10 @@ class WriteMultipleRegistersPDU(BasePDU[int]):
 
         """
         return self.raw_pdu.decode_response(response)
+
+    def get_broadcast_response(self) -> int:
+        """Return dummy response for a broadcast request."""
+        return len(self.values)
 
     @classmethod
     def decode_request(cls, request: bytes) -> Self:
@@ -649,6 +661,10 @@ class MaskWriteRegisterPDU(BasePDU[tuple[int, int]]):
             raise InvalidResponseError(msg, response_bytes=response)
 
         return and_mask, or_mask
+
+    def get_broadcast_response(self) -> tuple[int, int]:
+        """Return dummy response for a broadcast request."""
+        return (self.and_mask, self.or_mask)
 
     @classmethod
     def decode_request(cls, request: bytes) -> Self:

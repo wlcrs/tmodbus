@@ -11,6 +11,7 @@ from dataclasses import dataclass
 from functools import partial
 from typing import TypeVar, Unpack
 
+from tmodbus.const import BROADCAST_UNIT_ID
 from tmodbus.exceptions import (
     ASCIIFrameError,
     FunctionCodeError,
@@ -154,6 +155,10 @@ class ModbusAsciiProtocol(asyncio.Protocol):
         6. Validate LRC and address
         7. Return response PDU
         """
+        broadcast_response: RT | None = None
+        if unit_id == BROADCAST_UNIT_ID:
+            broadcast_response = pdu.get_broadcast_response()
+
         if self.transport is None or self.transport.is_closing():
             msg = "Not connected."
             raise ModbusConnectionError(msg)
@@ -172,6 +177,14 @@ class ModbusAsciiProtocol(asyncio.Protocol):
             await asyncio.sleep(to_wait)
 
         # 4. Async send request
+        if broadcast_response is not None:
+            # We're broadcasting, so we don't need to wait for a response
+            # Just send it and return immediately
+            self.transport.write(request_adu)
+            log_raw_traffic("sent", request_adu)
+            self._last_frame_ended_at = time.monotonic()
+            return broadcast_response
+
         read_future: asyncio.Future[_ModbusAsciiMessage] = asyncio.get_event_loop().create_future()
         self._pending_requests[unit_id] = read_future
 

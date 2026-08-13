@@ -197,6 +197,10 @@ class WriteSingleCoilPDU(BasePDU[bool]):
             raise InvalidResponseError(msg, response_bytes=response)
         return self.value
 
+    def get_broadcast_response(self) -> bool:
+        """Return dummy response for a broadcast request."""
+        return self.value
+
     @classmethod
     def decode_request(cls, request: bytes) -> Self:
         """Decode Write Single Coil Request PDU.
@@ -319,6 +323,10 @@ class WriteMultipleCoilsPDU(BasePDU[int]):
             msg = "Device response does not match request"
             raise InvalidResponseError(msg, response_bytes=response)
 
+        return len(self.values)
+
+    def get_broadcast_response(self) -> int:
+        """Return dummy response for a broadcast request."""
         return len(self.values)
 
     @classmethod

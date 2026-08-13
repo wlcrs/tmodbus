@@ -30,11 +30,11 @@ def log_raw_traffic(
         "%6s %s: %s %s",
         transport_name,
         direction,
-        _format_bytes(data),
+        format_bytes(data),
         status,
     )
 
 
-def _format_bytes(data: bytes) -> str:
+def format_bytes(data: bytes) -> str:
     """Format bytes for logging."""
     return data.hex(" ").upper()
