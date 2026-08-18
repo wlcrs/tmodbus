@@ -1,5 +1,6 @@
 """tModbus library."""
 
+import logging
 from collections.abc import Awaitable, Callable
 from typing import TYPE_CHECKING, Any, Unpack
 
@@ -21,6 +22,9 @@ try:
     from ._version import __version__
 except ImportError:  # pragma: no cover
     __version__ = "0.0.0"
+
+# don't print logging messages if the user has not configured logging
+logging.getLogger("tmodbus").addHandler(logging.NullHandler())
 
 
 def create_async_tcp_client(  # noqa: PLR0913
