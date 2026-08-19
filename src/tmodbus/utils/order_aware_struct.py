@@ -190,18 +190,15 @@ class OrderAwareStruct(struct.Struct):
         if word_order == "big" and byte_order == "little":
             # BADC: Swap bytes within each 16-bit register
             result = bytearray(length)
-            for i in range(0, length, 2):
-                result[i] = data_bytes[i + 1]
-                result[i + 1] = data_bytes[i]
+            result[0::2] = data_bytes[1::2]
+            result[1::2] = data_bytes[0::2]
             return bytes(result)
 
         if word_order == "little" and byte_order == "big":
             # CDAB: Swap 16-bit register order (little-endian word order)
             result = bytearray(length)
-            for i in range(0, length, 2):
-                src_idx = i
-                dst_idx = length - i - 2
-                result[dst_idx : dst_idx + 2] = data_bytes[src_idx : src_idx + 2]
+            result[0::2] = data_bytes[length - 2 :: -2]
+            result[1::2] = data_bytes[length - 1 :: -2]
             return bytes(result)
 
         if word_order == "little" and byte_order == "little":
