@@ -53,7 +53,7 @@ from typing import TYPE_CHECKING, Any, NotRequired, TypedDict, TypeVar, Unpack
 if TYPE_CHECKING:
     from serialx import Parity, StopBits
 
-from tmodbus.const import BROADCAST_UNIT_ID
+from tmodbus.const import BROADCAST_UNIT_ID, EXCEPTION_RESPONSE_BIT, FUNCTION_CODE_MASK
 from tmodbus.exceptions import (
     CRCError,
     FunctionCodeError,
@@ -308,6 +308,7 @@ class ModbusRtuProtocol(asyncio.Protocol):
     _buffer: bytearray
     _last_frame_ended_at: float
     _pending_requests: dict[int, _PendingRequest]
+    _timed_out_requests: dict[int, BaseClientPDU[Any]]
 
     def __init__(
         self,
@@ -326,6 +327,7 @@ class ModbusRtuProtocol(asyncio.Protocol):
         self._buffer = bytearray()
         self._last_frame_ended_at = 0.0
         self._pending_requests = {}
+        self._timed_out_requests = {}
 
         self.connection_made_event = asyncio.Event()
 
@@ -404,6 +406,8 @@ class ModbusRtuProtocol(asyncio.Protocol):
         try:
             response = await asyncio.wait_for(read_future, timeout=self.timeout)
         except TimeoutError as e:
+            # Save PDU for timed-out request so any delayed response can be framed and discarded cleanly
+            self._timed_out_requests[unit_id] = pdu
             msg = f"Response timeout after {self.timeout} seconds"
             raise TimeoutError(msg) from e
         finally:
@@ -411,8 +415,8 @@ class ModbusRtuProtocol(asyncio.Protocol):
             self._pending_requests.pop(unit_id, None)
 
         # 7. Check if it's an exception response
-        if len(response.pdu_bytes) > 0 and response.pdu_bytes[0] & 0x80:  # Exception response
-            function_code = response.pdu_bytes[0] & 0x7F  # Remove exception flag bit
+        if len(response.pdu_bytes) > 0 and response.pdu_bytes[0] & EXCEPTION_RESPONSE_BIT:  # Exception response
+            function_code = response.pdu_bytes[0] & FUNCTION_CODE_MASK  # Remove exception flag bit
             exception_code = response.pdu_bytes[1] if len(response.pdu_bytes) > 1 else 0
 
             if exception_code in error_code_to_exception_map:
@@ -449,8 +453,9 @@ class ModbusRtuProtocol(asyncio.Protocol):
 
     def _discard_garbage_data(self) -> None:
         """Discard garbage data from the buffer."""
-        # Find the first byte that matches a unit_id with an outstanding request
+        # Find the first byte that matches a unit_id with an outstanding or timed-out request
         expected_unit_ids = {uid for uid, req in self._pending_requests.items() if not req.future.done()}
+        expected_unit_ids.update(self._timed_out_requests.keys())
 
         if not expected_unit_ids:
             # No pending requests at all - discard everything
@@ -504,7 +509,7 @@ class ModbusRtuProtocol(asyncio.Protocol):
             return None  # Need at least address + function code
         function_code = self._buffer[1]
 
-        if function_code & 0x80:  # Exception response
+        if function_code & EXCEPTION_RESPONSE_BIT:  # Exception response
             expected_total_frame_length = 5  # address + exception FC + exception code + CRC
         else:
             if pending_pdu is not None and function_code != pending_pdu.function_code:
@@ -565,6 +570,36 @@ class ModbusRtuProtocol(asyncio.Protocol):
 
         return expected_total_frame_length
 
+    def _try_drain_timed_out_response(self, unit_id: int, timed_out_pdu: BaseClientPDU[Any]) -> bool:
+        """Attempt to frame and discard a delayed response for a timed-out request.
+
+        Returns:
+            True if waiting for more data, False if frame was processed or skipped.
+
+        """
+        try:
+            expected_total_frame_length = self._determine_expected_frame_length(timed_out_pdu)
+        except (RTUFrameError, FunctionCodeError):
+            self._timed_out_requests.pop(unit_id, None)
+            del self._buffer[0]
+            return False
+
+        if expected_total_frame_length is None or len(self._buffer) < expected_total_frame_length:
+            return True  # Wait for full delayed frame
+
+        candidate_frame = bytes(self._buffer[:expected_total_frame_length])
+        if validate_crc16(candidate_frame):
+            del self._buffer[:expected_total_frame_length]
+            self._timed_out_requests.pop(unit_id, None)
+            logger.info(
+                "Cleanly framed and discarded delayed response for timed-out request on unit %d: %s",
+                unit_id,
+                candidate_frame.hex(" ").upper(),
+            )
+        else:
+            del self._buffer[0]
+        return False
+
     def _validate_and_deliver_frame(
         self,
         unit_id: int,
@@ -579,6 +614,7 @@ class ModbusRtuProtocol(asyncio.Protocol):
             pdu_bytes = candidate_frame[1:-2]  # Remove address and CRC
             crc = candidate_frame[-2:]
             last_errors.pop(unit_id, None)
+            self._timed_out_requests.pop(unit_id, None)
             pending_future.set_result(
                 _ModbusRtuMessage(
                     unit_id=unit_id,
@@ -607,8 +643,42 @@ class ModbusRtuProtocol(asyncio.Protocol):
                 if fut is not None and not fut.done():
                     fut.set_exception(err)
 
+    def _try_drain_delayed_matching_response(
+        self,
+        unit_id: int,
+        pending_pdu: BaseClientPDU[Any] | None,
+    ) -> bool | None:
+        """Check and attempt to drain a delayed response matching a timed-out request.
+
+        Returns:
+            True if waiting for more data, False if drained or skipped, or None if no match.
+
+        """
+        timed_out_pdu = self._timed_out_requests.get(unit_id)
+        if timed_out_pdu is not None and len(self._buffer) >= 2:
+            raw_function_code = self._buffer[1]
+            base_function_code = raw_function_code & FUNCTION_CODE_MASK
+            if (
+                pending_pdu is not None
+                and base_function_code != (pending_pdu.function_code & FUNCTION_CODE_MASK)
+                and base_function_code == (timed_out_pdu.function_code & FUNCTION_CODE_MASK)
+            ):
+                return self._try_drain_timed_out_response(unit_id, timed_out_pdu)
+        return None
+
     def data_received(self, data: bytes) -> None:
-        """Handle data received event."""
+        """Handle data received event.
+
+        Limitations of RTU delayed-response detection:
+            Modbus RTU responses do not contain Transaction IDs (TIDs) or sequence numbers.
+            - If a delayed response arrives with a DIFFERENT Function Code than the active
+              request, tmodbus accurately attributes it to the timed-out request and drains it
+              without disrupting the active request.
+            - If a delayed response arrives with the SAME Function Code and byte structure as
+              the active request, it is mathematically indistinguishable on the wire from the
+              genuine response to the active request. In that case, it will be accepted as the
+              response to the active request and the timed-out tracking will be cleared.
+        """
         self._buffer.extend(data)
         log_raw_traffic("recv", data)
 
@@ -619,14 +689,27 @@ class ModbusRtuProtocol(asyncio.Protocol):
             # Step 1: Check if first byte is a unit_id with a pending request
             unit_id = self._buffer[0]
 
-            # Step 2: Check if this unit_id has a pending request
+            # Step 2: Check if this unit_id has an active pending request
             pending_future, pending_pdu = self._get_active_pending_request(unit_id)
             if pending_future is None:
-                # No pending request for this unit_id - this is garbage data
+                timed_out_pdu = self._timed_out_requests.get(unit_id)
+                if timed_out_pdu is not None:
+                    if self._try_drain_timed_out_response(unit_id, timed_out_pdu):
+                        return
+                    continue
+
+                # No pending or timed-out request for this unit_id - this is garbage data
                 self._discard_garbage_data()
                 continue
 
-            # Step 3: Determine expected frame length
+            # Step 3: We have an active pending request. Check for matching delayed response.
+            delayed_drain_result = self._try_drain_delayed_matching_response(unit_id, pending_pdu)
+            if delayed_drain_result is True:
+                return
+            if delayed_drain_result is False:
+                continue
+
+            # Step 4: Determine expected frame length for active request
             try:
                 expected_total_frame_length = self._determine_expected_frame_length(pending_pdu)
             except (RTUFrameError, FunctionCodeError) as e:
@@ -644,7 +727,7 @@ class ModbusRtuProtocol(asyncio.Protocol):
             if expected_total_frame_length is None or len(self._buffer) < expected_total_frame_length:
                 return  # Wait for more data
 
-            # Step 6: Extract, validate CRC, and deliver frame
+            # Step 5: Extract, validate CRC, and deliver frame
             self._validate_and_deliver_frame(unit_id, expected_total_frame_length, pending_future, last_errors)
 
         self._fail_pending_requests_with_errors(last_errors)
@@ -657,4 +740,5 @@ class ModbusRtuProtocol(asyncio.Protocol):
                 pending.future.set_exception(ModbusConnectionError("Connection lost before response was received."))
 
         self._pending_requests.clear()
+        self._timed_out_requests.clear()
         self.on_connection_lost(exc)

@@ -4,6 +4,9 @@ from enum import IntEnum
 
 BROADCAST_UNIT_ID = 0
 
+EXCEPTION_RESPONSE_BIT = 0x80
+FUNCTION_CODE_MASK = 0xFF ^ EXCEPTION_RESPONSE_BIT  # 0x7F: strips exception bit to extract base function code
+
 
 class FunctionCode(IntEnum):
     """Modbus Function Codes."""
