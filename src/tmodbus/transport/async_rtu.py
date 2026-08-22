@@ -48,7 +48,7 @@ import time
 from collections.abc import Callable
 from dataclasses import dataclass
 from functools import partial
-from typing import TYPE_CHECKING, NotRequired, TypedDict, TypeVar, Unpack
+from typing import TYPE_CHECKING, Any, NotRequired, TypedDict, TypeVar, Unpack
 
 if TYPE_CHECKING:
     from serialx import Parity, StopBits
@@ -288,6 +288,14 @@ class _ModbusRtuMessage:
         return bytes([self.unit_id]) + self.pdu_bytes + self.crc
 
 
+@dataclass
+class _PendingRequest:
+    """Dataclass representing an in-flight pending request for a unit ID."""
+
+    future: asyncio.Future[_ModbusRtuMessage]
+    pdu: BaseClientPDU[Any] | None = None
+
+
 class ModbusRtuProtocol(asyncio.Protocol):
     """Asyncio Protocol implementation for Modbus RTU with frame detection."""
 
@@ -299,7 +307,7 @@ class ModbusRtuProtocol(asyncio.Protocol):
 
     _buffer: bytearray
     _last_frame_ended_at: float
-    _pending_requests: dict[int, asyncio.Future[_ModbusRtuMessage]]
+    _pending_requests: dict[int, _PendingRequest]
 
     def __init__(
         self,
@@ -330,6 +338,15 @@ class ModbusRtuProtocol(asyncio.Protocol):
         self.transport = transport
         logger.info("Modbus RTU protocol connection established.")
         self.connection_made_event.set()
+
+    def _get_active_pending_request(
+        self, unit_id: int
+    ) -> tuple[asyncio.Future[_ModbusRtuMessage] | None, BaseClientPDU[Any] | None]:
+        """Get the active (non-done) future and expected PDU for a unit ID."""
+        pending = self._pending_requests.get(unit_id)
+        if pending is None or pending.future.done():
+            return None, None
+        return pending.future, pending.pdu
 
     async def send_and_receive(self, unit_id: int, pdu: BaseClientPDU[RT]) -> RT:
         """Async send PDU and receive response.
@@ -376,7 +393,7 @@ class ModbusRtuProtocol(asyncio.Protocol):
             return broadcast_response
 
         read_future: asyncio.Future[_ModbusRtuMessage] = asyncio.get_event_loop().create_future()
-        self._pending_requests[unit_id] = read_future
+        self._pending_requests[unit_id] = _PendingRequest(future=read_future, pdu=pdu)
 
         self.transport.write(request_adu)
         log_raw_traffic("sent", request_adu)
@@ -413,12 +430,14 @@ class ModbusRtuProtocol(asyncio.Protocol):
 
     async def _wait_on_pending_request(self, unit_id: int) -> None:
         """Wait for any existing pending request for the given unit_id to complete."""
-        existing_future = self._pending_requests.get(unit_id)
-        if existing_future is not None and not existing_future.done():
+        pending = self._pending_requests.get(unit_id)
+        if pending is None:
+            return
+        if not pending.future.done():
             # Wait for the previous request to complete (or fail)
             # If it fails, we continue with the new request
             try:
-                await asyncio.wait_for(existing_future, timeout=self.timeout)
+                await asyncio.wait_for(pending.future, timeout=self.timeout)
             except TimeoutError:
                 logger.debug("Previous request for unit %d timed out, proceeding with new request", unit_id)
             except asyncio.CancelledError:
@@ -431,7 +450,7 @@ class ModbusRtuProtocol(asyncio.Protocol):
     def _discard_garbage_data(self) -> None:
         """Discard garbage data from the buffer."""
         # Find the first byte that matches a unit_id with an outstanding request
-        expected_unit_ids = {uid for uid, fut in self._pending_requests.items() if not fut.done()}
+        expected_unit_ids = {uid for uid, req in self._pending_requests.items() if not req.future.done()}
 
         if not expected_unit_ids:
             # No pending requests at all - discard everything
@@ -470,7 +489,7 @@ class ModbusRtuProtocol(asyncio.Protocol):
             )
             del self._buffer[0]
 
-    def _determine_expected_frame_length(self) -> int | None:
+    def _determine_expected_frame_length(self, pending_pdu: BaseClientPDU[Any] | None = None) -> int | None:
         """Determine expected frame length based on current buffer contents.
 
         Returns:
@@ -478,6 +497,7 @@ class ModbusRtuProtocol(asyncio.Protocol):
 
         Raises:
             RTUFrameError: If the frame length is invalid.
+            FunctionCodeError: If the function code does not match the pending request.
 
         """
         if len(self._buffer) < 2:
@@ -487,6 +507,12 @@ class ModbusRtuProtocol(asyncio.Protocol):
         if function_code & 0x80:  # Exception response
             expected_total_frame_length = 5  # address + exception FC + exception code + CRC
         else:
+            if pending_pdu is not None and function_code != pending_pdu.function_code:
+                msg = (
+                    f"Function code mismatch: expected {pending_pdu.function_code:#04x}, received {function_code:#04x}"
+                )
+                raise FunctionCodeError(msg, response_bytes=bytes(self._buffer))
+
             # check if we can already determine the expected length with the available data
             try:
                 if not is_function_code_for_subfunction_pdu(function_code):
@@ -499,11 +525,14 @@ class ModbusRtuProtocol(asyncio.Protocol):
                     sub_function_code = self._buffer[2]
                     pdu_class = get_subfunction_pdu_class(function_code, sub_function_code)
             except ValueError as e:
-                # Unknown or unsupported (sub-)function code, for example a bit flip on the
-                # line. We cannot determine where the frame ends, so fail the pending request
-                # with a frame error rather than letting the exception crash the protocol.
-                msg = f"Cannot frame response with unsupported function code {function_code:#04x}"
-                raise RTUFrameError(msg, response_bytes=bytes(self._buffer)) from e
+                if pending_pdu is not None:
+                    pdu_class = type(pending_pdu)
+                else:
+                    # Unknown or unsupported (sub-)function code, for example a bit flip on the
+                    # line. We cannot determine where the frame ends, so fail the pending request
+                    # with a frame error rather than letting the exception crash the protocol.
+                    msg = f"Cannot frame response with unsupported function code {function_code:#04x}"
+                    raise RTUFrameError(msg, response_bytes=bytes(self._buffer)) from e
 
             expected_response_data_length = pdu_class.get_expected_response_data_length(bytes(self._buffer[2:]))
 
@@ -574,9 +603,9 @@ class ModbusRtuProtocol(asyncio.Protocol):
             return
         for uid, err in last_errors.items():
             if uid not in self._buffer:
-                pending_future = self._pending_requests.get(uid)
-                if pending_future is not None and not pending_future.done():
-                    pending_future.set_exception(err)
+                fut, _ = self._get_active_pending_request(uid)
+                if fut is not None and not fut.done():
+                    fut.set_exception(err)
 
     def data_received(self, data: bytes) -> None:
         """Handle data received event."""
@@ -591,15 +620,15 @@ class ModbusRtuProtocol(asyncio.Protocol):
             unit_id = self._buffer[0]
 
             # Step 2: Check if this unit_id has a pending request
-            pending_future = self._pending_requests.get(unit_id)
-            if pending_future is None or pending_future.done():
+            pending_future, pending_pdu = self._get_active_pending_request(unit_id)
+            if pending_future is None:
                 # No pending request for this unit_id - this is garbage data
                 self._discard_garbage_data()
                 continue
 
             # Step 3: Determine expected frame length
             try:
-                expected_total_frame_length = self._determine_expected_frame_length()
+                expected_total_frame_length = self._determine_expected_frame_length(pending_pdu)
             except (RTUFrameError, FunctionCodeError) as e:
                 logger.warning(
                     "Framing error for unit %d: %s. Discarding leading byte %s",
@@ -623,9 +652,9 @@ class ModbusRtuProtocol(asyncio.Protocol):
     def connection_lost(self, exc: Exception | None) -> None:
         """Handle connection lost event."""
         # Set exception on all pending requests
-        for pending_future in self._pending_requests.values():
-            if not pending_future.done():
-                pending_future.set_exception(ModbusConnectionError("Connection lost before response was received."))
+        for pending in self._pending_requests.values():
+            if not pending.future.done():
+                pending.future.set_exception(ModbusConnectionError("Connection lost before response was received."))
 
         self._pending_requests.clear()
         self.on_connection_lost(exc)
