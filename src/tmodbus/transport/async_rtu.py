@@ -526,19 +526,64 @@ class ModbusRtuProtocol(asyncio.Protocol):
                 "This is a bug in the PDU class. Discarding buffer: %s",
                 bytes(self._buffer).hex(" ").upper(),
             )
+            response_bytes = bytes(self._buffer)
             self._buffer.clear()
             msg = (
                 f"Expected frame length {expected_total_frame_length} is invalid: "
                 f"must be between 0 and {MAX_RTU_FRAME_SIZE}"
             )
-            raise RTUFrameError(msg, response_bytes=bytes(self._buffer))
+            raise RTUFrameError(msg, response_bytes=response_bytes)
 
         return expected_total_frame_length
+
+    def _validate_and_deliver_frame(
+        self,
+        unit_id: int,
+        expected_length: int,
+        pending_future: asyncio.Future[_ModbusRtuMessage],
+        last_errors: dict[int, Exception],
+    ) -> None:
+        """Extract, validate, and deliver a complete candidate frame."""
+        candidate_frame = bytes(self._buffer[:expected_length])
+        if validate_crc16(candidate_frame):
+            del self._buffer[:expected_length]
+            pdu_bytes = candidate_frame[1:-2]  # Remove address and CRC
+            crc = candidate_frame[-2:]
+            last_errors.pop(unit_id, None)
+            pending_future.set_result(
+                _ModbusRtuMessage(
+                    unit_id=unit_id,
+                    pdu_bytes=pdu_bytes,
+                    crc=crc,
+                )
+            )
+        else:
+            logger.warning(
+                "CRC validation failed for candidate frame (%d bytes: %s). "
+                "Discarding leading byte %s to resynchronize.",
+                len(candidate_frame),
+                candidate_frame.hex(" ").upper(),
+                self._buffer[0:1].hex(" ").upper(),
+            )
+            last_errors[unit_id] = CRCError(response_bytes=candidate_frame)
+            del self._buffer[0]
+
+    def _fail_pending_requests_with_errors(self, last_errors: dict[int, Exception]) -> None:
+        """Fail pending requests that encountered errors when buffer is exhausted."""
+        if not last_errors or len(self._buffer) >= MIN_RTU_RESPONSE_LENGTH:
+            return
+        for uid, err in last_errors.items():
+            if uid not in self._buffer:
+                pending_future = self._pending_requests.get(uid)
+                if pending_future is not None and not pending_future.done():
+                    pending_future.set_exception(err)
 
     def data_received(self, data: bytes) -> None:
         """Handle data received event."""
         self._buffer.extend(data)
         log_raw_traffic("recv", data)
+
+        last_errors: dict[int, Exception] = {}
 
         # Try to process complete frames
         while len(self._buffer) >= MIN_RTU_RESPONSE_LENGTH:
@@ -555,41 +600,25 @@ class ModbusRtuProtocol(asyncio.Protocol):
             # Step 3: Determine expected frame length
             try:
                 expected_total_frame_length = self._determine_expected_frame_length()
-            except RTUFrameError as e:
-                pending_future.set_exception(e)
-                return
+            except (RTUFrameError, FunctionCodeError) as e:
+                logger.warning(
+                    "Framing error for unit %d: %s. Discarding leading byte %s",
+                    unit_id,
+                    e,
+                    self._buffer[0:1].hex(" ").upper() if self._buffer else "",
+                )
+                last_errors[unit_id] = e
+                if self._buffer:
+                    del self._buffer[0]
+                continue
 
             if expected_total_frame_length is None or len(self._buffer) < expected_total_frame_length:
                 return  # Wait for more data
 
-            # Step 6: Extract complete frame
-            frame = bytes(self._buffer[:expected_total_frame_length])
-            del self._buffer[:expected_total_frame_length]
+            # Step 6: Extract, validate CRC, and deliver frame
+            self._validate_and_deliver_frame(unit_id, expected_total_frame_length, pending_future, last_errors)
 
-            # Step 7: Deliver response to pending request
-            pdu_bytes = frame[1:-2]  # Remove address and CRC
-            crc = frame[-2:]
-
-            # 6. Validate CRC
-            if validate_crc16(frame):
-                pending_future.set_result(
-                    _ModbusRtuMessage(
-                        unit_id=unit_id,
-                        pdu_bytes=pdu_bytes,
-                        crc=crc,
-                    )
-                )
-            else:
-                # The unit id is also part of the raw frame, so in theory it is possible that the CRC is caused by
-                # a bit flip on the unit id.
-
-                # However, in most cases this corrupt unit id would not correspond with a pending request,
-                # and the frame would have been discarded already anyway.
-
-                # As we're trying to recover from a bad frame, we prefer to fail fast instead of letting pending
-                # requests wait for a timeout. Therefore, we set an exception on the pending future and continue.
-
-                pending_future.set_exception(CRCError(response_bytes=frame))
+        self._fail_pending_requests_with_errors(last_errors)
 
     def connection_lost(self, exc: Exception | None) -> None:
         """Handle connection lost event."""

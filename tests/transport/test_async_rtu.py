@@ -1308,3 +1308,148 @@ async def test_wait_on_pending_request_timeout_waiting(caplog: pytest.LogCapture
 
         # Should have logged timeout
         assert any("timed out" in record.message for record in caplog.records)
+
+
+async def test_sliding_window_recovers_when_noise_matches_unit_id(
+    mock_transport: MagicMock,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """Test that a stray noise byte matching unit_id slides forward and recovers the valid frame."""
+    protocol = ModbusRtuProtocol(on_connection_lost=lambda _: None)
+    protocol.connection_made(mock_transport)
+
+    pdu = _DummyPDU()  # FC 0x03
+    unit_id = 1
+    response_data = b"\x05"
+    correct_payload = bytes([unit_id, pdu.function_code]) + response_data
+    correct_response = correct_payload + calculate_crc16(correct_payload)
+
+    class DummyPduClass:
+        @staticmethod
+        def get_expected_response_data_length(_begin_bytes: bytes) -> int:
+            return 1
+
+    monkeypatch.setattr("tmodbus.transport.async_rtu.get_pdu_class", lambda _: DummyPduClass)
+    protocol._last_frame_ended_at = time.monotonic() - 10
+
+    # Stream contains: 1 noise byte matching unit_id (0x01), followed by the valid response frame
+    corrupt_stream = bytes([unit_id, 0x01]) + correct_response
+
+    async def simulate_stream() -> None:
+        await asyncio.sleep(0.01)
+        protocol.data_received(corrupt_stream)
+
+    result_task = asyncio.create_task(protocol.send_and_receive(unit_id, pdu))
+    response_task = asyncio.create_task(simulate_stream())
+
+    result = await result_task
+    await response_task
+
+    assert result[0] == "decoded"
+
+
+async def test_sliding_window_recovers_when_candidate_fails_crc(
+    mock_transport: MagicMock,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """Test that if a candidate frame fails CRC, sliding window recovers a subsequent valid frame."""
+    protocol = ModbusRtuProtocol(on_connection_lost=lambda _: None)
+    protocol.connection_made(mock_transport)
+
+    pdu = _DummyPDU()
+    unit_id = 1
+    response_data = b"\x05"
+
+    # Candidate 1: has bad CRC
+    bad_payload = bytes([unit_id, pdu.function_code]) + response_data
+    bad_frame = bad_payload + b"\xff\xff"
+
+    # Candidate 2: valid frame
+    good_payload = bytes([unit_id, pdu.function_code]) + response_data
+    good_frame = good_payload + calculate_crc16(good_payload)
+
+    class DummyPduClass:
+        @staticmethod
+        def get_expected_response_data_length(_begin_bytes: bytes) -> int:
+            return 1
+
+    monkeypatch.setattr("tmodbus.transport.async_rtu.get_pdu_class", lambda _: DummyPduClass)
+    protocol._last_frame_ended_at = time.monotonic() - 10
+
+    async def simulate_stream() -> None:
+        await asyncio.sleep(0.01)
+        # Send bad frame followed immediately by good frame
+        protocol.data_received(bad_frame + good_frame)
+
+    result_task = asyncio.create_task(protocol.send_and_receive(unit_id, pdu))
+    response_task = asyncio.create_task(simulate_stream())
+
+    result = await result_task
+    await response_task
+
+    assert result[0] == "decoded"
+
+
+async def test_concurrent_multi_unit_requests_with_sliding_window(
+    mock_transport: MagicMock,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """Test concurrent requests to different unit IDs with interleaved noise bytes."""
+    protocol = ModbusRtuProtocol(on_connection_lost=lambda _: None)
+    protocol.connection_made(mock_transport)
+
+    pdu1 = _DummyPDU()
+    unit_id_1 = 1
+    pdu2 = _DummyPDU()
+    unit_id_2 = 2
+
+    class DummyPduClass:
+        @staticmethod
+        def get_expected_response_data_length(_begin_bytes: bytes) -> int:
+            return 1
+
+    monkeypatch.setattr("tmodbus.transport.async_rtu.get_pdu_class", lambda _: DummyPduClass)
+    protocol._last_frame_ended_at = time.monotonic() - 10
+
+    resp1 = bytes([unit_id_1, pdu1.function_code, 0x0A])
+    resp1_frame = resp1 + calculate_crc16(resp1)
+
+    resp2 = bytes([unit_id_2, pdu2.function_code, 0x0B])
+    resp2_frame = resp2 + calculate_crc16(resp2)
+
+    async def simulate_stream() -> None:
+        await asyncio.sleep(0.01)
+        # Send noise, then response 2, noise, then response 1
+        protocol.data_received(b"\xff\xaa" + resp2_frame + b"\xee" + resp1_frame)
+
+    task1 = asyncio.create_task(protocol.send_and_receive(unit_id_1, pdu1))
+    task2 = asyncio.create_task(protocol.send_and_receive(unit_id_2, pdu2))
+    stream_task = asyncio.create_task(simulate_stream())
+
+    res1, res2 = await asyncio.gather(task1, task2)
+    await stream_task
+
+    assert res1 == ("decoded", b"\x03\x0a")
+    assert res2 == ("decoded", b"\x03\x0b")
+
+
+async def test_fail_pending_requests_with_errors_branches(mock_transport: MagicMock) -> None:
+    """Test branch conditions in _fail_pending_requests_with_errors."""
+    protocol = ModbusRtuProtocol(on_connection_lost=lambda _: None)
+    protocol.connection_made(mock_transport)
+
+    # 1. When buffer length >= MIN_RTU_RESPONSE_LENGTH, it should return early
+    protocol._buffer = bytearray(b"\x01\x03\x00\x00")
+    protocol._fail_pending_requests_with_errors({1: ValueError("err")})
+
+    # 2. When uid is in buffer, it skips failing the future to wait for rest of frame
+    protocol._buffer = bytearray(b"\x01\x03")
+    fut: asyncio.Future[Any] = asyncio.get_event_loop().create_future()
+    protocol._pending_requests[1] = fut
+    protocol._fail_pending_requests_with_errors({1: ValueError("err")})
+    assert not fut.done()
+
+    # 3. When pending future is not in pending_requests or is already done
+    protocol._buffer = bytearray(b"")
+    fut.set_result(None)  # already done
+    protocol._fail_pending_requests_with_errors({1: ValueError("err"), 2: ValueError("missing")})
