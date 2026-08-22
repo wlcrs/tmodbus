@@ -748,8 +748,10 @@ async def test_on_connection_lost_pending_futures(mock_serial_connection: tuple[
     send_task = asyncio.create_task(protocol.send_and_receive(unit_id, pdu))
     await asyncio.sleep(0.01)  # Ensure the send_and_receive has started
     assert protocol._pending_requests[unit_id]
+    protocol._timed_out_requests[3] = pdu
     # Now simulate connection lost
     protocol.connection_lost(None)
+    assert len(protocol._timed_out_requests) == 0
 
     with pytest.raises(ModbusConnectionError, match=r"Connection lost before response was received\."):
         await send_task
@@ -1599,3 +1601,382 @@ async def test_send_and_receive_defensive_function_code_validation(
     with pytest.raises(FunctionCodeError, match=r"Function code mismatch"):
         await task
     await resolver
+
+
+async def test_delayed_response_after_timeout_is_cleanly_discarded_using_old_pdu(
+    mock_transport: MagicMock,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """Test that when a request times out, a delayed response is framed and discarded using the old PDU."""
+    protocol = ModbusRtuProtocol(on_connection_lost=lambda _: None, timeout=0.05)
+    protocol.connection_made(mock_transport)
+
+    pdu1 = _DummyPDU()
+    unit_id = 1
+    response_data = b"\x05"
+    delayed_payload = bytes([unit_id, pdu1.function_code]) + response_data
+    delayed_response = delayed_payload + calculate_crc16(delayed_payload)
+
+    class DummyPduClass:
+        @staticmethod
+        def get_expected_response_data_length(_begin_bytes: bytes) -> int:
+            return 1
+
+    monkeypatch.setattr("tmodbus.transport.async_rtu.get_pdu_class", lambda _: DummyPduClass)
+    protocol._last_frame_ended_at = time.monotonic() - 10
+
+    # Step 1: Send request 1, which times out because no response arrived in time
+    with pytest.raises(TimeoutError):
+        await protocol.send_and_receive(unit_id, pdu1)
+
+    # Verify that the timed out PDU is preserved
+    assert protocol._timed_out_requests[unit_id] is pdu1
+
+    # Step 2: Now the delayed response arrives. It should be framed and discarded cleanly.
+    protocol.data_received(delayed_response)
+
+    # Buffer should be completely empty (not containing orphan fragments)
+    assert len(protocol._buffer) == 0
+    assert unit_id not in protocol._timed_out_requests
+
+    # Step 3: Subsequent request should work cleanly without any stale interference
+    pdu2 = _DummyPDU()
+    new_payload = bytes([unit_id, pdu2.function_code, 0x09])
+    new_response = new_payload + calculate_crc16(new_payload)
+
+    async def simulate_new_response() -> None:
+        await asyncio.sleep(0.01)
+        protocol.data_received(new_response)
+
+    task = asyncio.create_task(protocol.send_and_receive(unit_id, pdu2))
+    resp_task = asyncio.create_task(simulate_new_response())
+
+    result = await task
+    await resp_task
+
+    assert result == ("decoded", b"\x03\x09")
+
+
+async def test_try_drain_timed_out_response_branches(
+    mock_transport: MagicMock,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """Test branch conditions in _try_drain_timed_out_response."""
+    protocol = ModbusRtuProtocol(on_connection_lost=lambda _: None)
+    protocol.connection_made(mock_transport)
+
+    pdu = _DummyPDU()
+    unit_id = 1
+
+    # 1. When buffer is too short to determine length (< 2 bytes) -> returns True (wait)
+    protocol._buffer = bytearray(b"\x01")
+    assert protocol._try_drain_timed_out_response(unit_id, pdu) is True
+
+    # 2. When _determine_expected_frame_length raises error -> pops and discards leading byte
+    protocol._buffer = bytearray(b"\x01\x65\x00\x00")
+    protocol._timed_out_requests[unit_id] = pdu
+    assert protocol._try_drain_timed_out_response(unit_id, pdu) is False
+    assert unit_id not in protocol._timed_out_requests
+    assert protocol._buffer == bytearray(b"\x65\x00\x00")
+
+    # 3. When candidate frame has invalid CRC -> del buffer[0] and returns False
+    class DummyPduClass:
+        @staticmethod
+        def get_expected_response_data_length(_begin_bytes: bytes) -> int:
+            return 1
+
+    monkeypatch.setattr("tmodbus.transport.async_rtu.get_pdu_class", lambda _: DummyPduClass)
+    protocol._buffer = bytearray(b"\x01\x03\x05\xff\xff")  # bad CRC
+    protocol._timed_out_requests[unit_id] = pdu
+    assert protocol._try_drain_timed_out_response(unit_id, pdu) is False
+    assert protocol._buffer == bytearray(b"\x03\x05\xff\xff")  # Leading 0x01 was deleted
+
+
+async def test_delayed_response_drained_in_chunks(
+    mock_transport: MagicMock,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """Test that a delayed response arriving in chunks waits for complete frame and drains it."""
+    protocol = ModbusRtuProtocol(on_connection_lost=lambda _: None)
+    protocol.connection_made(mock_transport)
+
+    pdu = _DummyPDU()
+    unit_id = 1
+    protocol._timed_out_requests[unit_id] = pdu
+
+    class DummyPduClass:
+        @staticmethod
+        def get_expected_response_data_length(_begin_bytes: bytes) -> int:
+            return 2
+
+    monkeypatch.setattr("tmodbus.transport.async_rtu.get_pdu_class", lambda _: DummyPduClass)
+
+    payload = bytes([unit_id, pdu.function_code, 0x00, 0x00])
+    frame = payload + calculate_crc16(payload)
+
+    # Chunk 1: first 4 bytes of 6-byte frame -> waits for full frame
+    protocol.data_received(frame[:4])
+    assert len(protocol._buffer) == 4
+    assert unit_id in protocol._timed_out_requests
+
+    # Chunk 2: remaining 2 bytes -> frame completes, CRC passes, buffer drained
+    protocol.data_received(frame[4:])
+    assert len(protocol._buffer) == 0
+    assert unit_id not in protocol._timed_out_requests
+
+
+async def test_delayed_response_arriving_during_active_request_different_fc(
+    mock_transport: MagicMock,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """Test that when delayed response arrives during active request with different FC, it is drained."""
+    protocol = ModbusRtuProtocol(on_connection_lost=lambda _: None, timeout=0.05)
+    protocol.connection_made(mock_transport)
+
+    pdu1 = _DummyPDU()
+    pdu1.function_code = 0x03
+
+    pdu2 = _DummyPDU()
+    pdu2.function_code = 0x06
+
+    unit_id = 1
+
+    class DummyPduClass3:
+        @staticmethod
+        def get_expected_response_data_length(_begin_bytes: bytes) -> int:
+            return 1
+
+    class DummyPduClass6:
+        @staticmethod
+        def get_expected_response_data_length(_begin_bytes: bytes) -> int:
+            return 2
+
+    def mock_get_pdu_class(fc: int) -> type:
+        if fc == 0x03:
+            return DummyPduClass3
+        if fc == 0x06:
+            return DummyPduClass6
+        msg = f"Unknown FC {fc}"
+        raise ValueError(msg)
+
+    monkeypatch.setattr("tmodbus.transport.async_rtu.get_pdu_class", mock_get_pdu_class)
+    protocol._last_frame_ended_at = time.monotonic() - 10
+
+    # Step 1: Request 1 times out
+    with pytest.raises(TimeoutError):
+        await protocol.send_and_receive(unit_id, pdu1)
+
+    assert protocol._timed_out_requests[unit_id] is pdu1
+
+    # Step 2: Request 2 is dispatched (FC 0x06) and is active
+    delayed_payload_1 = bytes([unit_id, 0x03, 0xAA])
+    delayed_response_1 = delayed_payload_1 + calculate_crc16(delayed_payload_1)
+
+    resp_payload_2 = bytes([unit_id, 0x06, 0x11, 0x22])
+    response_2 = resp_payload_2 + calculate_crc16(resp_payload_2)
+
+    async def deliver_delayed_then_real_response() -> None:
+        await asyncio.sleep(0.01)
+        # Deliver late response for request 1 first
+        protocol.data_received(delayed_response_1)
+        # Active request should still be pending and not failed
+        assert not protocol._pending_requests[unit_id].future.done()
+        assert unit_id not in protocol._timed_out_requests
+
+        # Now deliver real response for request 2
+        await asyncio.sleep(0.01)
+        protocol.data_received(response_2)
+
+    req2_task = asyncio.create_task(protocol.send_and_receive(unit_id, pdu2))
+    deliv_task = asyncio.create_task(deliver_delayed_then_real_response())
+
+    result = await req2_task
+    await deliv_task
+
+    assert result == ("decoded", b"\x06\x11\x22")
+    assert len(protocol._buffer) == 0
+
+
+async def test_active_request_succeeds_and_clears_stale_timed_out_request(
+    mock_transport: MagicMock,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """Test that a successful response to an active request clears stale timed-out tracking."""
+    protocol = ModbusRtuProtocol(on_connection_lost=lambda _: None, timeout=0.05)
+    protocol.connection_made(mock_transport)
+
+    pdu1 = _DummyPDU()
+    pdu2 = _DummyPDU()
+    unit_id = 1
+
+    class DummyPduClass:
+        @staticmethod
+        def get_expected_response_data_length(_begin_bytes: bytes) -> int:
+            return 1
+
+    monkeypatch.setattr("tmodbus.transport.async_rtu.get_pdu_class", lambda _: DummyPduClass)
+    protocol._last_frame_ended_at = time.monotonic() - 10
+
+    # Request 1 times out
+    with pytest.raises(TimeoutError):
+        await protocol.send_and_receive(unit_id, pdu1)
+
+    assert protocol._timed_out_requests[unit_id] is pdu1
+
+    # Request 2 is sent, and its response arrives directly
+    resp_payload = bytes([unit_id, pdu2.function_code, 0x55])
+    response = resp_payload + calculate_crc16(resp_payload)
+
+    async def deliver_response() -> None:
+        await asyncio.sleep(0.01)
+        protocol.data_received(response)
+
+    req2_task = asyncio.create_task(protocol.send_and_receive(unit_id, pdu2))
+    deliv_task = asyncio.create_task(deliver_response())
+
+    result = await req2_task
+    await deliv_task
+
+    assert result == ("decoded", b"\x03\x55")
+    # Verify stale timed-out request tracking was cleared upon successful delivery
+    assert unit_id not in protocol._timed_out_requests
+
+
+async def test_delayed_exception_response_arriving_during_active_request(
+    mock_transport: MagicMock,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """Test that when delayed exception arrives during active request, it is cleanly drained."""
+    protocol = ModbusRtuProtocol(on_connection_lost=lambda _: None, timeout=0.05)
+    protocol.connection_made(mock_transport)
+
+    pdu1 = _DummyPDU()
+    pdu1.function_code = 0x03
+
+    pdu2 = _DummyPDU()
+    pdu2.function_code = 0x06
+
+    unit_id = 1
+
+    class DummyPduClass6:
+        @staticmethod
+        def get_expected_response_data_length(_begin_bytes: bytes) -> int:
+            return 2
+
+    monkeypatch.setattr("tmodbus.transport.async_rtu.get_pdu_class", lambda _: DummyPduClass6)
+    protocol._last_frame_ended_at = time.monotonic() - 10
+
+    # Step 1: Request 1 (FC 0x03) times out
+    with pytest.raises(TimeoutError):
+        await protocol.send_and_receive(unit_id, pdu1)
+
+    assert protocol._timed_out_requests[unit_id] is pdu1
+
+    # Step 2: Request 2 (FC 0x06) is sent and active
+    # Late response for Request 1 is an Exception Response (FC 0x83, Exception Code 0x02)
+    delayed_exc_payload = bytes([unit_id, 0x83, 0x02])
+    delayed_exc_response = delayed_exc_payload + calculate_crc16(delayed_exc_payload)
+
+    resp_payload_2 = bytes([unit_id, 0x06, 0x11, 0x22])
+    response_2 = resp_payload_2 + calculate_crc16(resp_payload_2)
+
+    async def deliver_delayed_exc_then_real_response() -> None:
+        await asyncio.sleep(0.01)
+        # Deliver late exception response for request 1
+        protocol.data_received(delayed_exc_response)
+        # Active request should still be pending (not failed by the delayed exception!)
+        assert not protocol._pending_requests[unit_id].future.done()
+        assert unit_id not in protocol._timed_out_requests
+
+        # Now deliver real response for request 2
+        await asyncio.sleep(0.01)
+        protocol.data_received(response_2)
+
+    req2_task = asyncio.create_task(protocol.send_and_receive(unit_id, pdu2))
+    deliv_task = asyncio.create_task(deliver_delayed_exc_then_real_response())
+
+    result = await req2_task
+    await deliv_task
+
+    assert result == ("decoded", b"\x06\x11\x22")
+    assert len(protocol._buffer) == 0
+
+
+async def test_delayed_response_in_chunks_during_active_request(
+    mock_transport: MagicMock,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """Test that a delayed response arriving in chunks while a new request is active is waited on and drained."""
+    protocol = ModbusRtuProtocol(on_connection_lost=lambda _: None, timeout=0.05)
+    protocol.connection_made(mock_transport)
+
+    pdu1 = _DummyPDU()
+    pdu1.function_code = 0x03
+
+    pdu2 = _DummyPDU()
+    pdu2.function_code = 0x06
+
+    unit_id = 1
+
+    class DummyPduClass3:
+        @staticmethod
+        def get_expected_response_data_length(_begin_bytes: bytes) -> int:
+            return 2
+
+    class DummyPduClass6:
+        @staticmethod
+        def get_expected_response_data_length(_begin_bytes: bytes) -> int:
+            return 2
+
+    def mock_get_pdu_class(fc: int) -> type:
+        if fc == 0x03:
+            return DummyPduClass3
+        if fc == 0x06:
+            return DummyPduClass6
+        msg = f"Unknown FC {fc}"
+        raise ValueError(msg)
+
+    monkeypatch.setattr("tmodbus.transport.async_rtu.get_pdu_class", mock_get_pdu_class)
+    protocol._last_frame_ended_at = time.monotonic() - 10
+
+    # Step 1: Request 1 (FC 0x03) times out
+    with pytest.raises(TimeoutError):
+        await protocol.send_and_receive(unit_id, pdu1)
+
+    assert protocol._timed_out_requests[unit_id] is pdu1
+
+    # Step 2: Request 2 (FC 0x06) is sent and active
+    delayed_payload_1 = bytes([unit_id, 0x03, 0xAA, 0xBB])
+    delayed_response_1 = delayed_payload_1 + calculate_crc16(delayed_payload_1)  # 6 bytes
+
+    resp_payload_2 = bytes([unit_id, 0x06, 0x11, 0x22])
+    response_2 = resp_payload_2 + calculate_crc16(resp_payload_2)
+
+    async def deliver_chunks_then_real_response() -> None:
+        await asyncio.sleep(0.01)
+        # Deliver chunk 1 of late response (first 4 bytes of 6-byte frame)
+        protocol.data_received(delayed_response_1[:4])
+        # Buffer has 4 bytes (>= MIN_RTU_RESPONSE_LENGTH), protocol determines frame length is 6 and waits
+        assert len(protocol._buffer) == 4
+        assert not protocol._pending_requests[unit_id].future.done()
+        assert unit_id in protocol._timed_out_requests
+
+        # Deliver chunk 2 of late response (remaining 2 bytes)
+        protocol.data_received(delayed_response_1[4:])
+        # Now late response is complete and drained
+        assert len(protocol._buffer) == 0
+        assert not protocol._pending_requests[unit_id].future.done()
+        assert unit_id not in protocol._timed_out_requests
+
+        # Now deliver real response for request 2
+        await asyncio.sleep(0.01)
+        protocol.data_received(response_2)
+
+    req2_task = asyncio.create_task(protocol.send_and_receive(unit_id, pdu2))
+    deliv_task = asyncio.create_task(deliver_chunks_then_real_response())
+
+    result = await req2_task
+    await deliv_task
+
+    assert result == ("decoded", b"\x06\x11\x22")
+    assert len(protocol._buffer) == 0
