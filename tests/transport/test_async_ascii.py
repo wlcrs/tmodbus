@@ -1433,3 +1433,170 @@ async def test_connection_lost_sets_exception_on_pending_request(
     await connection_task
     assert protocol._pending_request is None
     assert len(protocol._timed_out_requests) == 0
+
+
+async def test_cancelled_request_is_tracked_and_delayed_response_discarded(
+    mock_transport: MagicMock,
+) -> None:
+    """A cancelled in-flight request is tracked so its delayed response is discarded cleanly."""
+    protocol = ModbusAsciiProtocol(on_connection_lost=lambda _: None, timeout=1.0)
+    protocol.connection_made(mock_transport)
+    protocol._last_frame_ended_at = time.monotonic() - 10
+
+    pdu1 = _DummyPDU()
+    unit_id = 1
+
+    # Step 1: request is cancelled while in flight
+    task = asyncio.create_task(protocol.send_and_receive(unit_id, pdu1))
+    await asyncio.sleep(0.01)
+    task.cancel()
+    with pytest.raises(asyncio.CancelledError):
+        await task
+
+    assert protocol._pending_request is None
+    assert protocol._timed_out_requests[unit_id] is pdu1
+
+    # Step 2: the delayed response is discarded and clears the tracking
+    delayed_frame = build_ascii_frame(unit_id, b"\x03\x02\x00\x55")
+    protocol.data_received(delayed_frame)
+    assert len(protocol._buffer) == 0
+    assert unit_id not in protocol._timed_out_requests
+
+    # Step 3: next request succeeds without stale interference
+    pdu2 = _DummyPDU()
+    response = build_ascii_frame(unit_id, b"\x03\x02\x00\x66")
+
+    async def deliver_response() -> None:
+        await asyncio.sleep(0.01)
+        protocol.data_received(response)
+
+    task2 = asyncio.create_task(protocol.send_and_receive(unit_id, pdu2))
+    deliv_task = asyncio.create_task(deliver_response())
+    result = await task2
+    await deliv_task
+
+    assert result == ("decoded", b"\x03\x02\x00\x66")
+
+
+async def test_corrupt_delayed_frame_keeps_timed_out_tracking(
+    mock_transport: MagicMock,
+) -> None:
+    """A corrupted (bad LRC) frame must not clear the tracking for the real delayed response."""
+    protocol = ModbusAsciiProtocol(on_connection_lost=lambda _: None, timeout=0.05)
+    protocol.connection_made(mock_transport)
+    protocol._last_frame_ended_at = time.monotonic() - 10
+
+    pdu = _DummyPDU()
+    unit_id = 1
+
+    with pytest.raises(TimeoutError):
+        await protocol.send_and_receive(unit_id, pdu)
+    assert protocol._timed_out_requests[unit_id] is pdu
+
+    good_frame = build_ascii_frame(unit_id, b"\x03\x02\x00\x55")
+    corrupt_frame = good_frame.replace(b"0055", b"0056")  # data changed, LRC now invalid
+
+    protocol.data_received(corrupt_frame)
+    assert protocol._timed_out_requests[unit_id] is pdu  # tracking kept
+
+    protocol.data_received(good_frame)
+    assert unit_id not in protocol._timed_out_requests
+
+
+async def test_corrupt_delayed_frame_during_active_request_keeps_tracking(
+    mock_transport: MagicMock,
+) -> None:
+    """A corrupted delayed frame during an active request keeps tracking and the active request alive."""
+    protocol = ModbusAsciiProtocol(on_connection_lost=lambda _: None, timeout=0.05)
+    protocol.connection_made(mock_transport)
+    protocol._last_frame_ended_at = time.monotonic() - 10
+
+    pdu1 = _DummyPDU()
+    pdu1.function_code = 0x03
+
+    pdu2 = _DummyPDU()
+    pdu2.function_code = 0x06
+
+    unit_id = 1
+
+    # Step 1: Request 1 (FC 0x03) times out
+    with pytest.raises(TimeoutError):
+        await protocol.send_and_receive(unit_id, pdu1)
+    assert protocol._timed_out_requests[unit_id] is pdu1
+
+    # Step 2: Request 2 (FC 0x06) is sent and active
+    good_delayed_1 = build_ascii_frame(unit_id, b"\x03\x02\xaa\xbb")
+    corrupt_delayed_1 = good_delayed_1.replace(b"AABB", b"AABC")  # data changed, LRC now invalid
+    real_frame_2 = build_ascii_frame(unit_id, b"\x06\x00\x01\x11\x22")
+
+    async def deliver_frames() -> None:
+        await asyncio.sleep(0.01)
+        # Corrupt delayed frame: discarded, tracking retained, active request unaffected
+        protocol.data_received(corrupt_delayed_1)
+        assert protocol._pending_request is not None
+        assert not protocol._pending_request.future.done()
+        assert protocol._timed_out_requests[unit_id] is pdu1
+
+        # Real delayed frame clears the tracking
+        protocol.data_received(good_delayed_1)
+        assert unit_id not in protocol._timed_out_requests
+        assert not protocol._pending_request.future.done()
+
+        # Deliver real response for request 2
+        await asyncio.sleep(0.01)
+        protocol.data_received(real_frame_2)
+
+    req2_task = asyncio.create_task(protocol.send_and_receive(unit_id, pdu2))
+    deliv_task = asyncio.create_task(deliver_frames())
+
+    result = await req2_task
+    await deliv_task
+
+    assert result == ("decoded", b"\x06\x00\x01\x11\x22")
+    assert len(protocol._buffer) == 0
+
+
+async def test_lrc_error_on_active_request_keeps_timed_out_tracking(
+    mock_transport: MagicMock,
+) -> None:
+    """An LRC failure on the active request's frame must not clear timed-out tracking."""
+    protocol = ModbusAsciiProtocol(on_connection_lost=lambda _: None, timeout=1.0)
+    protocol.connection_made(mock_transport)
+    protocol._last_frame_ended_at = time.monotonic() - 10
+
+    stale_pdu = _DummyPDU()
+    unit_id = 1
+    protocol._timed_out_requests[unit_id] = stale_pdu
+
+    pdu = _DummyPDU()
+    corrupt_frame = build_ascii_frame(unit_id, b"\x03\x02\x00\x55").replace(b"0055", b"0056")
+
+    async def deliver_corrupt() -> None:
+        await asyncio.sleep(0.01)
+        protocol.data_received(corrupt_frame)
+
+    task = asyncio.create_task(protocol.send_and_receive(unit_id, pdu))
+    deliv_task = asyncio.create_task(deliver_corrupt())
+    with pytest.raises(LRCError):
+        await task
+    await deliv_task
+
+    assert protocol._timed_out_requests[unit_id] is stale_pdu
+
+
+async def test_timeout_does_not_log_error(
+    mock_transport: MagicMock,
+    caplog: pytest.LogCaptureFixture,
+) -> None:
+    """A response timeout is routine: no ERROR-level logging, matching RTU."""
+    protocol = ModbusAsciiProtocol(on_connection_lost=lambda _: None, timeout=0.05)
+    protocol.connection_made(mock_transport)
+    protocol._last_frame_ended_at = time.monotonic() - 10
+
+    with (
+        caplog.at_level(logging.ERROR, logger="tmodbus.transport.async_ascii"),
+        pytest.raises(TimeoutError),
+    ):
+        await protocol.send_and_receive(1, _DummyPDU())
+
+    assert not caplog.records
