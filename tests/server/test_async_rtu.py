@@ -56,7 +56,7 @@ def patch_serial() -> Iterator[type[MockSerial]]:
         inst = MockSerial(url or "", baudrate=baudrate, **kwargs)
         return inst, inst
 
-    with patch("tmodbus.server.async_rtu.open_serial_connection", new=fake_open_serial_connection):
+    with patch("serialx.open_serial_connection", new=fake_open_serial_connection):
         yield MockSerial
 
 
