@@ -1868,3 +1868,112 @@ async def test_data_received_falls_back_to_pending_request_pdu_when_future_done(
     # When data_received processes this, it falls back to _pending_request.pdu and cleanly drains it
     protocol.data_received(response)
     assert len(protocol._buffer) == 0
+
+
+async def test_next_request_waits_interframe_delay_after_received_response(
+    mock_transport: MagicMock,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """A received response restarts the inter-frame silence clock for the next request."""
+    protocol = ModbusRtuProtocol(on_connection_lost=lambda _: None, interframe_delay=0.1)
+    protocol.connection_made(mock_transport)
+
+    pdu = _DummyPDU()
+    unit_id = 1
+    payload = bytes([unit_id, pdu.function_code, 0x05])
+    response_adu = payload + calculate_crc16(payload)
+
+    class DummyPduClass:
+        @staticmethod
+        def get_expected_response_data_length(_begin_bytes: bytes) -> int:
+            return 1
+
+    monkeypatch.setattr("tmodbus.transport.async_rtu.get_pdu_class", lambda _: DummyPduClass)
+    protocol._last_frame_ended_at = time.monotonic() - 10
+
+    async def simulate_response() -> None:
+        await asyncio.sleep(0.01)
+        protocol.data_received(response_adu)
+
+    task = asyncio.create_task(protocol.send_and_receive(unit_id, pdu))
+    resp_task = asyncio.create_task(simulate_response())
+    await task
+    await resp_task
+
+    # data_received stamped the end of the received frame (not the primed value)
+    response_received_at = protocol._last_frame_ended_at
+    assert time.monotonic() - response_received_at < 5
+
+    write_times: list[float] = []
+    request_written = asyncio.Event()
+
+    def record_write(_data: bytes) -> None:
+        write_times.append(time.monotonic())
+        request_written.set()
+
+    mock_transport.write.side_effect = record_write
+
+    async def simulate_second_response() -> None:
+        await request_written.wait()
+        protocol.data_received(response_adu)
+
+    task2 = asyncio.create_task(protocol.send_and_receive(unit_id, pdu))
+    resp2_task = asyncio.create_task(simulate_second_response())
+    await task2
+    await resp2_task
+
+    # The second request must wait out the inter-frame delay measured from the received response
+    assert write_times[0] - response_received_at >= 0.1 - 0.001
+
+
+async def test_cancelled_request_is_tracked_and_delayed_response_drained(
+    mock_transport: MagicMock,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """A cancelled in-flight request is tracked so its delayed response is drained cleanly."""
+    protocol = ModbusRtuProtocol(on_connection_lost=lambda _: None, timeout=1.0)
+    protocol.connection_made(mock_transport)
+
+    pdu1 = _DummyPDU()
+    unit_id = 1
+    delayed_payload = bytes([unit_id, pdu1.function_code, 0x05])
+    delayed_response = delayed_payload + calculate_crc16(delayed_payload)
+
+    class DummyPduClass:
+        @staticmethod
+        def get_expected_response_data_length(_begin_bytes: bytes) -> int:
+            return 1
+
+    monkeypatch.setattr("tmodbus.transport.async_rtu.get_pdu_class", lambda _: DummyPduClass)
+    protocol._last_frame_ended_at = time.monotonic() - 10
+
+    # Step 1: request is cancelled while in flight
+    task = asyncio.create_task(protocol.send_and_receive(unit_id, pdu1))
+    await asyncio.sleep(0.01)
+    task.cancel()
+    with pytest.raises(asyncio.CancelledError):
+        await task
+
+    assert protocol._pending_request is None
+    assert protocol._timed_out_requests[unit_id] is pdu1
+
+    # Step 2: the delayed response is framed and discarded cleanly
+    protocol.data_received(delayed_response)
+    assert len(protocol._buffer) == 0
+    assert unit_id not in protocol._timed_out_requests
+
+    # Step 3: next request succeeds without stale interference
+    pdu2 = _DummyPDU()
+    new_payload = bytes([unit_id, pdu2.function_code, 0x09])
+    new_response = new_payload + calculate_crc16(new_payload)
+
+    async def simulate_new_response() -> None:
+        await asyncio.sleep(0.01)
+        protocol.data_received(new_response)
+
+    task2 = asyncio.create_task(protocol.send_and_receive(unit_id, pdu2))
+    resp_task = asyncio.create_task(simulate_new_response())
+    result = await task2
+    await resp_task
+
+    assert result == ("decoded", b"\x03\x09")
