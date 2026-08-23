@@ -83,6 +83,9 @@ class AsyncRtuServer(AsyncBaseServer):
 
     async def start(self) -> None:
         """Start the server using serialx's async connection."""
+        if self._running:
+            return
+
         reader, writer = await open_serial_connection(url=self.port, baudrate=self.baudrate, **self.serial_kwargs)
         self._reader = reader
         self._writer = writer
@@ -254,10 +257,13 @@ class AsyncRtuServer(AsyncBaseServer):
         try:
             while self._running and self._reader:
                 try:
-                    # Read at least 1 byte
-                    data = await self._reader.read(1)
+                    # Read whatever is available (at least 1 byte)
+                    data = await self._reader.read(256)
                     if not data:
-                        continue
+                        # EOF: the serial stream is gone (e.g. USB adapter unplugged)
+                        logger.warning("Serial stream EOF on %s; stopping RTU server loop", self.port)
+                        self._running = False
+                        break
                     # Record time for each received byte to observe actual bus activity
                     self._last_recv_time = asyncio.get_running_loop().time()
                     buffer.extend(data)
