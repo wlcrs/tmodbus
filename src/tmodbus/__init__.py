@@ -108,10 +108,9 @@ def create_async_rtu_client(  # noqa: PLR0913
     """Create an asynchronous RTU Modbus client with automatic reconnect and request retry functionality.
 
     Args:
-        port: The port number of the Modbus server (default is 502).
+        port: Target serial port (e.g., '/dev/ttyUSB0')
         unit_id: The unit ID to use for requests.
         timeout: Timeout in seconds, default 10.0s
-        connect_timeout: Timeout for establishing connection, default 10.0s
         wait_between_requests: Wait time between requests in seconds (default: 0.0s)
         wait_after_connect: Wait time after connection establishment in seconds (default: 0.0s)
         auto_reconnect: Whether to automatically reconnect on connection loss (default: True).
@@ -127,7 +126,7 @@ def create_async_rtu_client(  # noqa: PLR0913
         serialx_options: Additional connection parameters passed to `serialx`
 
     Returns:
-        An instance of AsyncModbusClient configured for TCP transport.
+        An instance of AsyncModbusClient configured for RTU transport.
 
     """
     smart_transport = AsyncSmartTransport(
@@ -166,10 +165,9 @@ def create_async_ascii_client(  # noqa: PLR0913
     """Create an asynchronous ASCII Modbus client with automatic reconnect and request retry functionality.
 
     Args:
-        port: The port number of the Modbus server (default is 502).
+        port: Target serial port (e.g., '/dev/ttyUSB0')
         unit_id: The unit ID to use for requests.
         timeout: Timeout in seconds, default 10.0s
-        connect_timeout: Timeout for establishing connection, default 10.0s
         wait_between_requests: Wait time between requests in seconds (default: 0.0s)
         wait_after_connect: Wait time after connection establishment in seconds (default: 0.0s)
         auto_reconnect: Whether to automatically reconnect on connection loss (default: True).
@@ -185,7 +183,7 @@ def create_async_ascii_client(  # noqa: PLR0913
         serialx_options: Additional connection parameters passed to `serialx`
 
     Returns:
-        An instance of AsyncModbusClient configured for TCP transport.
+        An instance of AsyncModbusClient configured for ASCII transport.
 
     """
     smart_transport = AsyncSmartTransport(

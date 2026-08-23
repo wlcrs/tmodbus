@@ -25,7 +25,7 @@ The library consists of the following layers:
 
     classDiagram
         class AsyncModbusClient {
-           transport : AsyncModbusTransport
+           transport : AsyncBaseTransport
            unit_id : int
 
            +connect()
@@ -72,7 +72,7 @@ Transport layer
 ===============
 
 The transport layer is implemented in the :mod:`tmodbus.transport` module. It provides
-the :class:`tmodbus.transport.AsyncModbusTransport` base class, which defines the
+the :class:`tmodbus.transport.AsyncBaseTransport` base class, which defines the
 interface for transport implementations.
 
 The specific transport protocols are implemented in the following classes:

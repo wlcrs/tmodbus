@@ -12,6 +12,7 @@ The following server classes are available:
 - :class:`~tmodbus.server.AsyncRtuServer`: Modbus RTU Server (over serial).
 - :class:`~tmodbus.server.AsyncAsciiServer`: Modbus ASCII Server (over serial).
 - :class:`~tmodbus.server.AsyncRtuOverTcpServer`: Modbus RTU over TCP Server.
+- :class:`~tmodbus.server.AsyncUdpServer`: Modbus UDP Server.
 
 *********************************************
  Recommended Dispatcher: ModbusRequestRouter
