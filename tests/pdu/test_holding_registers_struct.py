@@ -66,6 +66,17 @@ class TestHoldingRegisterReadMixin:
         assert isinstance(result, tuple)
         assert len(result) == 1
 
+    async def test_read_struct_format_keeps_user_order_aware_struct(self) -> None:
+        """Test that a user-provided OrderAwareStruct keeps its own orders."""
+        client = MockClient(word_order="big")
+        # Word-swapped (CDAB) response for 0x0A0B0C0D
+        client.execute.return_value = b"\x0c\x0d\x0a\x0b"
+
+        format_struct = OrderAwareStruct(">I", word_order="little")
+        result = await client.read_struct_format(100, format_struct=format_struct)
+
+        assert result == (0x0A0B0C0D,)
+
     @pytest.mark.parametrize("word_order", ["big", "little"])
     async def test_read_struct_format_input_register(self, word_order: Literal["big", "little"]) -> None:
         """Test read_struct_format with input registers."""
@@ -200,6 +211,23 @@ class TestHoldingRegisterReadMixin:
 
         assert abs(result - 1.0) < 0.0001  # Float comparison with tolerance
 
+    @pytest.mark.parametrize("word_order", ["big", "little"])
+    async def test_read_double(self, word_order: Literal["big", "little"]) -> None:
+        """Test read_double with both word orders."""
+        client = MockClient(word_order=word_order)
+        # Encode 1.0 as double and apply word order
+
+        double_bytes = struct.pack(">d", 1.0)
+        if word_order == "little":
+            # Swap register order for little endian
+            double_bytes = double_bytes[6:8] + double_bytes[4:6] + double_bytes[2:4] + double_bytes[0:2]
+
+        client.execute.return_value = double_bytes
+
+        result = await client.read_double(100)
+
+        assert abs(result - 1.0) < 0.0001  # Float comparison with tolerance
+
     @pytest.mark.parametrize(
         ("word_order", "response"),
         [
@@ -266,6 +294,18 @@ class TestHoldingRegisterWriteMixin:
         pdu = client.execute.call_args[0][0]
         assert pdu.start_address == 100
         assert len(pdu.content) == 4  # 4 bytes for uint32
+
+    async def test_write_struct_format_keeps_user_order_aware_struct(self) -> None:
+        """Test that a user-provided OrderAwareStruct keeps its own orders."""
+        client = MockClient(word_order="big")
+        client.execute.return_value = 2
+
+        format_struct = OrderAwareStruct(">I", word_order="little")
+        await client.write_struct_format(100, (0x0A0B0C0D,), format_struct=format_struct)
+
+        pdu = client.execute.call_args[0][0]
+        # Word-swapped (CDAB) content for 0x0A0B0C0D
+        assert pdu.content == b"\x0c\x0d\x0a\x0b"
 
     @pytest.mark.parametrize("word_order", ["big", "little"])
     async def test_write_simple_struct_format(self, word_order: Literal["big", "little"]) -> None:

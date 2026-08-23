@@ -230,7 +230,7 @@ class AsyncModbusClient(HoldingRegisterReadMixin, HoldingRegisterWriteMixin):
         self,
         address: int,
         value: bool,  # noqa: FBT001
-    ) -> int:
+    ) -> bool:
         """Write Single Coil (Function Code 0x05).
 
         Args:
@@ -239,7 +239,7 @@ class AsyncModbusClient(HoldingRegisterReadMixin, HoldingRegisterWriteMixin):
 
 
         Returns:
-            The value that was written
+            The coil state echoed by the device (True for ON, False for OFF)
 
         Example:
             .. code-block:: python

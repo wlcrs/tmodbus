@@ -24,8 +24,8 @@ class AsyncUdpServer(AsyncBaseServer):
         self,
         host: str,
         handler: AnyModbusHandler,
-        port: int = 502,
         *,
+        port: int = 502,
         unregistered_unit_id_exception_code: int = ExceptionCode.GATEWAY_TARGET_DEVICE_FAILED_TO_RESPOND,
         **server_kwargs: Any,
     ) -> None:
@@ -33,8 +33,8 @@ class AsyncUdpServer(AsyncBaseServer):
 
         Args:
             host: Interface to bind to
-            port: Port to listen on (default: 502)
             handler: User-defined async handler for processing requests
+            port: Port to listen on (default: 502)
             unregistered_unit_id_exception_code: Exception code returned when a request is received
                 for a Unit ID that is not registered in the handler (default: 0x0B).
             server_kwargs: Additional arguments for `asyncio.loop.create_datagram_endpoint`

@@ -266,7 +266,7 @@ class WriteMultipleCoilsPDU(BasePDU[int]):
             msg = "Address must be between 0 and 65535."
             raise ValueError(msg)
 
-        self.address = start_address
+        self.start_address = start_address
         if not (1 <= len(values) <= 0x07B0):  # 1968 coils max
             msg = "Number of coils must be between 1 and 1968."
             raise ValueError(msg)
@@ -293,7 +293,7 @@ class WriteMultipleCoilsPDU(BasePDU[int]):
             struct.pack(
                 ">BHHB",
                 self.function_code,
-                self.address,
+                self.start_address,
                 len(self.values),
                 byte_count,
             )
@@ -315,7 +315,7 @@ class WriteMultipleCoilsPDU(BasePDU[int]):
         expected_response = struct.pack(
             ">BHH",
             self.function_code,
-            self.address,
+            self.start_address,
             len(self.values),
         )
 
@@ -388,7 +388,7 @@ class WriteMultipleCoilsPDU(BasePDU[int]):
         return struct.pack(
             ">BHH",
             self.function_code,
-            self.address,
+            self.start_address,
             value,
         )
 

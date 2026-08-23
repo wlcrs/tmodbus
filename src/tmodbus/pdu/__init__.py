@@ -163,5 +163,8 @@ __all__ = [
     "WriteMultipleRegistersPDU",
     "WriteSingleCoilPDU",
     "WriteSingleRegisterPDU",
+    "get_pdu_class",
+    "get_subfunction_pdu_class",
+    "is_function_code_for_subfunction_pdu",
     "register_pdu_class",
 ]
