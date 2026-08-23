@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import asyncio
+import contextlib
 import datetime
 import ipaddress
 import ssl
@@ -86,6 +87,7 @@ def _make_end_cert(  # noqa: PLR0913, PLR0917
     cn: str,
     role: str | None = None,
     ips: list[str] | None = None,
+    raw_role_values: list[bytes] | None = None,
 ) -> x509.Certificate:
     """Create a CA-signed end-entity certificate, optionally with a Modbus role extension."""
     name = x509.Name(
@@ -121,6 +123,21 @@ def _make_end_cert(  # noqa: PLR0913, PLR0917
             critical=False,
         )
 
+    if raw_role_values:
+        # CertificateBuilder rejects duplicate extensions; inject them directly
+        # to simulate a non-compliant client certificate. (R-65)
+        builder._extensions = [
+            *builder._extensions,
+            *(
+                x509.Extension(
+                    oid=_MODBUS_OID,
+                    critical=False,
+                    value=x509.UnrecognizedExtension(_MODBUS_OID, value),
+                )
+                for value in raw_role_values
+            ),
+        ]
+
     return builder.sign(ca_key, hashes.SHA256())
 
 
@@ -155,6 +172,20 @@ def pki(tmp_path_factory: pytest.TempPathFactory) -> dict[str, Path]:
     client_key = _make_key()
     client_cert_with_role = _make_end_cert(client_key, ca_cert, ca_key, "TestClient", role="Operator")
     client_cert_no_role = _make_end_cert(client_key, ca_cert, ca_key, "TestClientNoRole")
+    client_cert_dup_role = _make_end_cert(
+        client_key,
+        ca_cert,
+        ca_key,
+        "TestClientDupRole",
+        raw_role_values=[b"\x0c\x08Operator", b"\x0c\x08Observer"],
+    )
+    client_cert_bad_role = _make_end_cert(
+        client_key,
+        ca_cert,
+        ca_key,
+        "TestClientBadRole",
+        raw_role_values=[b"\x02\x01\x01"],  # INTEGER, not a UTF8String
+    )
 
     files: dict[str, Path] = {
         "ca_cert": tmp / "ca.crt",
@@ -162,6 +193,8 @@ def pki(tmp_path_factory: pytest.TempPathFactory) -> dict[str, Path]:
         "server_key": tmp / "server.key",
         "client_cert_with_role": tmp / "client_role.crt",
         "client_cert_no_role": tmp / "client_norole.crt",
+        "client_cert_dup_role": tmp / "client_duprole.crt",
+        "client_cert_bad_role": tmp / "client_badrole.crt",
         "client_key": tmp / "client.key",
     }
     files["ca_cert"].write_bytes(_cert_to_pem(ca_cert))
@@ -169,6 +202,8 @@ def pki(tmp_path_factory: pytest.TempPathFactory) -> dict[str, Path]:
     files["server_key"].write_bytes(_key_to_pem(server_key))
     files["client_cert_with_role"].write_bytes(_cert_to_pem(client_cert_with_role))
     files["client_cert_no_role"].write_bytes(_cert_to_pem(client_cert_no_role))
+    files["client_cert_dup_role"].write_bytes(_cert_to_pem(client_cert_dup_role))
+    files["client_cert_bad_role"].write_bytes(_cert_to_pem(client_cert_bad_role))
     files["client_key"].write_bytes(_key_to_pem(client_key))
 
     return files
@@ -435,6 +470,72 @@ async def test_tls_server_cert_no_role(
     assert extract_modbus_role(client_cert) is None
 
 
+async def test_tls_server_cert_duplicate_role_uses_first(
+    tls_server_with_rbac: tuple[AsyncTcpServer, list[RequestContext | None]],
+    pki: dict[str, Path],
+) -> None:
+    """Cert with duplicate role extensions is served; the first occurrence is used (R-65)."""
+    server, captured = tls_server_with_rbac
+
+    resp = await _send_read_holding_registers(
+        _port(server),
+        _make_client_ssl_ctx(pki, cert_key="client_cert_dup_role"),
+    )
+    assert resp == b"\x03\x02\x12\x34"
+
+    assert len(captured) == 1
+    context = captured[0]
+    assert context is not None
+    client_cert = context.client_cert
+    assert client_cert is not None
+    assert extract_modbus_role(client_cert) == "Operator"
+
+
+async def test_tls_server_cert_malformed_role_handled(
+    tls_server_with_rbac: tuple[AsyncTcpServer, list[RequestContext | None]],
+    pki: dict[str, Path],
+) -> None:
+    """Cert with a malformed DER role value is served with role=None, no unhandled exception."""
+    server, captured = tls_server_with_rbac
+
+    resp = await _send_read_holding_registers(
+        _port(server),
+        _make_client_ssl_ctx(pki, cert_key="client_cert_bad_role"),
+    )
+    assert resp == b"\x03\x02\x12\x34"
+
+    assert len(captured) == 1
+    context = captured[0]
+    assert context is not None
+    client_cert = context.client_cert
+    assert client_cert is not None
+    assert extract_modbus_role(client_cert) is None
+
+
+async def test_tls_server_cert_processing_failure_closes_connection(
+    tls_server: AsyncTcpServer,
+    pki: dict[str, Path],
+) -> None:
+    """An unexpected cert processing error closes the connection instead of leaking the socket."""
+    with patch(
+        "tmodbus.server.async_tcp.extract_modbus_role",
+        side_effect=ValueError("boom"),
+    ):
+        reader, writer = await asyncio.open_connection(
+            "127.0.0.1",
+            _port(tls_server),
+            ssl=_make_client_ssl_ctx(pki),
+        )
+        try:
+            # Server must close the connection without a response.
+            data = await asyncio.wait_for(reader.read(1), timeout=5)
+            assert data == b""
+        finally:
+            writer.close()
+            with contextlib.suppress(Exception):
+                await writer.wait_closed()
+
+
 async def test_tls_server_rbac_reject(pki: dict[str, Path]) -> None:
     """Handler raises IllegalFunctionError when role is unauthorized (R-31)."""
     router = ModbusRequestRouter()
@@ -665,14 +766,19 @@ async def test_extract_modbus_role_not_found() -> None:
 
 
 async def test_extract_modbus_role_malformed_asn1() -> None:
-    """extract_modbus_role propagates ValueError when the OID extension is malformed."""
+    """extract_modbus_role returns None when the OID extension value is malformed."""
     mock_cert = MagicMock(spec=x509.Certificate)
     mock_ext = MagicMock()
     mock_ext.value.value = b"\x02\x01\x01"  # non-string tag to trigger ValueError in decode_der
     mock_cert.extensions.get_extension_for_oid.return_value = mock_ext
 
-    with pytest.raises(ValueError, match="error parsing asn1 value"):
-        extract_modbus_role(mock_cert)
+    assert extract_modbus_role(mock_cert) is None
+
+
+async def test_extract_modbus_role_duplicate_extension_uses_first(pki: dict[str, Path]) -> None:
+    """extract_modbus_role uses the first occurrence when the role OID is duplicated (R-65)."""
+    cert = x509.load_pem_x509_certificate(pki["client_cert_dup_role"].read_bytes())
+    assert extract_modbus_role(cert) == "Operator"
 
 
 async def test_extract_modbus_role_cryptography_missing() -> None:
