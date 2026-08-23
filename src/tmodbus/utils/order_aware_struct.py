@@ -50,6 +50,7 @@ Example:
 
 import re
 import struct
+from collections.abc import Iterator
 from typing import TYPE_CHECKING, Any, Literal
 
 if TYPE_CHECKING:
@@ -103,13 +104,33 @@ class OrderAwareStruct(struct.Struct):
         # Parse value lengths if we need to do any byte reordering
         # Only need transformation if not standard ABCD (word_order="big", byte_order="big")
         if word_order != "big" or byte_order != "big":
+            if not format or format[0] not in "<>!=":
+                # Native alignment would make the parsed value lengths disagree with the
+                # actual field layout, silently skipping the reordering.
+                msg = "word/byte reordering requires an explicit byte-order prefix ('<', '>', '!' or '=')"
+                raise ValueError(msg)
+
             self._value_lengths = OrderAwareStruct.parse_format_lengths(format)
+
+            # Reordering is applied per value, so every multi-byte value must map onto
+            # whole 16-bit registers. Otherwise the swap would smear bytes across values.
+            offset = 0
+            for length in self._value_lengths:
+                if length > 1 and (offset % 2 != 0 or length % 2 != 0):
+                    msg = (
+                        f"format {format!r} has a {length}-byte value at byte offset {offset}: "
+                        "multi-byte values must align to whole registers to apply word/byte reordering"
+                    )
+                    raise ValueError(msg)
+                offset += length
 
     @staticmethod
     def parse_format_lengths(format_str: str) -> list[int]:
         """Parse a struct format string and return a list of value lengths in bytes."""
-        # Remove byte order character if present
+        # Keep the byte order character: it selects standard vs native sizes
+        prefix = ""
         if format_str and format_str[0] in "@=<>!":
+            prefix = format_str[0]
             format_str = format_str[1:]
 
         # Regex to match format tokens (e.g., '2H', 'f', '10s')
@@ -121,44 +142,31 @@ class OrderAwareStruct(struct.Struct):
                 # 's' and 'p' are special cases: their count indicates the total size in bytes
                 lengths.append(count)
             else:
-                size = struct.calcsize(code)
+                size = struct.calcsize(prefix + code)
                 lengths.extend([size] * count)
 
         return lengths
 
     def _swap_word_order(self, data: "ReadableBuffer") -> bytes:
-        """Swap the word/byte order of the data based on word_order and byte_order settings."""
+        """Swap the word/byte order of each multi-register value based on the settings."""
         if not self._value_lengths:
             # ABCD byte order (standard), no need to swap
             return bytes(data)
 
-        # Apply byte order transformations
+        # Apply byte order transformation per value; single-register and sub-register
+        # values are never reordered. The constructor guarantees every multi-byte value
+        # is register-aligned.
         start_idx = 0
         swapped_data = bytearray(data)
 
-        current_length = 0
-
         for length in self._value_lengths:
-            current_length += length
-            if current_length % 2 != 0:
-                # we need an even number of bytes to swap registers
-                continue
-
-            if current_length == BYTES_PER_REGISTER:
-                # nothing to swap for single-register values
-                start_idx += current_length
-                current_length = 0
-                continue
-
-            # Apply byte order transformation for multi-register values
-            swapped_data[start_idx : start_idx + current_length] = self._apply_byte_order(
-                swapped_data[start_idx : start_idx + current_length],
-                word_order=self.word_order,
-                byte_order=self.byte_order,
-            )
-
-            start_idx += current_length
-            current_length = 0
+            if length > BYTES_PER_REGISTER:
+                swapped_data[start_idx : start_idx + length] = self._apply_byte_order(
+                    swapped_data[start_idx : start_idx + length],
+                    word_order=self.word_order,
+                    byte_order=self.byte_order,
+                )
+            start_idx += length
 
         return bytes(swapped_data)
 
@@ -233,11 +241,39 @@ class OrderAwareStruct(struct.Struct):
         region = memoryview(buffer)[offset : offset + self.size]
         return super().unpack(self._swap_word_order(region))
 
+    def iter_unpack(self, buffer: "ReadableBuffer") -> Iterator[tuple[Any, ...]]:
+        """Unpack each struct-sized chunk of buffer with word order consideration."""
+        if not self._value_lengths:
+            return super().iter_unpack(buffer)
+
+        view = memoryview(buffer)
+        if len(view) % self.size != 0:
+            msg = f"iterative unpacking requires a buffer of a multiple of {self.size} bytes"
+            raise struct.error(msg)
+
+        return (self.unpack(view[i : i + self.size]) for i in range(0, len(view), self.size))
+
     def pack(self, *args: Any) -> bytes:
         """Pack values into bytes with word order consideration."""
         return self._swap_word_order(super().pack(*args))
 
     def pack_into(self, buffer: "WriteableBuffer", offset: int, *args: Any) -> None:
         """Pack values into buffer with word order consideration."""
-        packed_data = self._swap_word_order(super().pack(*args))
-        buffer[offset : offset + len(packed_data)] = packed_data  # type: ignore[index]
+        view = memoryview(buffer)
+        # Mirror struct.Struct.pack_into: bounds-check instead of resizing the buffer,
+        # and resolve negative offsets from the buffer end.
+        if offset < 0:
+            if offset + self.size > 0:
+                msg = f"no space to pack {self.size} bytes at offset {offset}"
+                raise struct.error(msg)
+
+            if offset + len(view) < 0:
+                msg = f"offset {offset} out of range for {len(view)}-byte buffer"
+                raise struct.error(msg)
+
+            offset += len(view)
+        elif offset + self.size > len(view):
+            msg = f"pack_into requires a buffer of at least {offset + self.size} bytes for packing {self.size} bytes at offset {offset} (actual buffer size is {len(view)})"  # noqa: E501
+            raise struct.error(msg)
+
+        view[offset : offset + self.size] = self._swap_word_order(super().pack(*args))
