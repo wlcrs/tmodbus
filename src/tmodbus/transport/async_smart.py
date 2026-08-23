@@ -344,7 +344,7 @@ class AsyncSmartTransport(AsyncBaseTransport):
                 )
 
                 msg = (
-                    f"Failed to get a valid response after {attempt.retry_state.attempt_number} attempts"
+                    f"Failed to get a valid response after {attempt.retry_state.attempt_number} attempts "
                     f"over {attempt.retry_state.seconds_since_start} seconds. Last error: {underlying_error_text}"
                 )
 

@@ -56,7 +56,7 @@ The response PDU has the following format:
       - Challenge (16)
     - - 0x41
       - 0x24
-      - 0x11
+      - 0x10
       - <16 bytes>
 
 Example code:
@@ -83,7 +83,7 @@ To use your custom PDU, you can create an instance of it and pass it to the
 
 
     async def main():
-        async with create_async_tcp_client(host="localhost", port=502) as client:
+        async with create_async_tcp_client(host="localhost", port=502, unit_id=1) as client:
             pdu = LoginRequestChallengePDU()
             response: LoginChallenge = await client.execute(pdu)
             print(f"Received challenge: {response.challenge.hex()}")

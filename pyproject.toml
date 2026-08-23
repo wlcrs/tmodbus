@@ -34,7 +34,7 @@ dependencies = [
 
 [project.urls]
 HomePage = "https://github.com/wlcrs/tmodbus"
-Documentation = "https://tmodbus.readthedocs.org"
+Documentation = "https://tmodbus.readthedocs.io"
 Repository = "https://github.com/wlcrs/tmodbus"
 Issues = "https://github.com/wlcrs/tmodbus/issues"
 Changelog = "https://github.com/wlcrs/tmodbus/releases"

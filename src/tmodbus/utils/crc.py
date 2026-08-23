@@ -1,4 +1,4 @@
-"""ModbusLink CRC16 Checksum Utility Module.
+"""tModbus CRC16 Checksum Utility Module.
 
 Provides CRC16 checksum functionality required by Modbus RTU protocol.
 
