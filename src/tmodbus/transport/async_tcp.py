@@ -11,6 +11,7 @@ from dataclasses import dataclass
 from functools import partial
 from typing import Any, TypeVar
 
+from tmodbus.const import EXCEPTION_RESPONSE_BIT, FUNCTION_CODE_MASK
 from tmodbus.exceptions import (
     HeaderMismatchError,
     ModbusConnectionError,
@@ -283,8 +284,8 @@ class ModbusTcpProtocol(asyncio.Protocol):
             raise HeaderMismatchError(msg, response_bytes=response.bytes)
 
         # 8.Check if it's an exception response
-        if len(response.pdu_bytes) > 0 and response.pdu_bytes[0] & 0x80:  # Exception response
-            function_code = response.pdu_bytes[0] & 0x7F  # Remove exception flag bit
+        if len(response.pdu_bytes) > 0 and response.pdu_bytes[0] & EXCEPTION_RESPONSE_BIT:  # Exception response
+            function_code = response.pdu_bytes[0] & FUNCTION_CODE_MASK  # Remove exception flag bit
             exception_code = response.pdu_bytes[1] if len(response.pdu_bytes) > 1 else 0
 
             if exception_code in error_code_to_exception_map:

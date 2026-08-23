@@ -6,7 +6,7 @@ import logging
 from functools import partial
 from typing import Any, Literal
 
-from tmodbus.const import BROADCAST_UNIT_ID, ExceptionCode
+from tmodbus.const import BROADCAST_UNIT_ID, EXCEPTION_RESPONSE_BIT, ExceptionCode
 from tmodbus.exceptions import InvalidRequestError
 from tmodbus.utils.crc import calculate_crc16, validate_crc16
 from tmodbus.utils.raw_traffic_logger import format_bytes
@@ -142,7 +142,9 @@ class AsyncRtuOverTcpServer(AsyncBaseServer):
 
         if not handler_supports_unit_id(self.handler, unit_id):
             logger.warning("Request for unregistered unit ID %d from %s", unit_id, addr)
-            response_pdu_bytes = bytes([function_code | 0x80, self.unregistered_unit_id_exception_code])
+            response_pdu_bytes = bytes(
+                [function_code | EXCEPTION_RESPONSE_BIT, self.unregistered_unit_id_exception_code]
+            )
             is_error = True
         else:
             try:
@@ -151,7 +153,7 @@ class AsyncRtuOverTcpServer(AsyncBaseServer):
                 request_pdu = pdu_class.decode_request(pdu_bytes)
             except (ValueError, InvalidRequestError) as e:
                 logger.warning("Invalid request from %s: %s", addr, e)
-                response_pdu_bytes = bytes([function_code | 0x80, 0x01])
+                response_pdu_bytes = bytes([function_code | EXCEPTION_RESPONSE_BIT, 0x01])
                 is_error = True
             else:
                 response_pdu_bytes = await handle_modbus_request(unit_id, request_pdu, self.handler)
