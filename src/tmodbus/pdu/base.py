@@ -57,6 +57,8 @@ class BaseClientPDU[RT](ABC):
         # otherwise, we assume that the first byte of the PDU-part of the response denotes
         # the total length of the PDU.
         # If this is not the case (ex. for function code 0x18), the subclass should override this method.
+        if not data:
+            return None  # length byte not received yet
         return (
             1  # the first byte containing the total length of the PDU
             + data[0]
@@ -88,14 +90,14 @@ class BasePDU[RT](BaseClientPDU[RT]):
         """
 
     @classmethod
-    def get_expected_request_data_length(cls, data: bytes) -> int:
+    def get_expected_request_data_length(cls, data: bytes) -> int | None:
         """Get the expected number of bytes for the data part of the request PDU.
 
         This method should be implemented by subclasses to return the expected
         length of the request based on the specific PDU type.
 
         Returns:
-            Expected length of the request PDU in bytes
+            Expected length of the request PDU in bytes, or None if it cannot be determined yet.
 
         """
         # if a fixed length is defined for the request PDU, return it
@@ -105,6 +107,8 @@ class BasePDU[RT](BaseClientPDU[RT]):
         # otherwise, we assume that the first byte of the PDU-part of the response denotes
         # the total length of the PDU.
         # If this is not the case (ex. for function code 0x18), the subclass should override this method.
+        if not data:
+            return None  # length byte not received yet
         return (
             1  # the first byte containing the total length of the PDU
             + data[0]

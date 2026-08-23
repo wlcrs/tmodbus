@@ -122,6 +122,9 @@ class AsyncRtuOverTcpServer(AsyncBaseServer):
         else:
             return None
 
+        if expected_data_len is None:
+            return None
+
         expected_total_len = 1 + 1 + expected_data_len + 2  # unit_id + fc + data + crc
         if expected_total_len > MAX_RTU_FRAME_SIZE:
             msg = f"Expected frame size too large: {expected_total_len}"

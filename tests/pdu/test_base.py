@@ -45,6 +45,21 @@ class TestBaseClientPDU:
         # First byte is 0x05 (5), so expected length is 1 + 5 = 6
         assert TestPDU.get_expected_response_data_length(b"\x05") == 6
 
+    def test_get_expected_response_data_length_without_data(self) -> None:
+        """Test get_expected_response_data_length returns None when the length byte is missing."""
+
+        class TestPDU(BaseClientPDU[int]):
+            function_code = 0x01
+
+            def encode_request(self) -> bytes:
+                return b""
+
+            def decode_response(self, _response: bytes) -> int:
+                return 0
+
+        # The length byte has not been received yet, so the length cannot be determined
+        assert TestPDU.get_expected_response_data_length(b"") is None
+
 
 class TestBasePDU:
     """Tests for BasePDU."""
@@ -138,6 +153,28 @@ class TestBasePDU:
         assert TestPDU.get_expected_request_data_length(b"\x0a") == 11
         # First byte is 0x03 (3), so expected length is 1 + 3 = 4
         assert TestPDU.get_expected_request_data_length(b"\x03") == 4
+
+    def test_get_expected_request_data_length_without_data(self) -> None:
+        """Test get_expected_request_data_length returns None when the length byte is missing."""
+
+        class TestPDU(BasePDU[int]):
+            function_code = 0x01
+
+            def encode_request(self) -> bytes:
+                return b""
+
+            def decode_response(self, _response: bytes) -> int:
+                return 0
+
+            @classmethod
+            def decode_request(cls, _request: bytes) -> "TestPDU":
+                return cls()
+
+            def encode_response(self, _value: int) -> bytes:
+                return b""
+
+        # The length byte has not been received yet, so the length cannot be determined
+        assert TestPDU.get_expected_request_data_length(b"") is None
 
 
 class TestBaseSubFunctionClientPDU:
