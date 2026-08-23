@@ -195,7 +195,7 @@ class ModbusAsciiProtocol(asyncio.Protocol):
                 self._last_frame_ended_at = time.monotonic()
                 return broadcast_response
 
-            read_future: asyncio.Future[_ModbusAsciiMessage] = asyncio.get_event_loop().create_future()
+            read_future: asyncio.Future[_ModbusAsciiMessage] = asyncio.get_running_loop().create_future()
             self._pending_request = _PendingRequest(unit_id=unit_id, future=read_future, pdu=pdu)
 
             self.transport.write(request_adu)
