@@ -166,7 +166,7 @@ class ReadHoldingRegistersPDU(BasePDU[list[int]]):
         """
         response_bytes = self.raw_pdu.decode_response(response)
 
-        return [*struct.unpack(f">{'H' * (len(response_bytes) // 2)}", response_bytes)]
+        return [*struct.unpack(f">{len(response_bytes) // 2}H", response_bytes)]
 
     @classmethod
     def decode_request(cls, request: bytes) -> Self:
@@ -204,7 +204,7 @@ class ReadHoldingRegistersPDU(BasePDU[list[int]]):
             Bytes representation of the Read Holding Registers response PDU.
 
         """
-        data = struct.pack(f">{'H' * len(value)}", *value)
+        data = struct.pack(f">{len(value)}H", *value)
         return struct.pack(">BB", self.function_code, len(data)) + data
 
 
@@ -515,7 +515,7 @@ class WriteMultipleRegistersPDU(BasePDU[int]):
 
         self.values = values
 
-        self.raw_pdu = RawWriteMultipleRegistersPDU(start_address, struct.pack(f">{'H' * len(values)}", *values))
+        self.raw_pdu = RawWriteMultipleRegistersPDU(start_address, struct.pack(f">{len(values)}H", *values))
 
     def encode_request(self) -> bytes:
         """Convert PDU to bytes.
@@ -558,7 +558,7 @@ class WriteMultipleRegistersPDU(BasePDU[int]):
         """
         raw = RawWriteMultipleRegistersPDU.decode_request(request)
         # Convert content bytes to list of ints
-        values = list(struct.unpack(f">{'H' * (len(raw.content) // 2)}", raw.content))
+        values = list(struct.unpack(f">{len(raw.content) // 2}H", raw.content))
         try:
             return cls(raw.start_address, values)
         except ValueError as e:
@@ -764,7 +764,7 @@ class ReadWriteMultipleRegistersPDU(BasePDU[list[int]]):
 
         """
         write_byte_count = len(self.write_values) * 2
-        write_data = struct.pack(f">{'H' * len(self.write_values)}", *self.write_values)
+        write_data = struct.pack(f">{len(self.write_values)}H", *self.write_values)
 
         return (
             self.REQUEST_HEADER_STRUCT.pack(
@@ -812,7 +812,7 @@ class ReadWriteMultipleRegistersPDU(BasePDU[list[int]]):
             raise InvalidResponseError(msg, response_bytes=response)
 
         response_bytes = response[2:]  # Extract the data part of the response
-        return [*struct.unpack(f">{'H' * (len(response_bytes) // 2)}", response_bytes)]
+        return [*struct.unpack(f">{len(response_bytes) // 2}H", response_bytes)]
 
     @classmethod
     def decode_request(cls, request: bytes) -> Self:
@@ -855,7 +855,7 @@ class ReadWriteMultipleRegistersPDU(BasePDU[list[int]]):
             msg = f"Invalid data length: expected {write_byte_count}, got {len(content)}"
             raise InvalidRequestError(msg, request_bytes=request)
 
-        write_values = list(struct.unpack(f">{'H' * (write_quantity)}", content))
+        write_values = list(struct.unpack(f">{write_quantity}H", content))
         try:
             return cls(
                 read_start_address=read_start_address,
@@ -885,4 +885,4 @@ class ReadWriteMultipleRegistersPDU(BasePDU[list[int]]):
                 msg = f"Invalid read value {val} on index {idx}: must be between 0 and 65535"
                 raise ValueError(msg)
 
-        return struct.pack(f">BB{'H' * len(value)}", self.function_code, len(value) * 2, *value)
+        return struct.pack(f">BB{len(value)}H", self.function_code, len(value) * 2, *value)
