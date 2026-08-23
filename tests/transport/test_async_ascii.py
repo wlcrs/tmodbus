@@ -23,7 +23,7 @@ from tmodbus.transport.async_ascii import (
     MAX_ASCII_FRAME_SIZE,
     AsyncAsciiTransport,
     ModbusAsciiProtocol,
-    _ModbusAsciiMessage,
+    _PendingRequest,
     ascii_decode,
     ascii_encode,
     build_ascii_frame,
@@ -770,9 +770,9 @@ async def test_protocol_connection_lost_with_multiple_pending(mock_transport: Ma
     # All tasks should raise ModbusConnectionError
     with pytest.raises(ModbusConnectionError, match="Connection lost"):
         await task1
-    with pytest.raises(ModbusConnectionError, match="Connection lost"):
+    with pytest.raises(ModbusConnectionError, match="Not connected"):
         await task2
-    with pytest.raises(ModbusConnectionError, match="Connection lost"):
+    with pytest.raises(ModbusConnectionError, match="Not connected"):
         await task3
 
 
@@ -780,36 +780,40 @@ async def test_protocol_multiple_frames(mock_transport: MagicMock) -> None:
     """Test receiving multiple frames in one data_received call."""
     protocol = ModbusAsciiProtocol(
         on_connection_lost=lambda _exc: None,
-        timeout=10.0,
+        timeout=0.05,
     )
     protocol.connection_made(mock_transport)
+    protocol._last_frame_ended_at = time.monotonic() - 10
 
-    pdu = _DummyPDU()
+    pdu1 = _DummyPDU()
+    pdu1.function_code = 0x03
 
-    # Start two requests for different units
-    task1 = asyncio.create_task(protocol.send_and_receive(1, pdu))
-    task2 = asyncio.create_task(protocol.send_and_receive(2, pdu))
-    await asyncio.sleep(0.01)
+    pdu2 = _DummyPDU()
+    pdu2.function_code = 0x06
 
-    # Build two responses
-    response_pdu = b"\x03\x02\x00\x00"
+    unit_id = 1
 
-    response1_message = bytes([1]) + response_pdu
-    lrc1 = calculate_lrc(response1_message)
-    frame1 = b":" + ascii_encode(response1_message + bytes([lrc1])) + b"\r\n"
+    # Request 1 times out
+    with pytest.raises(TimeoutError):
+        await protocol.send_and_receive(unit_id, pdu1)
 
-    response2_message = bytes([2]) + response_pdu
-    lrc2 = calculate_lrc(response2_message)
-    frame2 = b":" + ascii_encode(response2_message + bytes([lrc2])) + b"\r\n"
+    assert protocol._timed_out_requests[unit_id] is pdu1
 
-    # Send both frames at once
-    protocol.data_received(frame1 + frame2)
+    # Build delayed response for request 1 and valid response for request 2
+    frame1 = build_ascii_frame(unit_id, b"\x03\x02\xaa\xbb")
+    frame2 = build_ascii_frame(unit_id, b"\x06\x00\x01\x11\x22")
 
-    result1 = await task1
-    result2 = await task2
+    async def deliver_both_frames() -> None:
+        await asyncio.sleep(0.01)
+        # Send both frames at once in single data_received call
+        protocol.data_received(frame1 + frame2)
 
-    assert result1 == ("decoded", response_pdu)
-    assert result2 == ("decoded", response_pdu)
+    deliv_task = asyncio.create_task(deliver_both_frames())
+    res2 = await protocol.send_and_receive(unit_id, pdu2)
+    await deliv_task
+
+    assert res2 == ("decoded", b"\x06\x00\x01\x11\x22")
+    assert len(protocol._buffer) == 0
 
 
 async def test_protocol_send_not_connected() -> None:
@@ -1171,135 +1175,250 @@ async def test_connection_lost_without_exception(
     assert t._protocol is None
 
 
-async def test_wait_on_pending_request_no_pending() -> None:
-    """Test _wait_on_pending_request when there's no pending request for the unit_id."""
-    protocol = ModbusAsciiProtocol(on_connection_lost=lambda _: None)
-
-    # Should return immediately when there's no pending request
-    await protocol._wait_on_pending_request(1)
-    # If we get here without blocking, the test passes
-
-
-async def test_wait_on_pending_request_already_done() -> None:
-    """Test _wait_on_pending_request when pending request is already done."""
-    protocol = ModbusAsciiProtocol(on_connection_lost=lambda _: None)
-
-    # Create a future that's already done
-    done_future: asyncio.Future[_ModbusAsciiMessage] = asyncio.get_event_loop().create_future()
-    done_future.set_result(_ModbusAsciiMessage(unit_id=1, pdu_bytes=b"\x03\x00", lrc=b"\x00\x00"))
-    protocol._pending_requests[1] = done_future
-
-    # Should return immediately when future is already done
-    await protocol._wait_on_pending_request(1)
-    # If we get here without blocking, the test passes
-
-
-async def test_wait_on_pending_request_waits_for_completion(caplog: pytest.LogCaptureFixture) -> None:
-    """Test _wait_on_pending_request waits for pending request to complete successfully."""
-    protocol = ModbusAsciiProtocol(on_connection_lost=lambda _: None, timeout=1.0)
-
-    # Create a pending future
-    pending_future: asyncio.Future[_ModbusAsciiMessage] = asyncio.get_event_loop().create_future()
-    protocol._pending_requests[1] = pending_future
-
-    # Set up a task to complete the future after a delay
-    async def complete_future() -> None:
-        await asyncio.sleep(0.05)
-        pending_future.set_result(_ModbusAsciiMessage(unit_id=1, pdu_bytes=b"\x03\x00", lrc=b"\x00\x00"))
-
-    complete_task = asyncio.create_task(complete_future())
-
-    # Should wait for the future to complete
-    with caplog.at_level(logging.DEBUG, logger="tmodbus.transport.async_ascii"):
-        await protocol._wait_on_pending_request(1)
-
-        # Should have logged success
-        assert any("succeeded" in record.message for record in caplog.records)
-
-    await complete_task
-
-
-async def test_wait_on_pending_request_cancelled(caplog: pytest.LogCaptureFixture) -> None:
-    """Test _wait_on_pending_request when pending request is cancelled."""
-    protocol = ModbusAsciiProtocol(on_connection_lost=lambda _: None, timeout=1.0)
-
-    # Create a pending future
-    pending_future: asyncio.Future[_ModbusAsciiMessage] = asyncio.get_event_loop().create_future()
-    protocol._pending_requests[1] = pending_future
-
-    # Set up a task to cancel the future after a delay
-    async def cancel_future() -> None:
-        await asyncio.sleep(0.05)
-        pending_future.cancel()
-
-    cancel_task = asyncio.create_task(cancel_future())
-
-    # Should wait for the future and handle cancellation
-    with caplog.at_level(logging.DEBUG, logger="tmodbus.transport.async_ascii"):
-        await protocol._wait_on_pending_request(1)
-
-        # Should have logged cancellation
-        assert any("cancelled" in record.message for record in caplog.records)
-
-    await cancel_task
-
-
-async def test_wait_on_pending_request_generic_exception(caplog: pytest.LogCaptureFixture) -> None:
-    """Test _wait_on_pending_request when pending request raises a generic exception."""
-    protocol = ModbusAsciiProtocol(on_connection_lost=lambda _: None, timeout=1.0)
-
-    # Create a pending future
-    pending_future: asyncio.Future[_ModbusAsciiMessage] = asyncio.get_event_loop().create_future()
-    protocol._pending_requests[1] = pending_future
-
-    # Set up a task to fail the future after a delay
-    async def fail_future() -> None:
-        await asyncio.sleep(0.05)
-        pending_future.set_exception(RuntimeError("Previous request error"))
-
-    fail_task = asyncio.create_task(fail_future())
-
-    # Should wait for the future and handle the exception
-    with caplog.at_level(logging.DEBUG, logger="tmodbus.transport.async_ascii"):
-        await protocol._wait_on_pending_request(1)
-
-        # Should have logged the failure
-        assert any("failed" in record.message for record in caplog.records)
-
-    await fail_task
-
-
-async def test_wait_on_pending_request_timeout_waiting(caplog: pytest.LogCaptureFixture) -> None:
-    """Test _wait_on_pending_request when waiting times out."""
-    protocol = ModbusAsciiProtocol(on_connection_lost=lambda _: None, timeout=0.1)
-
-    # Create a pending future that never completes
-    pending_future: asyncio.Future[_ModbusAsciiMessage] = asyncio.get_event_loop().create_future()
-    protocol._pending_requests[1] = pending_future
-
-    # Should timeout and log it
-    with caplog.at_level(logging.DEBUG, logger="tmodbus.transport.async_ascii"):
-        await protocol._wait_on_pending_request(1)
-
-        # Should have logged timeout
-        assert any("timed out" in record.message for record in caplog.records)
-
-
-async def test_connection_lost_dont_set_exception_on_done_requests(
+async def test_send_and_receive_timeout_resets_pending_request(
     mock_transport: MagicMock,
 ) -> None:
-    """Test that connection_lost sets exception on all pending requests."""
-    protocol = ModbusAsciiProtocol(on_connection_lost=lambda _: None)
+    """Test that send_and_receive resets _pending_request and stores timed-out PDU on timeout."""
+    protocol = ModbusAsciiProtocol(on_connection_lost=lambda _: None, timeout=0.05)
     protocol.connection_made(mock_transport)
     protocol._last_frame_ended_at = time.monotonic() - 10
 
     pdu = _DummyPDU()
     unit_id = 1
 
-    # add a future that is already done to _pending_requests to test that it is skipped
-    done_future = asyncio.get_event_loop().create_future()
-    done_future.set_result(None)
-    protocol._pending_requests[2] = done_future
+    with pytest.raises(TimeoutError):
+        await protocol.send_and_receive(unit_id, pdu)
+
+    assert protocol._pending_request is None
+    assert protocol._timed_out_requests[unit_id] is pdu
+
+
+async def test_send_and_receive_serialized_by_bus_lock(
+    mock_transport: MagicMock,
+) -> None:
+    """Test that concurrent send_and_receive calls are serialized by the bus lock."""
+    protocol = ModbusAsciiProtocol(on_connection_lost=lambda _: None, timeout=1.0)
+    protocol.connection_made(mock_transport)
+    protocol._last_frame_ended_at = time.monotonic() - 10
+
+    pdu1 = _DummyPDU()
+    pdu2 = _DummyPDU()
+    unit_id_1 = 1
+    unit_id_2 = 2
+
+    resp1 = build_ascii_frame(unit_id_1, b"\x03\x02\x00\x0a")
+    resp2 = build_ascii_frame(unit_id_2, b"\x03\x02\x00\x0b")
+
+    async def deliver_responses() -> None:
+        await asyncio.sleep(0.01)
+        protocol.data_received(resp1)
+        await asyncio.sleep(0.01)
+        protocol.data_received(resp2)
+
+    task1 = asyncio.create_task(protocol.send_and_receive(unit_id_1, pdu1))
+    task2 = asyncio.create_task(protocol.send_and_receive(unit_id_2, pdu2))
+    deliv_task = asyncio.create_task(deliver_responses())
+
+    res1, res2 = await asyncio.gather(task1, task2)
+    await deliv_task
+
+    assert res1 == ("decoded", b"\x03\x02\x00\x0a")
+    assert res2 == ("decoded", b"\x03\x02\x00\x0b")
+
+
+async def test_delayed_response_after_timeout_is_cleanly_discarded(
+    mock_transport: MagicMock,
+) -> None:
+    """Test that delayed response arriving after timeout is cleanly discarded using timed-out tracking."""
+    protocol = ModbusAsciiProtocol(on_connection_lost=lambda _: None, timeout=0.05)
+    protocol.connection_made(mock_transport)
+    protocol._last_frame_ended_at = time.monotonic() - 10
+
+    pdu = _DummyPDU()
+    unit_id = 1
+
+    # Request times out
+    with pytest.raises(TimeoutError):
+        await protocol.send_and_receive(unit_id, pdu)
+
+    assert protocol._timed_out_requests[unit_id] is pdu
+
+    # Delayed response arrives
+    delayed_frame = build_ascii_frame(unit_id, b"\x03\x02\x00\x55")
+    protocol.data_received(delayed_frame)
+
+    assert len(protocol._buffer) == 0
+    assert unit_id not in protocol._timed_out_requests
+
+
+async def test_delayed_response_during_active_request_same_unit(
+    mock_transport: MagicMock,
+) -> None:
+    """Test that delayed response from timed-out request does not fail active request with different FC."""
+    protocol = ModbusAsciiProtocol(on_connection_lost=lambda _: None, timeout=0.05)
+    protocol.connection_made(mock_transport)
+    protocol._last_frame_ended_at = time.monotonic() - 10
+
+    pdu1 = _DummyPDU()
+    pdu1.function_code = 0x03
+
+    pdu2 = _DummyPDU()
+    pdu2.function_code = 0x06
+
+    unit_id = 1
+
+    # Step 1: Request 1 (FC 0x03) times out
+    with pytest.raises(TimeoutError):
+        await protocol.send_and_receive(unit_id, pdu1)
+
+    assert protocol._timed_out_requests[unit_id] is pdu1
+
+    # Step 2: Request 2 (FC 0x06) is sent and active
+    delayed_frame_1 = build_ascii_frame(unit_id, b"\x03\x02\xaa\xbb")
+    real_frame_2 = build_ascii_frame(unit_id, b"\x06\x00\x01\x11\x22")
+
+    async def deliver_delayed_then_real() -> None:
+        await asyncio.sleep(0.01)
+        # Deliver late response for request 1
+        protocol.data_received(delayed_frame_1)
+        # Active request should still be pending and not failed
+        assert protocol._pending_request is not None
+        assert not protocol._pending_request.future.done()
+        assert unit_id not in protocol._timed_out_requests
+
+        # Deliver real response for request 2
+        await asyncio.sleep(0.01)
+        protocol.data_received(real_frame_2)
+
+    req2_task = asyncio.create_task(protocol.send_and_receive(unit_id, pdu2))
+    deliv_task = asyncio.create_task(deliver_delayed_then_real())
+
+    result = await req2_task
+    await deliv_task
+
+    assert result == ("decoded", b"\x06\x00\x01\x11\x22")
+    assert len(protocol._buffer) == 0
+
+
+async def test_delayed_exception_response_during_active_request_same_unit(
+    mock_transport: MagicMock,
+) -> None:
+    """Test that delayed exception response from timed-out request does not fail active request."""
+    protocol = ModbusAsciiProtocol(on_connection_lost=lambda _: None, timeout=0.05)
+    protocol.connection_made(mock_transport)
+    protocol._last_frame_ended_at = time.monotonic() - 10
+
+    pdu1 = _DummyPDU()
+    pdu1.function_code = 0x03
+
+    pdu2 = _DummyPDU()
+    pdu2.function_code = 0x06
+
+    unit_id = 1
+
+    # Step 1: Request 1 (FC 0x03) times out
+    with pytest.raises(TimeoutError):
+        await protocol.send_and_receive(unit_id, pdu1)
+
+    assert protocol._timed_out_requests[unit_id] is pdu1
+
+    # Step 2: Request 2 (FC 0x06) is sent and active
+    # Late exception response for Request 1 (FC 0x83, exception code 0x02)
+    delayed_exc_frame_1 = build_ascii_frame(unit_id, b"\x83\x02")
+    real_frame_2 = build_ascii_frame(unit_id, b"\x06\x00\x01\x11\x22")
+
+    async def deliver_delayed_exc_then_real() -> None:
+        await asyncio.sleep(0.01)
+        # Deliver late exception response for request 1
+        protocol.data_received(delayed_exc_frame_1)
+        # Active request should still be pending and not failed
+        assert protocol._pending_request is not None
+        assert not protocol._pending_request.future.done()
+        assert unit_id not in protocol._timed_out_requests
+
+        # Deliver real response for request 2
+        await asyncio.sleep(0.01)
+        protocol.data_received(real_frame_2)
+
+    req2_task = asyncio.create_task(protocol.send_and_receive(unit_id, pdu2))
+    deliv_task = asyncio.create_task(deliver_delayed_exc_then_real())
+
+    result = await req2_task
+    await deliv_task
+
+    assert result == ("decoded", b"\x06\x00\x01\x11\x22")
+    assert len(protocol._buffer) == 0
+
+
+async def test_active_request_succeeds_and_clears_stale_timed_out_request(
+    mock_transport: MagicMock,
+) -> None:
+    """Test that a successful response to an active request clears stale timed-out tracking."""
+    protocol = ModbusAsciiProtocol(on_connection_lost=lambda _: None, timeout=0.05)
+    protocol.connection_made(mock_transport)
+    protocol._last_frame_ended_at = time.monotonic() - 10
+
+    pdu1 = _DummyPDU()
+    pdu2 = _DummyPDU()
+    unit_id = 1
+
+    # Request 1 times out
+    with pytest.raises(TimeoutError):
+        await protocol.send_and_receive(unit_id, pdu1)
+
+    assert protocol._timed_out_requests[unit_id] is pdu1
+
+    # Request 2 is sent and succeeds
+    response = build_ascii_frame(unit_id, b"\x03\x02\x00\x55")
+
+    async def deliver_response() -> None:
+        await asyncio.sleep(0.01)
+        protocol.data_received(response)
+
+    req2_task = asyncio.create_task(protocol.send_and_receive(unit_id, pdu2))
+    deliv_task = asyncio.create_task(deliver_response())
+
+    result = await req2_task
+    await deliv_task
+
+    assert result == ("decoded", b"\x03\x02\x00\x55")
+    assert unit_id not in protocol._timed_out_requests
+
+
+async def test_data_received_falls_back_to_pending_request_pdu_when_future_done(
+    mock_transport: MagicMock,
+) -> None:
+    """Test that data_received uses _pending_request.pdu if future is done but _timed_out_requests not yet set."""
+    protocol = ModbusAsciiProtocol(on_connection_lost=lambda _: None)
+    protocol.connection_made(mock_transport)
+
+    pdu = _DummyPDU()
+    pdu.function_code = 0x03
+    unit_id = 1
+
+    # Simulate future cancelled/done by asyncio.wait_for timeout before send_and_receive cleans up
+    fut: asyncio.Future[Any] = asyncio.get_event_loop().create_future()
+    fut.cancel()
+
+    protocol._pending_request = _PendingRequest(unit_id=unit_id, future=fut, pdu=pdu)
+
+    # Response arrives for the timed-out request
+    response = build_ascii_frame(unit_id, b"\x03\x02\x00\x55")
+
+    protocol.data_received(response)
+    assert len(protocol._buffer) == 0
+
+
+async def test_connection_lost_sets_exception_on_pending_request(
+    mock_transport: MagicMock,
+) -> None:
+    """Test that connection_lost sets exception on pending request and clears state."""
+    protocol = ModbusAsciiProtocol(on_connection_lost=lambda _: None)
+    protocol.connection_made(mock_transport)
+    protocol._last_frame_ended_at = time.monotonic() - 10
+
+    pdu = _DummyPDU()
+    unit_id = 1
 
     async def lose_connection() -> None:
         await asyncio.sleep(0.05)
@@ -1312,3 +1431,5 @@ async def test_connection_lost_dont_set_exception_on_done_requests(
         await result_task
 
     await connection_task
+    assert protocol._pending_request is None
+    assert len(protocol._timed_out_requests) == 0
