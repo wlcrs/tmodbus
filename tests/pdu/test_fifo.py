@@ -208,6 +208,22 @@ class TestReadFifoQueuePDU:
         with pytest.raises(InvalidResponseError, match=r"Byte count 8 does not match actual data length 6"):
             pdu.decode_response(response_data)
 
+    def test_decode_response_odd_byte_count(self) -> None:
+        """An odd byte count raises InvalidResponseError, not a raw struct.error."""
+        pdu = ReadFifoQueuePDU(address=0x04DE)
+        # Byte count 5 matches the frame length but cannot hold whole registers
+        response_data = b"\x18\x00\x05\x00\x01\x01\xb8\x12"
+        with pytest.raises(InvalidResponseError, match=r"Byte count 5 must be even"):
+            pdu.decode_response(response_data)
+
+    def test_decode_response_fifo_count_out_of_range(self) -> None:
+        """A FIFO count above 31 raises InvalidResponseError (encode enforces the same limit)."""
+        pdu = ReadFifoQueuePDU(address=0x04DE)
+        # FIFO count 32 with 32 matching values: byte count = 2 + 32*2 = 66
+        response_data = b"\x18\x00\x42\x00\x20" + b"\x00\x01" * 32
+        with pytest.raises(InvalidResponseError, match=r"FIFO count 32 out of range \(0-31\)"):
+            pdu.decode_response(response_data)
+
     def test_decode_response_count_mismatch(self) -> None:
         """Test decoding response where FIFO count doesn't match number of values."""
         pdu = ReadFifoQueuePDU(address=0x04DE)

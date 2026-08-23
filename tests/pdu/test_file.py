@@ -214,6 +214,47 @@ class TestReadFileRecordPDU:
         with pytest.raises(InvalidResponseError, match="Invalid reference type"):
             pdu.decode_response(response)
 
+    def test_decode_response_zero_file_response_length(self) -> None:
+        """A file response length of 0 is rejected (spec minimum is 1: the reference type byte)."""
+        requests = [FileRecordRequest(file_number=4, record_number=1, record_length=2)]
+        pdu = ReadFileRecordPDU(requests)
+
+        # File response length 0 would rewind the parsing offset
+        response = b"\x14\x06\x00\x06\x0d\xfe\x00\x20"
+        with pytest.raises(InvalidResponseError, match="must be odd"):
+            pdu.decode_response(response)
+
+    def test_decode_response_even_file_response_length(self) -> None:
+        """An even file response length is rejected (must be 1 reference type byte + 2N data bytes)."""
+        requests = [FileRecordRequest(file_number=4, record_number=1, record_length=2)]
+        pdu = ReadFileRecordPDU(requests)
+
+        response = b"\x14\x06\x04\x06\x0d\xfe\x00\x20"
+        with pytest.raises(InvalidResponseError, match="must be odd"):
+            pdu.decode_response(response)
+
+    def test_decode_response_record_count_mismatch(self) -> None:
+        """A response with fewer records than requested raises InvalidResponseError."""
+        requests = [
+            FileRecordRequest(file_number=4, record_number=1, record_length=2),
+            FileRecordRequest(file_number=4, record_number=8, record_length=1),
+        ]
+        pdu = ReadFileRecordPDU(requests)
+
+        # Only one record for a two-record request
+        response = b"\x14\x06\x05\x06\x0d\xfe\x00\x20"
+        with pytest.raises(InvalidResponseError, match="Expected 2 file records, received 1"):
+            pdu.decode_response(response)
+
+    def test_decode_response_empty_records(self) -> None:
+        """A zero-record response for a one-record request raises InvalidResponseError."""
+        requests = [FileRecordRequest(file_number=4, record_number=1, record_length=2)]
+        pdu = ReadFileRecordPDU(requests)
+
+        response = b"\x14\x00"
+        with pytest.raises(InvalidResponseError, match="Expected 1 file records, received 0"):
+            pdu.decode_response(response)
+
     def test_encode_response_even_length_record(self) -> None:
         """Test encode_response does not pad even-length records."""
         requests = [FileRecordRequest(file_number=4, record_number=1, record_length=2)]
@@ -322,8 +363,8 @@ class TestReadFileRecordPDU:
         requests = [FileRecordRequest(file_number=4, record_number=1, record_length=2)]
         pdu = ReadFileRecordPDU(requests)
 
-        # Says 4 bytes of data but only provides 2 (file_response_length = 0x06 means 4 bytes of data)
-        response = b"\x14\x04\x06\x06\x0d\xfe"  # Missing 2 bytes of data
+        # Says 4 bytes of data but only provides 2 (file_response_length = 0x05 means 4 bytes of data)
+        response = b"\x14\x04\x05\x06\x0d\xfe"  # Missing 2 bytes of data
 
         with pytest.raises(InvalidResponseError, match="Not enough data"):
             pdu.decode_response(response)
@@ -335,7 +376,7 @@ class TestReadFileRecordPDU:
 
         # Valid response data but with offset mismatch at the end
         # Byte count indicates 10 bytes, causing offset != end_offset
-        response = b"\x14\x0a\x06\x06\x0d\xfe\x00\x20\x06\x06\x0d\xfe"
+        response = b"\x14\x0a\x05\x06\x0d\xfe\x00\x20\x05\x07\x0d\xfe"
 
         with pytest.raises(InvalidResponseError, match=r"(Failed to unpack|Invalid reference type).*"):
             pdu.decode_response(response)
@@ -410,12 +451,11 @@ class TestWriteFileRecordPDU:
         assert encoded[0] == 0x15  # function code
         assert encoded[1] == 20  # byte count
 
-    def test_encode_request_odd_length_data(self) -> None:
-        """Odd-length payloads are rejected because registers are 2 bytes."""
+    def test_odd_length_data_rejected(self) -> None:
+        """Odd-length payloads are rejected at construction because registers are 2 bytes."""
         records = [FileRecord(file_number=1, record_number=0, data=b"\x00\x01\x02")]
-        pdu = WriteFileRecordPDU(file_records=records)
         with pytest.raises(ValueError, match="Record data length cannot be odd"):
-            pdu.encode_request()
+            WriteFileRecordPDU(file_records=records)
 
     def test_validation_file_number_invalid(self) -> None:
         """Test that invalid file numbers raise ValueError."""

@@ -140,6 +140,14 @@ class ReadFifoQueuePDU(BasePDU[list[int]]):
             msg = f"Byte count {byte_count} does not match actual data length {len(data) - 3}."
             raise InvalidResponseError(msg, response_bytes=data)
 
+        if byte_count % 2 != 0:
+            msg = f"Byte count {byte_count} must be even."
+            raise InvalidResponseError(msg, response_bytes=data)
+
+        if fifo_count > 31:
+            msg = f"FIFO count {fifo_count} out of range (0-31)."
+            raise InvalidResponseError(msg, response_bytes=data)
+
         values_count = (byte_count // 2) - 1
         values = list(struct.unpack(f">{values_count}H", data[response_header_struct.size :]))
 
