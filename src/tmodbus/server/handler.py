@@ -53,13 +53,19 @@ type RouterHandler = Callable[[int, Any], Awaitable[Any]]
 
 @functools.cache
 def _is_context_aware(fn: Any) -> bool:
-    """Return ``True`` if *fn* accepts at least three positional arguments."""
+    """Return ``True`` if *fn* can accept a third positional argument."""
     try:
         sig = inspect.signature(fn)
     except (ValueError, TypeError):
         return False
-    else:
-        return len(sig.parameters) >= 3
+    positional = 0
+    for param in sig.parameters.values():
+        if param.kind in (param.POSITIONAL_ONLY, param.POSITIONAL_OR_KEYWORD):
+            positional += 1
+        elif param.kind is param.VAR_POSITIONAL:
+            # *args can absorb the context argument
+            return True
+    return positional >= 3
 
 
 def _handler_accepts_context(fn: Any) -> TypeIs[ContextAwareModbusHandler]:
