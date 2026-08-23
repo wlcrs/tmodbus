@@ -502,8 +502,8 @@ async def test_protocol_per_unit_request_tracking(
     mock_transport: MagicMock,
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
-    """Test that protocol tracks pending requests per unit_id."""
-    protocol = ModbusRtuProtocol(on_connection_lost=lambda _: None)
+    """Test that protocol tracks timed-out requests per unit_id across serialized transactions."""
+    protocol = ModbusRtuProtocol(on_connection_lost=lambda _: None, timeout=0.05)
     protocol.connection_made(mock_transport)
 
     pdu1 = _DummyPDU()
@@ -519,32 +519,28 @@ async def test_protocol_per_unit_request_tracking(
     monkeypatch.setattr("tmodbus.transport.async_rtu.get_pdu_class", lambda _: DummyPduClass)
     protocol._last_frame_ended_at = time.monotonic() - 10
 
-    # Start two requests for different units simultaneously
-    async def send_and_respond(unit_id: int, pdu: BaseClientPDU) -> Any:  # type: ignore[type-arg]
-        response_data = b"\x05"
-        payload = bytes([unit_id, pdu.function_code]) + response_data
-        crc = calculate_crc16(payload)
-        response_adu = payload + crc
+    # Request 1 times out -> stored in _timed_out_requests[unit_id_1]
+    with pytest.raises(TimeoutError):
+        await protocol.send_and_receive(unit_id_1, pdu1)
 
-        async def simulate_response() -> None:
-            await asyncio.sleep(0.02)
-            protocol.data_received(response_adu)
+    assert protocol._timed_out_requests[unit_id_1] is pdu1
 
-        result_task = asyncio.create_task(protocol.send_and_receive(unit_id, pdu))
-        response_task = asyncio.create_task(simulate_response())
+    # Request 2 succeeds -> stored in _timed_out_requests[unit_id_2] (if timed out), but unit 1 is kept
+    resp2_payload = bytes([unit_id_2, pdu2.function_code, 0x05])
+    resp2_frame = resp2_payload + calculate_crc16(resp2_payload)
 
-        result = await result_task
-        await response_task
-        return result
+    async def deliver_resp2() -> None:
+        await asyncio.sleep(0.01)
+        protocol.data_received(resp2_frame)
 
-    # Send requests to two different units - should work concurrently
-    result1, result2 = await asyncio.gather(
-        send_and_respond(unit_id_1, pdu1),
-        send_and_respond(unit_id_2, pdu2),
-    )
+    deliv_task = asyncio.create_task(deliver_resp2())
+    res2 = await protocol.send_and_receive(unit_id_2, pdu2)
+    await deliv_task
 
-    assert result1[0] == "decoded"
-    assert result2[0] == "decoded"
+    assert res2[0] == "decoded"
+    # Unit 1 timed-out request is still tracked safely!
+    assert protocol._timed_out_requests[unit_id_1] is pdu1
+    assert unit_id_2 not in protocol._timed_out_requests
 
 
 async def test_protocol_waits_for_previous_request_same_unit(
@@ -567,59 +563,25 @@ async def test_protocol_waits_for_previous_request_same_unit(
     monkeypatch.setattr("tmodbus.transport.async_rtu.get_pdu_class", lambda _: DummyPduClass)
     protocol._last_frame_ended_at = time.monotonic() - 10
 
-    request1_started = False
-    request2_started = False
+    resp1 = bytes([unit_id, pdu1.function_code, 0x05])
+    resp1_frame = resp1 + calculate_crc16(resp1)
 
-    async def send_request_1() -> Any:
-        nonlocal request1_started
-        request1_started = True
+    resp2 = bytes([unit_id, pdu2.function_code, 0x06])
+    resp2_frame = resp2 + calculate_crc16(resp2)
 
-        response_data = b"\x05"
-        payload = bytes([unit_id, pdu1.function_code]) + response_data
-        crc = calculate_crc16(payload)
-        response_adu = payload + crc
-
-        async def simulate_response() -> None:
-            await asyncio.sleep(0.05)
-            protocol.data_received(response_adu)
-
-        result_task = asyncio.create_task(protocol.send_and_receive(unit_id, pdu1))
-        response_task = asyncio.create_task(simulate_response())
-
-        result = await result_task
-        await response_task
-        return result
-
-    async def send_request_2() -> Any:
-        # Wait a bit to ensure request1 starts first
+    async def deliver_responses() -> None:
         await asyncio.sleep(0.01)
-        nonlocal request2_started
-        request2_started = True
+        protocol.data_received(resp1_frame)
+        await asyncio.sleep(0.01)
+        protocol.data_received(resp2_frame)
 
-        response_data = b"\x06"
-        payload = bytes([unit_id, pdu2.function_code]) + response_data
-        crc = calculate_crc16(payload)
-        response_adu = payload + crc
+    task1 = asyncio.create_task(protocol.send_and_receive(unit_id, pdu1))
+    task2 = asyncio.create_task(protocol.send_and_receive(unit_id, pdu2))
+    deliv_task = asyncio.create_task(deliver_responses())
 
-        async def simulate_response() -> None:
-            await asyncio.sleep(0.01)
-            protocol.data_received(response_adu)
+    result1, result2 = await asyncio.gather(task1, task2)
+    await deliv_task
 
-        result_task = asyncio.create_task(protocol.send_and_receive(unit_id, pdu2))
-        response_task = asyncio.create_task(simulate_response())
-
-        result = await result_task
-        await response_task
-        return result
-
-    # Both requests should complete, but request2 waits for request1
-    result1, result2 = await asyncio.gather(
-        send_request_1(),
-        send_request_2(),
-    )
-
-    assert request1_started
-    assert request2_started
     assert result1[0] == "decoded"
     assert result2[0] == "decoded"
 
@@ -739,19 +701,15 @@ async def test_on_connection_lost_pending_futures(mock_serial_connection: tuple[
     pdu = _DummyPDU()
     unit_id = 1
 
-    # add a future that is already done to _pending_requests to test that it is skipped
-    done_future = asyncio.get_event_loop().create_future()
-    done_future.set_result(None)
-    protocol._pending_requests[2] = _PendingRequest(future=done_future)
-
     # Start a send_and_receive to create a pending future
     send_task = asyncio.create_task(protocol.send_and_receive(unit_id, pdu))
     await asyncio.sleep(0.01)  # Ensure the send_and_receive has started
-    assert protocol._pending_requests[unit_id]
+    assert protocol._pending_request is not None
     protocol._timed_out_requests[3] = pdu
     # Now simulate connection lost
     protocol.connection_lost(None)
     assert len(protocol._timed_out_requests) == 0
+    assert protocol._pending_request is None
 
     with pytest.raises(ModbusConnectionError, match=r"Connection lost before response was received\."):
         await send_task
@@ -993,16 +951,18 @@ async def test_pending_future_already_done(
     # If we get here without exceptions, the test passes
 
 
-async def test_send_and_receive_previous_request_timeout(
+async def test_send_and_receive_serialized_by_bus_lock(
     mock_transport: MagicMock,
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
-    """Test waiting for previous request that times out (lines 329-330)."""
-    protocol = ModbusRtuProtocol(on_connection_lost=lambda _: None, timeout=0.1)
+    """Test that concurrent send_and_receive calls are serialized by the bus lock."""
+    protocol = ModbusRtuProtocol(on_connection_lost=lambda _: None, timeout=1.0)
     protocol.connection_made(mock_transport)
 
-    pdu = _DummyPDU()
-    unit_id = 1
+    pdu1 = _DummyPDU()
+    pdu2 = _DummyPDU()
+    unit_id_1 = 1
+    unit_id_2 = 2
 
     class DummyPduClass:
         @staticmethod
@@ -1012,79 +972,27 @@ async def test_send_and_receive_previous_request_timeout(
     monkeypatch.setattr("tmodbus.transport.async_rtu.get_pdu_class", lambda _: DummyPduClass)
     protocol._last_frame_ended_at = time.monotonic() - 10
 
-    # Directly test the code path by mocking a pending future that will timeout
-    mock_future: asyncio.Future[Any] = asyncio.Future()
-    protocol._pending_requests[unit_id] = _PendingRequest(future=mock_future, pdu=pdu)
+    resp1 = bytes([unit_id_1, pdu1.function_code, 0x05])
+    resp1_frame = resp1 + calculate_crc16(resp1)
 
-    # Now when we call send_and_receive, it should wait for the mock_future
-    # which will timeout
-    response_data = b"\x05"
-    payload = bytes([unit_id, pdu.function_code]) + response_data
-    crc = calculate_crc16(payload)
-    response_adu = payload + crc
+    resp2 = bytes([unit_id_2, pdu2.function_code, 0x06])
+    resp2_frame = resp2 + calculate_crc16(resp2)
 
-    async def send_after_delay() -> None:
-        await asyncio.sleep(0.15)  # After the timeout
-        protocol.data_received(response_adu)
-
-    with patch("tmodbus.transport.async_rtu.logger") as log:
-        send_task = asyncio.create_task(send_after_delay())
-
-        # This should log about timeout while waiting for the mock_future
-        result = await protocol.send_and_receive(unit_id, pdu)
-        await send_task
-
-        # Should have logged about timeout
-        assert any("timed out" in str(call) for call in log.debug.call_args_list)
-        assert result[0] == "decoded"
-
-
-async def test_send_and_receive_previous_request_failed(
-    mock_transport: MagicMock,
-    monkeypatch: pytest.MonkeyPatch,
-) -> None:
-    """Test waiting for previous request that has failed."""
-    protocol = ModbusRtuProtocol(on_connection_lost=lambda _: None, timeout=0.1)
-    protocol.connection_made(mock_transport)
-
-    pdu = _DummyPDU()
-    unit_id = 1
-
-    class DummyPduClass:
-        @staticmethod
-        def get_expected_response_data_length(_begin_bytes: bytes) -> int:
-            return 1
-
-    monkeypatch.setattr("tmodbus.transport.async_rtu.get_pdu_class", lambda _: DummyPduClass)
-    protocol._last_frame_ended_at = time.monotonic() - 10
-
-    # Directly test the code path by mocking a pending future that has failed
-    mock_future: asyncio.Future[Any] = asyncio.Future()
-    protocol._pending_requests[unit_id] = _PendingRequest(future=mock_future, pdu=pdu)
-
-    # Now when we call send_and_receive, it should wait for the mock_future
-    # which will timeout
-    response_data = b"\x05"
-    payload = bytes([unit_id, pdu.function_code]) + response_data
-    crc = calculate_crc16(payload)
-    response_adu = payload + crc
-
-    async def error_after_delay() -> None:
+    async def deliver_responses() -> None:
         await asyncio.sleep(0.01)
-        mock_future.set_exception(RuntimeError("Previous request failed"))
+        protocol.data_received(resp1_frame)
         await asyncio.sleep(0.01)
-        protocol.data_received(response_adu)
+        protocol.data_received(resp2_frame)
 
-    with patch("tmodbus.transport.async_rtu.logger") as log:
-        error_task = asyncio.create_task(error_after_delay())
+    task1 = asyncio.create_task(protocol.send_and_receive(unit_id_1, pdu1))
+    task2 = asyncio.create_task(protocol.send_and_receive(unit_id_2, pdu2))
+    deliv_task = asyncio.create_task(deliver_responses())
 
-        # This should log about timeout while waiting for the mock_future
-        result = await protocol.send_and_receive(unit_id, pdu)
-        await error_task
+    res1, res2 = await asyncio.gather(task1, task2)
+    await deliv_task
 
-        # Should have logged about failed request
-        assert any("failed" in str(call) for call in log.debug.call_args_list)
-        assert result[0] == "decoded"
+    assert res1 == ("decoded", b"\x03\x05")
+    assert res2 == ("decoded", b"\x03\x06")
 
 
 async def test_data_received_cannot_determine_length(
@@ -1200,118 +1108,22 @@ async def test_data_received_insufficient_data(
     await send_request_and_receive_partial()
 
 
-async def test_wait_on_pending_request_no_pending() -> None:
-    """Test _wait_on_pending_request when there's no pending request for the unit_id."""
-    protocol = ModbusRtuProtocol(on_connection_lost=lambda _: None)
+async def test_send_and_receive_timeout_resets_pending_request(
+    mock_transport: MagicMock,
+) -> None:
+    """Test that send_and_receive resets _pending_request and stores timed-out PDU on timeout."""
+    protocol = ModbusRtuProtocol(on_connection_lost=lambda _: None, timeout=0.05)
+    protocol.connection_made(mock_transport)
+    protocol._last_frame_ended_at = time.monotonic() - 10
 
-    # Should return immediately when there's no pending request
-    await protocol._wait_on_pending_request(1)
-    # If we get here without blocking, the test passes
+    pdu = _DummyPDU()
+    unit_id = 1
 
+    with pytest.raises(TimeoutError):
+        await protocol.send_and_receive(unit_id, pdu)
 
-async def test_wait_on_pending_request_already_done() -> None:
-    """Test _wait_on_pending_request when pending request is already done."""
-    protocol = ModbusRtuProtocol(on_connection_lost=lambda _: None)
-
-    # Create a future that's already done
-    done_future: asyncio.Future[_ModbusRtuMessage] = asyncio.get_event_loop().create_future()
-    done_future.set_result(_ModbusRtuMessage(unit_id=1, pdu_bytes=b"\x03\x00", crc=b"\x00\x00"))
-    protocol._pending_requests[1] = _PendingRequest(future=done_future)
-
-    # Should return immediately when future is already done
-    await protocol._wait_on_pending_request(1)
-    # If we get here without blocking, the test passes
-
-
-async def test_wait_on_pending_request_waits_for_completion(caplog: pytest.LogCaptureFixture) -> None:
-    """Test _wait_on_pending_request waits for pending request to complete successfully."""
-    protocol = ModbusRtuProtocol(on_connection_lost=lambda _: None, timeout=1.0)
-
-    # Create a pending future
-    pending_future: asyncio.Future[_ModbusRtuMessage] = asyncio.get_event_loop().create_future()
-    protocol._pending_requests[1] = _PendingRequest(future=pending_future)
-
-    # Set up a task to complete the future after a delay
-    async def complete_future() -> None:
-        await asyncio.sleep(0.05)
-        pending_future.set_result(_ModbusRtuMessage(unit_id=1, pdu_bytes=b"\x03\x00", crc=b"\x00\x00"))
-
-    complete_task = asyncio.create_task(complete_future())
-
-    # Should wait for the future to complete
-    with caplog.at_level(logging.DEBUG, logger="tmodbus.transport.async_rtu"):
-        await protocol._wait_on_pending_request(1)
-
-        # Should have logged success
-        assert any("succeeded" in record.message for record in caplog.records)
-
-    await complete_task
-
-
-async def test_wait_on_pending_request_cancelled(caplog: pytest.LogCaptureFixture) -> None:
-    """Test _wait_on_pending_request when pending request is cancelled."""
-    protocol = ModbusRtuProtocol(on_connection_lost=lambda _: None, timeout=1.0)
-
-    # Create a pending future
-    pending_future: asyncio.Future[_ModbusRtuMessage] = asyncio.get_event_loop().create_future()
-    protocol._pending_requests[1] = _PendingRequest(future=pending_future)
-
-    # Set up a task to cancel the future after a delay
-    async def cancel_future() -> None:
-        await asyncio.sleep(0.05)
-        pending_future.cancel()
-
-    cancel_task = asyncio.create_task(cancel_future())
-
-    # Should wait for the future and handle cancellation
-    with caplog.at_level(logging.DEBUG, logger="tmodbus.transport.async_rtu"):
-        await protocol._wait_on_pending_request(1)
-
-        # Should have logged cancellation
-        assert any("cancelled" in record.message for record in caplog.records)
-
-    await cancel_task
-
-
-async def test_wait_on_pending_request_generic_exception(caplog: pytest.LogCaptureFixture) -> None:
-    """Test _wait_on_pending_request when pending request raises a generic exception."""
-    protocol = ModbusRtuProtocol(on_connection_lost=lambda _: None, timeout=1.0)
-
-    # Create a pending future
-    pending_future: asyncio.Future[_ModbusRtuMessage] = asyncio.get_event_loop().create_future()
-    protocol._pending_requests[1] = _PendingRequest(future=pending_future)
-
-    # Set up a task to fail the future after a delay
-    async def fail_future() -> None:
-        await asyncio.sleep(0.05)
-        pending_future.set_exception(RuntimeError("Previous request error"))
-
-    fail_task = asyncio.create_task(fail_future())
-
-    # Should wait for the future and handle the exception
-    with caplog.at_level(logging.DEBUG, logger="tmodbus.transport.async_rtu"):
-        await protocol._wait_on_pending_request(1)
-
-        # Should have logged the failure
-        assert any("failed" in record.message for record in caplog.records)
-
-    await fail_task
-
-
-async def test_wait_on_pending_request_timeout_waiting(caplog: pytest.LogCaptureFixture) -> None:
-    """Test _wait_on_pending_request when waiting times out."""
-    protocol = ModbusRtuProtocol(on_connection_lost=lambda _: None, timeout=0.1)
-
-    # Create a pending future that never completes
-    pending_future: asyncio.Future[_ModbusRtuMessage] = asyncio.get_event_loop().create_future()
-    protocol._pending_requests[1] = _PendingRequest(future=pending_future)
-
-    # Should timeout and log it
-    with caplog.at_level(logging.DEBUG, logger="tmodbus.transport.async_rtu"):
-        await protocol._wait_on_pending_request(1)
-
-        # Should have logged timeout
-        assert any("timed out" in record.message for record in caplog.records)
+    assert protocol._pending_request is None
+    assert protocol._timed_out_requests[unit_id] is pdu
 
 
 async def test_sliding_window_recovers_when_noise_matches_unit_id(
@@ -1423,8 +1235,10 @@ async def test_concurrent_multi_unit_requests_with_sliding_window(
 
     async def simulate_stream() -> None:
         await asyncio.sleep(0.01)
-        # Send noise, then response 2, noise, then response 1
-        protocol.data_received(b"\xff\xaa" + resp2_frame + b"\xee" + resp1_frame)
+        # Send noise, then response 1, noise, then response 2
+        protocol.data_received(b"\xff\xaa" + resp1_frame)
+        await asyncio.sleep(0.01)
+        protocol.data_received(b"\xee" + resp2_frame)
 
     task1 = asyncio.create_task(protocol.send_and_receive(unit_id_1, pdu1))
     task2 = asyncio.create_task(protocol.send_and_receive(unit_id_2, pdu2))
@@ -1437,26 +1251,62 @@ async def test_concurrent_multi_unit_requests_with_sliding_window(
     assert res2 == ("decoded", b"\x03\x0b")
 
 
-async def test_fail_pending_requests_with_errors_branches(mock_transport: MagicMock) -> None:
-    """Test branch conditions in _fail_pending_requests_with_errors."""
+async def test_data_received_fails_pending_request_on_stream_error_when_buffer_exhausted(
+    mock_transport: MagicMock,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """Test that data_received sets exception on _pending_request when CRC or framing errors occur."""
     protocol = ModbusRtuProtocol(on_connection_lost=lambda _: None)
     protocol.connection_made(mock_transport)
 
-    # 1. When buffer length >= MIN_RTU_RESPONSE_LENGTH, it should return early
-    protocol._buffer = bytearray(b"\x01\x03\x00\x00")
-    protocol._fail_pending_requests_with_errors({1: ValueError("err")})
-
-    # 2. When uid is in buffer, it skips failing the future to wait for rest of frame
-    protocol._buffer = bytearray(b"\x01\x03")
+    pdu = _DummyPDU()
+    unit_id = 1
     fut: asyncio.Future[Any] = asyncio.get_event_loop().create_future()
-    protocol._pending_requests[1] = _PendingRequest(future=fut)
-    protocol._fail_pending_requests_with_errors({1: ValueError("err")})
-    assert not fut.done()
+    protocol._pending_request = _PendingRequest(unit_id=unit_id, future=fut, pdu=pdu)
 
-    # 3. When pending future is not in pending_requests or is already done
-    protocol._buffer = bytearray(b"")
-    fut.set_result(None)  # already done
-    protocol._fail_pending_requests_with_errors({1: ValueError("err"), 2: ValueError("missing")})
+    class DummyPduClass:
+        @staticmethod
+        def get_expected_response_data_length(_begin_bytes: bytes) -> int:
+            return 1
+
+    monkeypatch.setattr("tmodbus.transport.async_rtu.get_pdu_class", lambda _: DummyPduClass)
+
+    # Frame with corrupt CRC followed by no more data for unit_id
+    bad_frame = bytes([unit_id, 0x03, 0x00, 0xFF, 0xFF])
+    protocol.data_received(bad_frame)
+
+    assert fut.done()
+    with pytest.raises(CRCError):
+        fut.result()
+
+
+async def test_data_received_stream_error_keeps_pending_when_unit_id_in_buffer(
+    mock_transport: MagicMock,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """Test that data_received does not fail pending request if unit_id is still in buffer."""
+    protocol = ModbusRtuProtocol(on_connection_lost=lambda _: None)
+    protocol.connection_made(mock_transport)
+
+    pdu = _DummyPDU()
+    unit_id = 1
+    fut: asyncio.Future[Any] = asyncio.get_event_loop().create_future()
+    protocol._pending_request = _PendingRequest(unit_id=unit_id, future=fut, pdu=pdu)
+
+    class DummyPduClass:
+        @staticmethod
+        def get_expected_response_data_length(_begin_bytes: bytes) -> int:
+            return 1
+
+    monkeypatch.setattr("tmodbus.transport.async_rtu.get_pdu_class", lambda _: DummyPduClass)
+
+    # Corrupt frame followed by 2 bytes starting with unit_id: b"\x01\x03"
+    bad_frame = bytes([unit_id, 0x03, 0x00, 0xFF, 0xFF])
+    protocol.data_received(bad_frame + bytes([unit_id, 0x03]))
+
+    # Because unit_id 1 is in remaining buffer, future is not failed yet (waits for rest of frame)
+    assert not fut.done()
+    assert protocol._buffer == bytearray(b"\x01\x03")
 
 
 async def test_request_aware_framing_rejects_mismatched_function_code(
@@ -1592,7 +1442,8 @@ async def test_send_and_receive_defensive_function_code_validation(
     async def complete_with_mismatch() -> None:
         await asyncio.sleep(0.01)
         # Directly resolve future with mismatched FC (0x04)
-        pending = protocol._pending_requests[unit_id]
+        assert protocol._pending_request is not None
+        pending = protocol._pending_request
         pending.future.set_result(_ModbusRtuMessage(unit_id=unit_id, pdu_bytes=b"\x04\x00", crc=b"\x00\x00"))
 
     task = asyncio.create_task(protocol.send_and_receive(unit_id, pdu))
@@ -1780,7 +1631,8 @@ async def test_delayed_response_arriving_during_active_request_different_fc(
         # Deliver late response for request 1 first
         protocol.data_received(delayed_response_1)
         # Active request should still be pending and not failed
-        assert not protocol._pending_requests[unit_id].future.done()
+        assert protocol._pending_request is not None
+        assert not protocol._pending_request.future.done()
         assert unit_id not in protocol._timed_out_requests
 
         # Now deliver real response for request 2
@@ -1885,7 +1737,8 @@ async def test_delayed_exception_response_arriving_during_active_request(
         # Deliver late exception response for request 1
         protocol.data_received(delayed_exc_response)
         # Active request should still be pending (not failed by the delayed exception!)
-        assert not protocol._pending_requests[unit_id].future.done()
+        assert protocol._pending_request is not None
+        assert not protocol._pending_request.future.done()
         assert unit_id not in protocol._timed_out_requests
 
         # Now deliver real response for request 2
@@ -1958,14 +1811,16 @@ async def test_delayed_response_in_chunks_during_active_request(
         protocol.data_received(delayed_response_1[:4])
         # Buffer has 4 bytes (>= MIN_RTU_RESPONSE_LENGTH), protocol determines frame length is 6 and waits
         assert len(protocol._buffer) == 4
-        assert not protocol._pending_requests[unit_id].future.done()
+        assert protocol._pending_request is not None
+        assert not protocol._pending_request.future.done()
         assert unit_id in protocol._timed_out_requests
 
         # Deliver chunk 2 of late response (remaining 2 bytes)
         protocol.data_received(delayed_response_1[4:])
         # Now late response is complete and drained
         assert len(protocol._buffer) == 0
-        assert not protocol._pending_requests[unit_id].future.done()
+        assert protocol._pending_request is not None
+        assert not protocol._pending_request.future.done()
         assert unit_id not in protocol._timed_out_requests
 
         # Now deliver real response for request 2
@@ -1979,4 +1834,37 @@ async def test_delayed_response_in_chunks_during_active_request(
     await deliv_task
 
     assert result == ("decoded", b"\x06\x11\x22")
+    assert len(protocol._buffer) == 0
+
+
+async def test_data_received_falls_back_to_pending_request_pdu_when_future_done(
+    mock_transport: MagicMock,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """Test that data_received uses _pending_request.pdu if future is done but _timed_out_requests not yet set."""
+    protocol = ModbusRtuProtocol(on_connection_lost=lambda _: None)
+    protocol.connection_made(mock_transport)
+
+    pdu = _DummyPDU()
+    pdu.function_code = 0x03
+    unit_id = 1
+
+    # Simulate future cancelled/done by asyncio.wait_for timeout before send_and_receive cleans up
+    fut: asyncio.Future[Any] = asyncio.get_event_loop().create_future()
+    fut.cancel()
+    protocol._pending_request = _PendingRequest(unit_id=unit_id, future=fut, pdu=pdu)
+
+    class DummyPduClass:
+        @staticmethod
+        def get_expected_response_data_length(_begin_bytes: bytes) -> int:
+            return 1
+
+    monkeypatch.setattr("tmodbus.transport.async_rtu.get_pdu_class", lambda _: DummyPduClass)
+
+    # Response arrives for the timed-out request
+    resp_payload = bytes([unit_id, pdu.function_code, 0x55])
+    response = resp_payload + calculate_crc16(resp_payload)
+
+    # When data_received processes this, it falls back to _pending_request.pdu and cleanly drains it
+    protocol.data_received(response)
     assert len(protocol._buffer) == 0
