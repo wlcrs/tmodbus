@@ -8,7 +8,7 @@ from typing import Any, Literal
 
 from serialx import open_serial_connection
 
-from tmodbus.const import BROADCAST_UNIT_ID
+from tmodbus.const import BROADCAST_UNIT_ID, EXCEPTION_RESPONSE_BIT
 from tmodbus.exceptions import InvalidRequestError
 from tmodbus.utils.lrc import calculate_lrc, validate_lrc
 from tmodbus.utils.raw_traffic_logger import format_bytes
@@ -198,7 +198,7 @@ class AsyncAsciiServer(AsyncBaseServer):
             request_pdu = pdu_class.decode_request(pdu_bytes)
         except (ValueError, InvalidRequestError) as e:
             logger.warning("Invalid request: %s", e)
-            response_pdu_bytes = bytes([function_code | 0x80, 0x01])
+            response_pdu_bytes = bytes([function_code | EXCEPTION_RESPONSE_BIT, 0x01])
             is_error = True
         else:
             response_pdu_bytes = await handle_modbus_request(unit_id, request_pdu, self.handler)

@@ -6,7 +6,7 @@ import struct
 from functools import partial
 from typing import Any
 
-from tmodbus.const import ExceptionCode
+from tmodbus.const import EXCEPTION_RESPONSE_BIT, ExceptionCode
 from tmodbus.exceptions import InvalidRequestError
 from tmodbus.utils.raw_traffic_logger import log_raw_traffic as base_log_raw_traffic
 
@@ -152,7 +152,9 @@ class ModbusUdpServerProtocol(asyncio.DatagramProtocol):
 
             if not handler_supports_unit_id(self.handler, unit_id):
                 logger.warning("Request for unregistered unit ID %d from %s", unit_id, addr)
-                response_pdu_bytes = bytes([function_code | 0x80, self.unregistered_unit_id_exception_code])
+                response_pdu_bytes = bytes(
+                    [function_code | EXCEPTION_RESPONSE_BIT, self.unregistered_unit_id_exception_code]
+                )
                 is_error = True
             else:
                 try:
@@ -160,7 +162,7 @@ class ModbusUdpServerProtocol(asyncio.DatagramProtocol):
                     request_pdu = raw_pdu_class.decode_request(pdu_bytes)
                 except (ValueError, InvalidRequestError) as e:
                     logger.warning("Invalid request from %s: %s", addr, e)
-                    response_pdu_bytes = bytes([function_code | 0x80, 0x01])  # ILLEGAL_FUNCTION
+                    response_pdu_bytes = bytes([function_code | EXCEPTION_RESPONSE_BIT, 0x01])  # ILLEGAL_FUNCTION
                     is_error = True
                 else:
                     context = RequestContext(peer_addr=addr)

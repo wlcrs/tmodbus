@@ -9,7 +9,7 @@ import logging
 from collections.abc import Awaitable, Callable, Iterable
 from typing import TYPE_CHECKING, Any, Protocol, TypeGuard, cast
 
-from tmodbus.const import ExceptionCode
+from tmodbus.const import EXCEPTION_RESPONSE_BIT, ExceptionCode
 from tmodbus.exceptions import IllegalFunctionError, ModbusResponseError
 from tmodbus.pdu import BaseClientPDU, BasePDU
 
@@ -308,11 +308,11 @@ async def handle_modbus_request[T](
             unit_id,
             request.function_code,
         )
-        return bytes([request.function_code | 0x80, e.error_code])
+        return bytes([request.function_code | EXCEPTION_RESPONSE_BIT, e.error_code])
     except Exception:
         logger.exception("Unexpected error in Modbus handler for unit_id %d", unit_id)
         # For completely unexpected errors, we default to returning ServerDeviceFailure
-        return bytes([request.function_code | 0x80, ExceptionCode.SERVER_DEVICE_FAILURE])
+        return bytes([request.function_code | EXCEPTION_RESPONSE_BIT, ExceptionCode.SERVER_DEVICE_FAILURE])
 
 
 def handler_supports_unit_id(handler: AnyModbusHandler, unit_id: int) -> bool:
