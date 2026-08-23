@@ -304,6 +304,7 @@ async def test_rtu_over_tcp_server_edge_cases() -> None:  # noqa: PLR0915
         await writer.drain()
         resp = await reader.readexactly(5)  # unit(1)+fc|0x80(1)+err(1)+crc(2)
         assert resp[1] == 0x83
+        assert resp[2] == 0x03  # ILLEGAL_DATA_VALUE
     finally:
         writer.close()
         with contextlib.suppress(ConnectionError):

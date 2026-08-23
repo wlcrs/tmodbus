@@ -168,6 +168,31 @@ async def test_udp_server_unsupported_function_code(udp_server: AsyncUdpServer) 
         transport.close()
 
 
+async def test_udp_server_malformed_request(udp_server: AsyncUdpServer) -> None:
+    """Test that a malformed request with a supported function code returns ILLEGAL_DATA_VALUE."""
+    port = get_server_port(udp_server)
+    loop = asyncio.get_running_loop()
+
+    transport, protocol = await loop.create_datagram_endpoint(UdpClientProtocol, remote_addr=("127.0.0.1", port))
+
+    try:
+        # Read Holding Registers (0x03) with quantity = 0 raises InvalidRequestError in decode_request
+        mbap = struct.pack(">HHHB", 3, 0, 6, 1)
+        pdu = b"\x03\x00\x00\x00\x00"
+        frame = mbap + pdu
+
+        transport.sendto(frame)
+
+        resp = await asyncio.wait_for(protocol.future, timeout=1.0)
+
+        resp_pdu = resp[7:]
+        # Illegal data value exception response: 0x03 | 0x80 = 0x83, exception = 0x03
+        assert resp_pdu == b"\x83\x03"
+
+    finally:
+        transport.close()
+
+
 async def test_udp_server_start_twice(udp_server: AsyncUdpServer) -> None:
     """Test starting the server twice returns early."""
     await udp_server.start()  # Already started by fixture

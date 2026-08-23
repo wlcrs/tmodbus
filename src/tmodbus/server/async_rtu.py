@@ -8,13 +8,13 @@ from typing import Any, Literal
 
 from serialx import open_serial_connection
 
-from tmodbus.const import BROADCAST_UNIT_ID, EXCEPTION_RESPONSE_BIT
+from tmodbus.const import BROADCAST_UNIT_ID
 from tmodbus.exceptions import InvalidRequestError
 from tmodbus.utils.crc import calculate_crc16, validate_crc16
 from tmodbus.utils.raw_traffic_logger import format_bytes
 from tmodbus.utils.raw_traffic_logger import log_raw_traffic as base_log_raw_traffic
 
-from .base import AsyncBaseServer, get_server_pdu_class_from_buffer
+from .base import AsyncBaseServer, build_decode_error_response, get_server_pdu_class_from_buffer
 from .handler import ModbusHandler, handle_modbus_request, handler_supports_unit_id
 
 logger = logging.getLogger(__name__)
@@ -49,7 +49,7 @@ class AsyncRtuServer(AsyncBaseServer):
                       ├───[ validate_crc16() fails ]──────────► returns "processed" (skips frame, continues loop)
                       │
                       └──► _handle_frame()
-                                ├───[ PDU.decode_request() fails ]──► responds with IllegalFunction
+                                ├───[ PDU.decode_request() fails ]──► responds with IllegalDataValue
                                 └───[ Happy Path ]──────────────────► routes, encodes response & writes
                                                                       (returns "processed")
 
@@ -167,7 +167,7 @@ class AsyncRtuServer(AsyncBaseServer):
             request_pdu = pdu_class.decode_request(pdu_bytes)
         except (ValueError, InvalidRequestError) as e:
             logger.warning("Invalid request: %s", e)
-            response_pdu_bytes = bytes([function_code | EXCEPTION_RESPONSE_BIT, 0x01])
+            response_pdu_bytes = build_decode_error_response(function_code, e)
             is_error = True
         else:
             response_pdu_bytes = await handle_modbus_request(unit_id, request_pdu, self.handler)

@@ -168,6 +168,27 @@ async def test_tcp_server_unsupported_function_code(tcp_server: AsyncTcpServer) 
         await writer.wait_closed()
 
 
+async def test_tcp_server_malformed_request(tcp_server: AsyncTcpServer) -> None:
+    """Test that a malformed request with a supported function code returns ILLEGAL_DATA_VALUE."""
+    port = get_server_port(tcp_server)
+    reader, writer = await asyncio.open_connection("127.0.0.1", port)
+
+    try:
+        # Read Holding Registers (0x03) with quantity = 0 raises InvalidRequestError in decode_request
+        mbap = struct.pack(">HHHB", 2, 0, 6, 1)
+        pdu = b"\x03\x00\x00\x00\x00"
+        writer.write(mbap + pdu)
+        await writer.drain()
+
+        await reader.readexactly(7)
+        resp_pdu = await reader.readexactly(2)
+        assert resp_pdu == b"\x83\x03"  # 0x03 | 0x80 = 0x83, exception = 0x03
+
+    finally:
+        writer.close()
+        await writer.wait_closed()
+
+
 async def test_tcp_server_abrupt_disconnect(tcp_server: AsyncTcpServer) -> None:
     """Test that server handles client disconnecting abruptly during header read cleanly."""
     port = get_server_port(tcp_server)
@@ -235,12 +256,12 @@ async def test_tcp_server_subfunction_pdu_errors(tcp_server: AsyncTcpServer) -> 
         writer.write(mbap + pdu)
         await writer.drain()
 
-        # Should receive response: IllegalFunction (0x01)
+        # Truncated request for a supported function code: IllegalDataValue (0x03)
         await reader.readexactly(7)
         resp_pdu = await reader.readexactly(2)
-        assert resp_pdu == b"\xab\x01"  # 0x2b | 0x80 = 0xab
+        assert resp_pdu == b"\xab\x03"  # 0x2b | 0x80 = 0xab
 
-        # Send invalid sub-function code (e.g. 0)
+        # Send invalid sub-function code (e.g. 0): IllegalFunction (0x01)
         mbap = struct.pack(">HHHB", 5, 0, 3, 1)
         pdu = b"\x2b\x00"
         writer.write(mbap + pdu)
