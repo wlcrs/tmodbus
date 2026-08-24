@@ -42,7 +42,7 @@ Changelog = "https://github.com/wlcrs/tmodbus/releases"
 [project.optional-dependencies]
 
 async-serial = ["serialx"]
-security = ["cryptography>=38.0"]
+security = ["cryptography>=47.0"]
 
 [build-system]
 requires = ["hatchling", "hatch-vcs"]
