@@ -154,6 +154,11 @@ class ReadFileRecordPDU(BasePDU[list[bytes]]):
                 )
                 raise InvalidResponseError(msg, response_bytes=response)
 
+            # The length includes the reference type byte plus N registers, so it must be odd (and at least 1).
+            if file_response_length % 2 == 0:
+                msg = f"Invalid file response length {file_response_length}: must be odd"
+                raise InvalidResponseError(msg, response_bytes=response)
+
             data_start = offset + 2  # move past length and reference type
             data_end = data_start + file_response_length - 1  # reference type is included in length
 
@@ -164,6 +169,10 @@ class ReadFileRecordPDU(BasePDU[list[bytes]]):
             records.append(response[data_start:data_end])
 
             offset = data_end
+
+        if len(records) != len(self.requests):
+            msg = f"Expected {len(self.requests)} file records, received {len(records)}"
+            raise InvalidResponseError(msg, response_bytes=response)
 
         return records
 
@@ -258,15 +267,16 @@ class WriteFileRecordPDU(BasePDU[list[FileRecord]]):
             if not (0 <= len(record.data) <= 0xFFFF):
                 msg = "Record data length must be between 0 and 65535 bytes."
                 raise ValueError(msg)
+            if len(record.data) % 2 != 0:
+                msg = "Record data length cannot be odd; each register is 2 bytes."
+                raise ValueError(msg)
 
         if not self.file_records:
             msg = "At least one file record is required."
             raise ValueError(msg)
 
-        # Each record is a 7-byte header plus its data, padded up to an even length.
-        byte_count = sum(
-            SUB_REQUEST_STRUCT.size + len(record.data) + (len(record.data) % 2) for record in self.file_records
-        )
+        # Each record is a 7-byte header plus its data.
+        byte_count = sum(SUB_REQUEST_STRUCT.size + len(record.data) for record in self.file_records)
         if byte_count > MAX_WRITE_FILE_RECORD_BYTE_COUNT:
             msg = (
                 f"Write File Record request byte count {byte_count} exceeds the "

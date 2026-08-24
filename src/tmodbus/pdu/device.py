@@ -3,7 +3,6 @@
 cfr. section 6.21 of the Modbus Application Protocol Specification V1.1b3
 """
 
-import logging
 import struct
 from dataclasses import dataclass
 from enum import IntEnum
@@ -13,8 +12,6 @@ from tmodbus.const import FunctionCode
 from tmodbus.exceptions import FunctionCodeError, InvalidRequestError, InvalidResponseError
 
 from .base import BaseSubFunctionPDU
-
-logger = logging.getLogger(__name__)
 
 
 class ObjectName(IntEnum):
@@ -190,6 +187,7 @@ class ReadDeviceIdentificationPDU(BaseSubFunctionPDU[ReadDeviceIdentificationRes
             raise InvalidResponseError(msg, response_bytes=response) from e
 
         objects: dict[int, bytes] = {}
+        parsed_objects = 0
         offset = response_header_struct.size
         while offset < len(response):
             try:
@@ -198,11 +196,16 @@ class ReadDeviceIdentificationPDU(BaseSubFunctionPDU[ReadDeviceIdentificationRes
                 msg = "Truncated object header in Read Device Identification response"
                 raise InvalidResponseError(msg, response_bytes=response) from e
             offset += 2
+            if offset + obj_length > len(response):
+                msg = "Truncated object value in Read Device Identification response"
+                raise InvalidResponseError(msg, response_bytes=response)
             objects[obj_id] = response[offset : offset + obj_length]
+            parsed_objects += 1
             offset += obj_length
 
-        if offset != len(response):
-            logger.warning("Response has %d extra bytes", len(response) - offset)
+        if parsed_objects != number_of_objects:
+            msg = f"Expected {number_of_objects} objects, received {parsed_objects}"
+            raise InvalidResponseError(msg, response_bytes=response)
 
         return ReadDeviceIdentificationResponse(
             device_id_code=device_id_code,
@@ -242,7 +245,7 @@ class ReadDeviceIdentificationPDU(BaseSubFunctionPDU[ReadDeviceIdentificationRes
 
         if sub_function_code != cls.sub_function_code:
             msg = f"Expected sub-function code {cls.sub_function_code}, got {data[0]}"
-            raise InvalidResponseError(msg, response_bytes=data)
+            raise FunctionCodeError(msg, response_bytes=data)
 
         offset = response_header_struct.size
 

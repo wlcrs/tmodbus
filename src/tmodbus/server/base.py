@@ -3,6 +3,7 @@
 from abc import ABC, abstractmethod
 from typing import Any
 
+from tmodbus.const import EXCEPTION_RESPONSE_BIT, ExceptionCode
 from tmodbus.exceptions import InvalidRequestError
 from tmodbus.pdu import (
     BaseClientPDU,
@@ -92,6 +93,28 @@ def get_server_pdu_class_from_buffer(buffer: bytearray) -> type[BasePDU[Any]] | 
         raise ValueError(msg)
 
     return pdu_class
+
+
+def build_decode_error_response(function_code: int, error: Exception) -> bytes:
+    """Build the exception-response PDU for a request that failed to decode.
+
+    ``InvalidRequestError`` means the function code is supported but the request
+    data is malformed, so per the Modbus specification the server answers
+    ILLEGAL_DATA_VALUE.  Any other error means the (sub-)function code itself is
+    unknown or unsupported, which is answered with ILLEGAL_FUNCTION.
+
+    Args:
+        function_code: Function code of the offending request.
+        error: The exception raised while resolving or decoding the request.
+
+    Returns:
+        The two-byte exception-response PDU.
+
+    """
+    exception_code = (
+        ExceptionCode.ILLEGAL_DATA_VALUE if isinstance(error, InvalidRequestError) else ExceptionCode.ILLEGAL_FUNCTION
+    )
+    return bytes([function_code | EXCEPTION_RESPONSE_BIT, exception_code])
 
 
 class AsyncBaseServer(ABC):

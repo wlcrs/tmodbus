@@ -6,13 +6,13 @@ import logging
 from functools import partial
 from typing import Any, Literal
 
-from tmodbus.const import BROADCAST_UNIT_ID, EXCEPTION_RESPONSE_BIT
+from tmodbus.const import BROADCAST_UNIT_ID
 from tmodbus.exceptions import InvalidRequestError
 from tmodbus.utils.lrc import calculate_lrc, validate_lrc
 from tmodbus.utils.raw_traffic_logger import format_bytes
 from tmodbus.utils.raw_traffic_logger import log_raw_traffic as base_log_raw_traffic
 
-from .base import AsyncBaseServer, get_server_pdu_class
+from .base import AsyncBaseServer, build_decode_error_response, get_server_pdu_class
 from .handler import ModbusHandler, handle_modbus_request, handler_supports_unit_id
 
 logger = logging.getLogger(__name__)
@@ -45,6 +45,7 @@ class AsyncAsciiServer(AsyncBaseServer):
              _get_pdu_class() / decode_request()
                       │
                       ├───[ decoding fails ]──────────────────► responds with IllegalFunction
+                      │                                         or IllegalDataValue
                       └───[ Happy Path ]──────────────────────► routes, encodes response,
                                                                 calculates LRC & writes
 
@@ -207,7 +208,7 @@ class AsyncAsciiServer(AsyncBaseServer):
             request_pdu = pdu_class.decode_request(pdu_bytes)
         except (ValueError, InvalidRequestError) as e:
             logger.warning("Invalid request: %s", e)
-            response_pdu_bytes = bytes([function_code | EXCEPTION_RESPONSE_BIT, 0x01])
+            response_pdu_bytes = build_decode_error_response(function_code, e)
             is_error = True
         else:
             response_pdu_bytes = await handle_modbus_request(unit_id, request_pdu, self.handler)

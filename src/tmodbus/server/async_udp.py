@@ -10,7 +10,7 @@ from tmodbus.const import EXCEPTION_RESPONSE_BIT, ExceptionCode
 from tmodbus.exceptions import InvalidRequestError
 from tmodbus.utils.raw_traffic_logger import log_raw_traffic as base_log_raw_traffic
 
-from .base import AsyncBaseServer, get_server_pdu_class
+from .base import AsyncBaseServer, build_decode_error_response, get_server_pdu_class
 from .handler import AnyModbusHandler, RequestContext, handle_modbus_request, handler_supports_unit_id
 
 logger = logging.getLogger(__name__)
@@ -162,7 +162,7 @@ class ModbusUdpServerProtocol(asyncio.DatagramProtocol):
                     request_pdu = raw_pdu_class.decode_request(pdu_bytes)
                 except (ValueError, InvalidRequestError) as e:
                     logger.warning("Invalid request from %s: %s", addr, e)
-                    response_pdu_bytes = bytes([function_code | EXCEPTION_RESPONSE_BIT, 0x01])  # ILLEGAL_FUNCTION
+                    response_pdu_bytes = build_decode_error_response(function_code, e)
                     is_error = True
                 else:
                     context = RequestContext(peer_addr=addr)

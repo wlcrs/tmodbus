@@ -419,6 +419,9 @@ async def test_ascii_server_edge_cases() -> None:
     await asyncio.sleep(0.05)
     # Write calls: 1 (missing sub) + 1 (good sub) + 1 (bad sub) + 1 (invalid param) = 4
     assert len(mock_serial_inst.write_calls) == 4
+    # Malformed request with a supported function code: IllegalDataValue (0x03)
+    # bin_data = b"\x01\x83\x03", LRC = 0x79
+    assert mock_serial_inst.write_calls[3] == b":01830379\r\n"
     mock_serial_inst.write_calls.clear()
 
     # 1. Serial port read exception in loop (run while loop is still active!)

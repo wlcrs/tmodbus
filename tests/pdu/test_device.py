@@ -1,10 +1,9 @@
 """Tests for device.py - Read Device Identification PDU."""
 
-import logging
 import struct
 
 import pytest
-from tmodbus.exceptions import InvalidRequestError, InvalidResponseError
+from tmodbus.exceptions import FunctionCodeError, InvalidRequestError, InvalidResponseError
 from tmodbus.pdu import ReadDeviceIdentificationResponse
 from tmodbus.pdu.device import (
     ConformityLevel,
@@ -232,8 +231,8 @@ class TestReadDeviceIdentificationPDU:
         assert result.objects[0x03] == b"http://vendor.com"
         assert result.objects[0x04] == b"ProductName!"
 
-    def test_decode_response_extra_bytes_warning(self, caplog: pytest.LogCaptureFixture) -> None:
-        """Test decoding response triggers warning when object length extends past response end."""
+    def test_decode_response_truncated_object_value(self) -> None:
+        """An object whose claimed length extends past the response end raises InvalidResponseError."""
         pdu = ReadDeviceIdentificationPDU(read_device_id_code=0x01, object_id=0x00)
 
         response = struct.pack(
@@ -247,18 +246,30 @@ class TestReadDeviceIdentificationPDU:
             0x01,
         )
         # Add an object with length 10 but only provide 5 bytes of data
-        # This makes offset jump to 7 + 2 + 10 = 19, but response is only 7 + 2 + 5 = 14 bytes
         response += struct.pack(">BB", 0x00, 10) + b"Short"
 
-        with caplog.at_level(logging.WARNING):
-            result = pdu.decode_response(response)
+        with pytest.raises(InvalidResponseError, match=r"Truncated object value"):
+            pdu.decode_response(response)
 
-        # The warning is logged when offset != len(response)
-        # In this case, offset = 19 > len(response) = 14, so warning logged
-        assert "Response has" in caplog.text
-        assert "extra bytes" in caplog.text
-        # The object will contain only the 5 bytes that were actually present
-        assert result.objects == {0x00: b"Short"}
+    def test_decode_response_object_count_mismatch(self) -> None:
+        """A response whose object count differs from the advertised count raises InvalidResponseError."""
+        pdu = ReadDeviceIdentificationPDU(read_device_id_code=0x01, object_id=0x00)
+
+        response = struct.pack(
+            ">BBBBBBB",
+            0x2B,
+            0x0E,
+            0x01,
+            0x01,
+            0x00,
+            0x00,
+            0x02,  # Claims two objects
+        )
+        # But only one object follows
+        response += struct.pack(">BB", 0x00, 6) + b"Vendor"
+
+        with pytest.raises(InvalidResponseError, match=r"Expected 2 objects, received 1"):
+            pdu.decode_response(response)
 
     def test_decode_response_all_conformity_levels(self) -> None:
         """Test decoding response with different conformity levels."""
@@ -327,10 +338,10 @@ class TestReadDeviceIdentificationPDUGetExpectedResponseDataLength:
         assert result is None
 
     def test_invalid_sub_function_code(self) -> None:
-        """Test with invalid sub-function code."""
+        """A sub-function code mismatch raises FunctionCodeError so the RTU framing loop can recover."""
         # Sub-function code should be 0x0E, but provide 0x0F
         data = struct.pack(">BBBBBB", 0x0F, 0x01, 0x01, 0x00, 0x00, 0x00)
-        with pytest.raises(Exception, match=r"Expected sub-function code"):
+        with pytest.raises(FunctionCodeError, match=r"Expected sub-function code"):
             ReadDeviceIdentificationPDU.get_expected_response_data_length(data)
 
     def test_zero_objects(self) -> None:
