@@ -38,6 +38,10 @@ class RawReadHoldingRegistersPDU(BasePDU[bytes]):
             raise ValueError(msg)
         self.quantity = quantity
 
+        if start_address + quantity > 65536:
+            msg = "Start address plus quantity must not exceed 65536."
+            raise ValueError(msg)
+
     def encode_request(self) -> bytes:
         """Convert PDU to bytes.
 
@@ -371,6 +375,10 @@ class RawWriteMultipleRegistersPDU(BasePDU[int]):
 
         if len(content) % 2 != 0:
             msg = "Content length cannot be odd; each register is 2 bytes."
+            raise ValueError(msg)
+
+        if start_address + len(content) // 2 > 65536:
+            msg = "Start address plus number of registers must not exceed 65536."
             raise ValueError(msg)
 
         self.content = content
@@ -743,12 +751,20 @@ class ReadWriteMultipleRegistersPDU(BasePDU[list[int]]):
             msg = "Read quantity must be between 1 and 125."
             raise ValueError(msg)
 
+        if self.read_start_address + self.read_quantity > 65536:
+            msg = "Read starting address plus read quantity must not exceed 65536."
+            raise ValueError(msg)
+
         if not (0 <= self.write_start_address < 65536):
             msg = "Write starting address must be between 0 and 65535."
             raise ValueError(msg)
 
         if not (1 <= len(self.write_values) <= 121):
             msg = "Number of registers to write must be between 1 and 121."
+            raise ValueError(msg)
+
+        if self.write_start_address + len(self.write_values) > 65536:
+            msg = "Write starting address plus number of registers to write must not exceed 65536."
             raise ValueError(msg)
 
         for idx, value in enumerate(self.write_values):

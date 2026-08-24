@@ -43,6 +43,10 @@ class ReadCoilsPDU(BasePDU[list[bool]]):
             raise ValueError(msg)
         self.quantity = quantity
 
+        if start_address + quantity > 65536:
+            msg = "Start address plus quantity must not exceed 65536."
+            raise ValueError(msg)
+
     def encode_request(self) -> bytes:
         """Convert PDU to bytes.
 
@@ -269,6 +273,10 @@ class WriteMultipleCoilsPDU(BasePDU[int]):
         self.start_address = start_address
         if not (1 <= len(values) <= 0x07B0):  # 1968 coils max
             msg = "Number of coils must be between 1 and 1968."
+            raise ValueError(msg)
+
+        if start_address + len(values) > 65536:
+            msg = "Start address plus number of coils must not exceed 65536."
             raise ValueError(msg)
 
         self.values = values

@@ -24,6 +24,23 @@ class TestReadHoldingRegistersPDU:
     with pytest.raises(ValueError, match=r"Quantity must be between 1 and 125."):
         ReadHoldingRegistersPDU(start_address=1, quantity=126)
 
+    def test_read_holding_registers_address_overflow_validation(self) -> None:
+        """The requested range must stay within the 16-bit address space."""
+        pdu = ReadHoldingRegistersPDU(start_address=65411, quantity=125)
+        assert pdu.quantity == 125
+
+        with pytest.raises(ValueError, match=r"Start address plus quantity must not exceed 65536\."):
+            ReadHoldingRegistersPDU(start_address=65412, quantity=125)
+
+    def test_decode_request_address_overflow(self) -> None:
+        """A server-side request past the end of the address space raises InvalidRequestError."""
+        pdu = ReadHoldingRegistersPDU.decode_request(b"\x03\xff\x83\x00\x7d")  # 65411 + 125 == 65536
+        assert pdu.start_address == 65411
+
+        request = b"\x03\xff\x84\x00\x7d"  # 65412 + 125 > 65536
+        with pytest.raises(InvalidRequestError, match=r"Start address plus quantity must not exceed 65536\."):
+            ReadHoldingRegistersPDU.decode_request(request)
+
     def test_read_holding_registers_encode_request(self) -> None:
         """Test encoding of Read Holding Registers PDU."""
         pdu = ReadHoldingRegistersPDU(start_address=1, quantity=10)
@@ -189,6 +206,23 @@ class TestRawReadHoldingRegistersPDU:
         """A server-side request with an invalid quantity raises InvalidRequestError."""
         request = b"\x03\x12\x34\x00\x00"
         with pytest.raises(InvalidRequestError, match="Quantity must be between 1 and 125"):
+            RawReadHoldingRegistersPDU.decode_request(request)
+
+    def test_address_overflow_validation(self) -> None:
+        """The requested range must stay within the 16-bit address space."""
+        pdu = RawReadHoldingRegistersPDU(start_address=65535, quantity=1)
+        assert pdu.start_address == 65535
+
+        with pytest.raises(ValueError, match=r"Start address plus quantity must not exceed 65536\."):
+            RawReadHoldingRegistersPDU(start_address=65535, quantity=2)
+
+    def test_decode_request_address_overflow(self) -> None:
+        """A server-side request past the end of the address space raises InvalidRequestError."""
+        pdu = RawReadHoldingRegistersPDU.decode_request(b"\x03\xff\xff\x00\x01")
+        assert pdu.start_address == 65535
+
+        request = b"\x03\xff\xff\x00\x02"
+        with pytest.raises(InvalidRequestError, match=r"Start address plus quantity must not exceed 65536\."):
             RawReadHoldingRegistersPDU.decode_request(request)
 
     def test_decode_request_value_error_is_converted(self, monkeypatch: pytest.MonkeyPatch) -> None:
@@ -480,6 +514,25 @@ class TestRawWriteMultipleRegistersPDU:
         with pytest.raises(InvalidRequestError, match="Invalid data length"):
             RawWriteMultipleRegistersPDU.decode_request(request)
 
+    def test_address_overflow_validation(self) -> None:
+        """The written range must stay within the 16-bit address space."""
+        pdu = RawWriteMultipleRegistersPDU(start_address=65535, content=b"\x12\x34")
+        assert pdu.start_address == 65535
+
+        with pytest.raises(ValueError, match=r"Start address plus number of registers must not exceed 65536\."):
+            RawWriteMultipleRegistersPDU(start_address=65535, content=b"\x12\x34\x56\x78")
+
+    def test_decode_request_address_overflow(self) -> None:
+        """A server-side request past the end of the address space raises InvalidRequestError."""
+        pdu = RawWriteMultipleRegistersPDU.decode_request(b"\x10\xff\xff\x00\x01\x02\x12\x34")
+        assert pdu.start_address == 65535
+
+        request = b"\x10\xff\xff\x00\x02\x04\x12\x34\x56\x78"
+        with pytest.raises(
+            InvalidRequestError, match=r"Start address plus number of registers must not exceed 65536\."
+        ):
+            RawWriteMultipleRegistersPDU.decode_request(request)
+
     def test_decode_request_value_error_is_converted(self, monkeypatch: pytest.MonkeyPatch) -> None:
         """A constructor ValueError is converted to InvalidRequestError for server-side decoding."""
 
@@ -560,6 +613,25 @@ class TestWriteMultipleRegistersPDU:
 
         with pytest.raises(ValueError, match=r"Value must be between 0 and 65535: 70000"):
             WriteMultipleRegistersPDU(start_address=1, values=[70000])
+
+    def test_write_multiple_registers_address_overflow_validation(self) -> None:
+        """The written range must stay within the 16-bit address space."""
+        pdu = WriteMultipleRegistersPDU(start_address=65535, values=[123])
+        assert pdu.start_address == 65535
+
+        with pytest.raises(ValueError, match=r"Start address plus number of registers must not exceed 65536\."):
+            WriteMultipleRegistersPDU(start_address=65535, values=[123, 456])
+
+    def test_decode_request_address_overflow(self) -> None:
+        """A server-side request past the end of the address space raises InvalidRequestError."""
+        pdu = WriteMultipleRegistersPDU.decode_request(b"\x10\xff\xff\x00\x01\x02\x12\x34")
+        assert pdu.start_address == 65535
+
+        request = b"\x10\xff\xff\x00\x02\x04\x12\x34\x56\x78"
+        with pytest.raises(
+            InvalidRequestError, match=r"Start address plus number of registers must not exceed 65536\."
+        ):
+            WriteMultipleRegistersPDU.decode_request(request)
 
     def test_write_multiple_registers_encode_request(self) -> None:
         """Test encoding of Write Multiple Registers PDU."""
@@ -1024,6 +1096,53 @@ class TestReadWriteMultipleRegistersPDU:
         """A server-side request with zero write registers raises InvalidRequestError."""
         request = b"\x17\x00\x10\x00\x01\x00\x20\x00\x00\x00"
         with pytest.raises(InvalidRequestError, match="Number of registers to write must be between 1 and 121"):
+            ReadWriteMultipleRegistersPDU.decode_request(request)
+
+    def test_address_overflow_validation(self) -> None:
+        """Both the read and the write range must stay within the 16-bit address space."""
+        pdu = ReadWriteMultipleRegistersPDU(
+            read_start_address=65535,
+            read_quantity=1,
+            write_start_address=65535,
+            write_values=[1],
+        )
+        assert pdu.read_start_address == 65535
+
+        with pytest.raises(ValueError, match=r"Read starting address plus read quantity must not exceed 65536\."):
+            ReadWriteMultipleRegistersPDU(
+                read_start_address=65535,
+                read_quantity=2,
+                write_start_address=200,
+                write_values=[1],
+            )
+
+        with pytest.raises(
+            ValueError, match=r"Write starting address plus number of registers to write must not exceed 65536\."
+        ):
+            ReadWriteMultipleRegistersPDU(
+                read_start_address=100,
+                read_quantity=1,
+                write_start_address=65535,
+                write_values=[1, 2],
+            )
+
+    def test_decode_request_address_overflow(self) -> None:
+        """A server-side request past the end of the address space raises InvalidRequestError."""
+        pdu = ReadWriteMultipleRegistersPDU.decode_request(b"\x17\xff\xff\x00\x01\xff\xff\x00\x01\x02\x12\x34")
+        assert pdu.read_start_address == 65535
+        assert pdu.write_start_address == 65535
+
+        request = b"\x17\xff\xff\x00\x02\x00\x00\x00\x01\x02\x12\x34"
+        with pytest.raises(
+            InvalidRequestError, match=r"Read starting address plus read quantity must not exceed 65536\."
+        ):
+            ReadWriteMultipleRegistersPDU.decode_request(request)
+
+        request = b"\x17\x00\x00\x00\x01\xff\xff\x00\x02\x04\x12\x34\x56\x78"
+        with pytest.raises(
+            InvalidRequestError,
+            match=r"Write starting address plus number of registers to write must not exceed 65536\.",
+        ):
             ReadWriteMultipleRegistersPDU.decode_request(request)
 
     def test_decode_request_too_short(self) -> None:
