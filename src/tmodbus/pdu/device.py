@@ -132,7 +132,30 @@ class ReadDeviceIdentificationPDU(BaseSubFunctionPDU[ReadDeviceIdentificationRes
         Returns:
             Bytes representation of the response PDU
 
+        Raises:
+            ValueError: If a field is out of range or the object count does not match
+
         """
+        if not (0x00 <= value.next_object_id <= 0xFF):
+            msg = "Next object ID must be between 0x00 and 0xFF."
+            raise ValueError(msg)
+
+        if value.number_of_objects != len(value.objects):
+            msg = f"Expected {value.number_of_objects} objects, got {len(value.objects)}"
+            raise ValueError(msg)
+
+        if not (0x00 <= value.number_of_objects <= 0xFF):
+            msg = "Number of objects must be between 0 and 255."
+            raise ValueError(msg)
+
+        for obj_id, obj_bytes in value.objects.items():
+            if not (0x00 <= obj_id <= 0xFF):
+                msg = "Object ID must be between 0x00 and 0xFF."
+                raise ValueError(msg)
+            if len(obj_bytes) > 0xFF:
+                msg = f"Object {obj_id:#04x} value length {len(obj_bytes)} exceeds the maximum of 255."
+                raise ValueError(msg)
+
         header = struct.pack(
             ">BBBBBBB",
             self.function_code,

@@ -509,3 +509,59 @@ class TestReadDeviceIdentificationPDUServer:
         expected += b"\x01\x07" + b"Product"
 
         assert encoded == expected
+
+    def test_encode_response_boundary_values(self) -> None:
+        """Test encoding a response with boundary field values."""
+        pdu = ReadDeviceIdentificationPDU(read_device_id_code=0x01, object_id=0x00)
+        response = ReadDeviceIdentificationResponse(
+            device_id_code=0x01,
+            conformity_level=ConformityLevel.BASIC,
+            more=False,
+            next_object_id=0xFF,
+            number_of_objects=1,
+            objects={0xFF: b"\x00" * 255},
+        )
+        encoded = pdu.encode_response(response)
+        assert encoded == b"\x2b\x0e\x01\x01\x00\xff\x01" + b"\xff\xff" + b"\x00" * 255
+
+    def test_encode_response_object_count_mismatch(self) -> None:
+        """Test encode_response raises when number_of_objects does not match the objects."""
+        pdu = ReadDeviceIdentificationPDU(read_device_id_code=0x01, object_id=0x00)
+        response = ReadDeviceIdentificationResponse(
+            device_id_code=0x01,
+            conformity_level=ConformityLevel.BASIC,
+            more=False,
+            next_object_id=0x00,
+            number_of_objects=3,
+            objects={0x00: b"Vendor", 0x01: b"Product"},
+        )
+        with pytest.raises(ValueError, match="Expected 3 objects, got 2"):
+            pdu.encode_response(response)
+
+    def test_encode_response_invalid_next_object_id(self) -> None:
+        """Test encode_response raises on out-of-range next object ID."""
+        pdu = ReadDeviceIdentificationPDU(read_device_id_code=0x01, object_id=0x00)
+        response = ReadDeviceIdentificationResponse(
+            device_id_code=0x01,
+            conformity_level=ConformityLevel.BASIC,
+            more=False,
+            next_object_id=0x100,
+            number_of_objects=1,
+            objects={0x00: b"Vendor"},
+        )
+        with pytest.raises(ValueError, match="Next object ID must be between 0x00 and 0xFF"):
+            pdu.encode_response(response)
+
+    def test_encode_response_object_value_too_long(self) -> None:
+        """Test encode_response raises when an object value exceeds 255 bytes."""
+        pdu = ReadDeviceIdentificationPDU(read_device_id_code=0x01, object_id=0x00)
+        response = ReadDeviceIdentificationResponse(
+            device_id_code=0x01,
+            conformity_level=ConformityLevel.BASIC,
+            more=False,
+            next_object_id=0x00,
+            number_of_objects=1,
+            objects={0x00: b"\x00" * 256},
+        )
+        with pytest.raises(ValueError, match="Object 0x00 value length 256 exceeds the maximum of 255"):
+            pdu.encode_response(response)
