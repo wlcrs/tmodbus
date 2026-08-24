@@ -511,11 +511,11 @@ class AsyncAsciiTransport(AsyncBaseTransport):
             )
 
         except TimeoutError:
-            logger.warning("Async Serial connection timeout: %s", self.port, exc_info=True)
+            logger.debug("Async Serial connection timeout: %s", self.port, exc_info=True)
             self._abort_failed_open()
             raise
         except Exception as e:
-            logger.exception("Async Serial connection error: %s", self.port)
+            logger.debug("Async Serial connection error: %s", self.port, exc_info=True)
             self._abort_failed_open()
             raise ModbusConnectionError from e
 

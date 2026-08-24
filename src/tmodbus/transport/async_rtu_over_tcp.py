@@ -108,10 +108,10 @@ class AsyncRtuOverTcpTransport(AsyncBaseTransport):
 
             logger.info("Async RTU/TCP connection established: %s:%d", self.host, self.port)
         except TimeoutError:
-            logger.warning("Async RTU/TCP connection timeout: %s:%d", self.host, self.port, exc_info=True)
+            logger.debug("Async RTU/TCP connection timeout: %s:%d", self.host, self.port, exc_info=True)
             raise
         except Exception as e:
-            logger.exception("Async RTU/TCP connection error: %s:%d", self.host, self.port)
+            logger.debug("Async RTU/TCP connection error: %s:%d", self.host, self.port, exc_info=True)
             raise ModbusConnectionError from e
 
     async def close(self) -> None:

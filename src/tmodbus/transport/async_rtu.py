@@ -223,11 +223,11 @@ class AsyncRtuTransport(AsyncBaseTransport):
             )
 
         except TimeoutError:
-            logger.warning("Async serial connection timeout: %s", self.port, exc_info=True)
+            logger.debug("Async serial connection timeout: %s", self.port, exc_info=True)
             self._abort_failed_open()
             raise
         except Exception as e:
-            logger.exception("Async serial connection error: %s", self.port)
+            logger.debug("Async serial connection error: %s", self.port, exc_info=True)
             self._abort_failed_open()
             raise ModbusConnectionError from e
 
