@@ -1,6 +1,7 @@
 """Holding/Input Registers PDU Module."""
 
 import struct
+from collections.abc import Sequence
 from dataclasses import dataclass
 from typing import Self
 
@@ -721,7 +722,7 @@ class ReadWriteMultipleRegistersPDU(BasePDU[list[int]]):
     read_start_address: int
     read_quantity: int
     write_start_address: int
-    write_values: list[int]
+    write_values: Sequence[int]
 
     REQUEST_HEADER_STRUCT = struct.Struct(">BHHHHB")
 
@@ -735,6 +736,9 @@ class ReadWriteMultipleRegistersPDU(BasePDU[list[int]]):
 
     def __post_init__(self) -> None:
         """Validate parameters after initialization."""
+        # Store an immutable copy so the frozen dataclass stays hashable.
+        object.__setattr__(self, "write_values", tuple(self.write_values))
+
         if not (0 <= self.read_start_address < 65536):
             msg = "Read starting address must be between 0 and 65535."
             raise ValueError(msg)

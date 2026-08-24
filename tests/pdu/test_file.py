@@ -391,6 +391,17 @@ class TestWriteFileRecordPDU:
         pdu = WriteFileRecordPDU(file_records=records)
         assert pdu.function_code == 0x15
 
+    def test_hashable(self) -> None:
+        """Test that file records are stored as a tuple, keeping the frozen PDU hashable."""
+        records = [FileRecord(file_number=4, record_number=7, data=b"\x06\xaf\x04\xbe")]
+        pdu = WriteFileRecordPDU(file_records=records)
+        equal_pdu = WriteFileRecordPDU(file_records=tuple(records))
+
+        assert pdu.file_records == tuple(records)
+        assert pdu == equal_pdu
+        assert len({pdu, equal_pdu}) == 1
+        assert {pdu: "value"}[equal_pdu] == "value"
+
     def test_get_expected_request_data_length(self) -> None:
         """Test get_expected_request_data_length."""
         assert WriteFileRecordPDU.get_expected_request_data_length(b"\x0b") == 12
