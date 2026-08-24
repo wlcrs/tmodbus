@@ -6,6 +6,7 @@ import pytest
 from tmodbus.exceptions import InvalidRequestError
 from tmodbus.pdu import (
     BaseClientPDU,
+    DiagnosticsQueryDataPDU,
     ReadHoldingRegistersPDU,
 )
 from tmodbus.pdu.base import BaseSubFunctionPDU
@@ -35,6 +36,10 @@ def test_get_server_pdu_class_success() -> None:
     cls = get_server_pdu_class(b"\x03\x00\x00\x00\x02")
     assert cls is ReadHoldingRegistersPDU
 
+    # FC08 Diagnostics sub-function code
+    cls_diag = get_server_pdu_class(b"\x08\x00\x00\x00\x00")
+    assert cls_diag is DiagnosticsQueryDataPDU
+
     # Sub-function code
     with patch("tmodbus.server.base.get_subfunction_pdu_class", return_value=DummySubFunctionServerPDU):
         cls = get_server_pdu_class(b"\x2b\x0e\x01\x00")
@@ -52,6 +57,9 @@ def test_get_server_pdu_class_missing_subfunction() -> None:
     with pytest.raises(InvalidRequestError, match="Missing sub-function code"):
         get_server_pdu_class(b"\x2b")
 
+    with pytest.raises(InvalidRequestError, match="Missing sub-function code"):
+        get_server_pdu_class(b"\x08\x00")
+
 
 def test_get_server_pdu_class_non_server() -> None:
     """Test get_server_pdu_class raises ValueError for client-only PDUs."""
@@ -68,6 +76,10 @@ def test_get_server_pdu_class_from_buffer_success() -> None:
     cls = get_server_pdu_class_from_buffer(bytearray(b"\x01\x03\x00\x00\x00\x02"))
     assert cls is ReadHoldingRegistersPDU
 
+    # FC08 Diagnostics
+    cls_diag = get_server_pdu_class_from_buffer(bytearray(b"\x01\x08\x00\x00\x00\x00"))
+    assert cls_diag is DiagnosticsQueryDataPDU
+
     # Sub-function code
     with patch("tmodbus.server.base.get_subfunction_pdu_class", return_value=DummySubFunctionServerPDU):
         cls = get_server_pdu_class_from_buffer(bytearray(b"\x01\x2b\x0e\x01\x00"))
@@ -79,6 +91,10 @@ def test_get_server_pdu_class_from_buffer_missing_subfunction() -> None:
     # Buffer has unit_id, fc, but is missing the sub-function byte at index 2
     cls = get_server_pdu_class_from_buffer(bytearray(b"\x01\x2b"))
     assert cls is None
+
+    # For FC08 Diagnostics (2-byte sub-function), buffer has unit_id, fc, 1 sub-function byte, missing 2nd byte
+    cls_diag = get_server_pdu_class_from_buffer(bytearray(b"\x01\x08\x00"))
+    assert cls_diag is None
 
 
 def test_get_server_pdu_class_from_buffer_too_short() -> None:

@@ -48,7 +48,7 @@ import time
 from collections.abc import Callable
 from dataclasses import dataclass
 from functools import partial
-from typing import TYPE_CHECKING, Any, NotRequired, TypedDict, TypeVar, Unpack
+from typing import TYPE_CHECKING, Any, NotRequired, TypedDict, TypeVar, Unpack, cast
 
 if TYPE_CHECKING:
     from serialx import Parity, StopBits
@@ -62,7 +62,13 @@ from tmodbus.exceptions import (
     UnknownModbusResponseError,
     error_code_to_exception_map,
 )
-from tmodbus.pdu import BaseClientPDU, get_pdu_class, get_subfunction_pdu_class, is_function_code_for_subfunction_pdu
+from tmodbus.pdu import (
+    BaseClientPDU,
+    get_pdu_class,
+    get_subfunction_code_length,
+    get_subfunction_pdu_class,
+    is_function_code_for_subfunction_pdu,
+)
 from tmodbus.utils.crc import calculate_crc16, validate_crc16
 from tmodbus.utils.raw_traffic_logger import log_raw_traffic as base_log_raw_traffic
 
@@ -378,12 +384,14 @@ class ModbusRtuProtocol(asyncio.Protocol):
                 await asyncio.sleep(to_wait)
 
             # Async send request
-            if broadcast_response is not None:
-                # We're broadcasting an action, so just send it and return immediately
+            if not pdu.expects_response or broadcast_response is not None:
+                # No response expected from server, so send and return immediately
                 self.transport.write(request_adu)
                 log_raw_traffic("sent", request_adu)
                 self._last_frame_ended_at = time.monotonic()
-                return broadcast_response
+                if broadcast_response is not None:
+                    return broadcast_response
+                return cast("RT", None)
 
             read_future: asyncio.Future[_ModbusRtuMessage] = asyncio.get_running_loop().create_future()
             self._pending_request = _PendingRequest(unit_id=unit_id, future=read_future, pdu=pdu)
@@ -408,23 +416,27 @@ class ModbusRtuProtocol(asyncio.Protocol):
             finally:
                 self._pending_request = None
 
-            # Check if it's an exception response
-            if len(response.pdu_bytes) > 0 and response.pdu_bytes[0] & EXCEPTION_RESPONSE_BIT:  # Exception response
-                function_code = response.pdu_bytes[0] & FUNCTION_CODE_MASK  # Remove exception flag bit
-                exception_code = response.pdu_bytes[1] if len(response.pdu_bytes) > 1 else 0
+            return self._decode_response_pdu(response, pdu)
 
-                if exception_code in error_code_to_exception_map:
-                    raise error_code_to_exception_map[exception_code](function_code)
-                raise UnknownModbusResponseError(exception_code, function_code)
+    def _decode_response_pdu(self, response: _ModbusRtuMessage, pdu: BaseClientPDU[RT]) -> RT:
+        """Validate and decode the received PDU response."""
+        # Check if it's an exception response
+        if len(response.pdu_bytes) > 0 and response.pdu_bytes[0] & EXCEPTION_RESPONSE_BIT:
+            function_code = response.pdu_bytes[0] & FUNCTION_CODE_MASK
+            exception_code = response.pdu_bytes[1] if len(response.pdu_bytes) > 1 else 0
 
-            # Validate function code
-            response_function_code = response.pdu_bytes[0]
-            if response_function_code != pdu.function_code:
-                msg = f"Function code mismatch: expected {pdu.function_code}, received {response_function_code}"
-                raise FunctionCodeError(msg, response_bytes=response.bytes)
+            if exception_code in error_code_to_exception_map:
+                raise error_code_to_exception_map[exception_code](function_code)
+            raise UnknownModbusResponseError(exception_code, function_code)
 
-            # Return decoded response
-            return pdu.decode_response(response.pdu_bytes)
+        # Validate function code
+        response_function_code = response.pdu_bytes[0]
+        if response_function_code != pdu.function_code:
+            msg = f"Function code mismatch: expected {pdu.function_code}, received {response_function_code}"
+            raise FunctionCodeError(msg, response_bytes=response.bytes)
+
+        # Return decoded response
+        return pdu.decode_response(response.pdu_bytes)
 
     def _get_expected_headers(self) -> set[bytes]:
         """Get set of expected 2-byte headers (unit_id + function_code).
@@ -541,11 +553,13 @@ class ModbusRtuProtocol(asyncio.Protocol):
                 if not is_function_code_for_subfunction_pdu(function_code):
                     pdu_class = get_pdu_class(function_code)
                 else:
-                    # It's a sub-function PDU, we need at least 6 bytes to determine the length
-                    # 6 = address + function code + sub-function code + at least 1 byte of data + CRC
-                    if len(self._buffer) < 6:
-                        return None  # Wait for more data
-                    sub_function_code = self._buffer[2]
+                    subfunction_code_length = get_subfunction_code_length(function_code)
+
+                    # It's a sub-function PDU, we need at least 5 + subfunction_code_length bytes to determine
+                    # the length: address + function code + sub-function code + at least 1 byte of data + CRC
+                    if len(self._buffer) < (5 + subfunction_code_length):
+                        return None
+                    sub_function_code = int.from_bytes(self._buffer[2 : 2 + subfunction_code_length], "big")
                     pdu_class = get_subfunction_pdu_class(function_code, sub_function_code)
             except ValueError as e:
                 if pending_pdu is not None:

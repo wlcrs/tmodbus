@@ -9,6 +9,7 @@ from tmodbus.pdu import (
     BaseClientPDU,
     BasePDU,
     get_pdu_class,
+    get_subfunction_code_length,
     get_subfunction_pdu_class,
     is_function_code_for_subfunction_pdu,
 )
@@ -17,21 +18,22 @@ from .handler import is_server_pdu_class
 
 
 def get_server_pdu_class(pdu_bytes: bytes) -> type[BasePDU[Any]]:
-    """Return the server-capable PDU class for a request.
+    """Return the server-capable PDU class for *pdu_bytes*."""
+    return get_server_pdu_class_from_request_bytes(pdu_bytes)
 
-    Used by transports that receive a complete PDU byte string (TCP, ASCII).
-    The first byte of *pdu_bytes* is the function code; for sub-function PDUs
-    the second byte is the sub-function code.
+
+def get_server_pdu_class_from_request_bytes(pdu_bytes: bytes) -> type[BasePDU[Any]]:
+    """Return the server-capable PDU class for *pdu_bytes*.
 
     Args:
         pdu_bytes: Raw PDU bytes starting with the function code.
 
     Raises:
-        InvalidRequestError: If the PDU byte string is empty, or if a
-            sub-function PDU is detected but the byte string is too short to
-            contain the sub-function code.
-        ValueError: If the resolved PDU class does not implement server-side
-            methods (i.e. is a client-only PDU).
+        InvalidRequestError: If *pdu_bytes* is empty or too short for sub-function.
+        ValueError: If the resolved PDU class is client-only.
+
+    Returns:
+        The resolved ``BasePDU`` subclass.
 
     """
     if not pdu_bytes:
@@ -41,10 +43,12 @@ def get_server_pdu_class(pdu_bytes: bytes) -> type[BasePDU[Any]]:
     function_code = pdu_bytes[0]
     raw_pdu_class: type[BaseClientPDU[Any]]
     if is_function_code_for_subfunction_pdu(function_code):
-        if len(pdu_bytes) < 2:
+        # We assume all subfunction PDU's will report the same number of bytes for the subfunction code.
+        subfunction_code_length = get_subfunction_code_length(function_code)
+        if len(pdu_bytes) < 1 + subfunction_code_length:
             msg = "Missing sub-function code"
             raise InvalidRequestError(msg, request_bytes=pdu_bytes)
-        sub_function_code = pdu_bytes[1]
+        sub_function_code = int.from_bytes(pdu_bytes[1 : 1 + subfunction_code_length], "big")
         raw_pdu_class = get_subfunction_pdu_class(function_code, sub_function_code)
     else:
         raw_pdu_class = get_pdu_class(function_code)
@@ -81,9 +85,10 @@ def get_server_pdu_class_from_buffer(buffer: bytearray) -> type[BasePDU[Any]] | 
     function_code = buffer[1]
     pdu_class: type[BaseClientPDU[Any]]
     if is_function_code_for_subfunction_pdu(function_code):
-        if len(buffer) < 3:
+        subfunction_code_length = get_subfunction_code_length(function_code)
+        if len(buffer) < 2 + subfunction_code_length:
             return None
-        sub_function_code = buffer[2]
+        sub_function_code = int.from_bytes(buffer[2 : 2 + subfunction_code_length], "big")
         pdu_class = get_subfunction_pdu_class(function_code, sub_function_code)
     else:
         pdu_class = get_pdu_class(function_code)

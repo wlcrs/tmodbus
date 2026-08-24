@@ -19,7 +19,33 @@ from .holding_registers import (
     WriteMultipleRegistersPDU,
     WriteSingleRegisterPDU,
 )
-from .serial_line import ReportServerIdPDU, ServerIdResponse
+from .serial_line import (
+    BaseDiagnosticsSubFunctionPDU,
+    CommEventCounterResponse,
+    CommEventLogResponse,
+    DiagnosticsBusCharacterOverrunCountPDU,
+    DiagnosticsBusCommunicationErrorCountPDU,
+    DiagnosticsBusExceptionErrorCountPDU,
+    DiagnosticsBusMessageCountPDU,
+    DiagnosticsChangeAsciiInputDelimiterPDU,
+    DiagnosticsClearCountersAndRegisterPDU,
+    DiagnosticsClearOverrunCounterAndFlagPDU,
+    DiagnosticsDiagnosticRegisterPDU,
+    DiagnosticsForceListenOnlyModePDU,
+    DiagnosticsQueryDataPDU,
+    DiagnosticsRestartCommunicationsOptionPDU,
+    DiagnosticsServerBusyCountPDU,
+    DiagnosticsServerMessageCountPDU,
+    DiagnosticsServerNakCountPDU,
+    DiagnosticsServerNoResponseCountPDU,
+    DiagnosticSubFunction,
+    GetComEventCounterPDU,
+    GetComEventLogPDU,
+    GetCommEventCounterPDU,
+    GetCommEventLogPDU,
+    ReportServerIdPDU,
+    ServerIdResponse,
+)
 
 function_code_to_pdu_map: dict[int, type[BaseClientPDU[Any]]] = {
     FunctionCode.READ_COILS: ReadCoilsPDU,
@@ -29,6 +55,8 @@ function_code_to_pdu_map: dict[int, type[BaseClientPDU[Any]]] = {
     FunctionCode.WRITE_SINGLE_COIL: WriteSingleCoilPDU,
     FunctionCode.WRITE_SINGLE_REGISTER: WriteSingleRegisterPDU,
     FunctionCode.READ_EXCEPTION_STATUS: ReadExceptionStatusPDU,
+    FunctionCode.GET_COM_EVENT_COUNTER: GetCommEventCounterPDU,
+    FunctionCode.GET_COM_EVENT_LOG: GetCommEventLogPDU,
     FunctionCode.WRITE_MULTIPLE_COILS: WriteMultipleCoilsPDU,
     FunctionCode.WRITE_MULTIPLE_REGISTERS: WriteMultipleRegistersPDU,
     FunctionCode.REPORT_SERVER_ID: ReportServerIdPDU,
@@ -40,9 +68,26 @@ function_code_to_pdu_map: dict[int, type[BaseClientPDU[Any]]] = {
 }
 
 sub_function_code_to_pdu_map: dict[int, dict[int, type[BaseSubFunctionClientPDU[Any]]]] = {
+    FunctionCode.DIAGNOSTICS: {
+        DiagnosticsQueryDataPDU.sub_function_code: DiagnosticsQueryDataPDU,
+        DiagnosticsRestartCommunicationsOptionPDU.sub_function_code: DiagnosticsRestartCommunicationsOptionPDU,
+        DiagnosticsDiagnosticRegisterPDU.sub_function_code: DiagnosticsDiagnosticRegisterPDU,
+        DiagnosticsChangeAsciiInputDelimiterPDU.sub_function_code: DiagnosticsChangeAsciiInputDelimiterPDU,
+        DiagnosticsForceListenOnlyModePDU.sub_function_code: DiagnosticsForceListenOnlyModePDU,
+        DiagnosticsClearCountersAndRegisterPDU.sub_function_code: DiagnosticsClearCountersAndRegisterPDU,
+        DiagnosticsBusMessageCountPDU.sub_function_code: DiagnosticsBusMessageCountPDU,
+        DiagnosticsBusCommunicationErrorCountPDU.sub_function_code: DiagnosticsBusCommunicationErrorCountPDU,
+        DiagnosticsBusExceptionErrorCountPDU.sub_function_code: DiagnosticsBusExceptionErrorCountPDU,
+        DiagnosticsServerMessageCountPDU.sub_function_code: DiagnosticsServerMessageCountPDU,
+        DiagnosticsServerNoResponseCountPDU.sub_function_code: DiagnosticsServerNoResponseCountPDU,
+        DiagnosticsServerNakCountPDU.sub_function_code: DiagnosticsServerNakCountPDU,
+        DiagnosticsServerBusyCountPDU.sub_function_code: DiagnosticsServerBusyCountPDU,
+        DiagnosticsBusCharacterOverrunCountPDU.sub_function_code: DiagnosticsBusCharacterOverrunCountPDU,
+        DiagnosticsClearOverrunCounterAndFlagPDU.sub_function_code: DiagnosticsClearOverrunCounterAndFlagPDU,
+    },
     FunctionCode.ENCAPSULATED_INTERFACE_TRANSPORT: {
         ReadDeviceIdentificationPDU.sub_function_code: ReadDeviceIdentificationPDU,
-    }
+    },
 }
 
 
@@ -63,6 +108,13 @@ def register_pdu_class(pdu_class: type[BaseClientPDU[Any]]) -> None:
             raise ValueError(msg)
         if function_code not in sub_function_code_to_pdu_map:
             sub_function_code_to_pdu_map[function_code] = {}
+        # validate that the subfunction code length is the same for all subfunction PDUs
+        elif get_subfunction_code_length(pdu_class.function_code) != pdu_class.sub_function_code_length:
+            msg = (
+                f"Subfunction code length for function code {function_code:#04x} "
+                f"must be {get_subfunction_code_length(function_code)}, but got {pdu_class.sub_function_code_length}"
+            )
+            raise ValueError(msg)
 
         sub_function_code = pdu_class.sub_function_code
 
@@ -138,13 +190,63 @@ def get_subfunction_pdu_class(function_code: int, sub_function_code: int) -> typ
         raise ValueError(msg) from None
 
 
+def get_subfunction_code_length(function_code: int) -> int:
+    """Get the length of the sub-function code for a given function code.
+
+    Args:
+        function_code: Function code
+
+    Returns:
+        Length of the sub-function code
+
+    Raises:
+        ValueError: If function code is not supported
+
+    """
+    try:
+        # Get the first sub-function PDU class for the given function code
+        # and return its sub-function code length.
+        pdu_class = next(iter(sub_function_code_to_pdu_map[function_code].values()))
+    except KeyError:
+        msg = f"Unsupported function code {function_code:#02x}"
+        raise ValueError(msg) from None
+    except StopIteration:
+        msg = f"No sub-function PDU classes registered for function code {function_code:#02x}"
+        raise ValueError(msg) from None
+    else:
+        return pdu_class.sub_function_code_length
+
+
 __all__ = [
     "BaseClientPDU",
+    "BaseDiagnosticsSubFunctionPDU",
     "BasePDU",
     "BaseSubFunctionClientPDU",
     "BaseSubFunctionPDU",
+    "CommEventCounterResponse",
+    "CommEventLogResponse",
+    "DiagnosticSubFunction",
+    "DiagnosticsBusCharacterOverrunCountPDU",
+    "DiagnosticsBusCommunicationErrorCountPDU",
+    "DiagnosticsBusExceptionErrorCountPDU",
+    "DiagnosticsBusMessageCountPDU",
+    "DiagnosticsChangeAsciiInputDelimiterPDU",
+    "DiagnosticsClearCountersAndRegisterPDU",
+    "DiagnosticsClearOverrunCounterAndFlagPDU",
+    "DiagnosticsDiagnosticRegisterPDU",
+    "DiagnosticsForceListenOnlyModePDU",
+    "DiagnosticsQueryDataPDU",
+    "DiagnosticsRestartCommunicationsOptionPDU",
+    "DiagnosticsServerBusyCountPDU",
+    "DiagnosticsServerMessageCountPDU",
+    "DiagnosticsServerNakCountPDU",
+    "DiagnosticsServerNoResponseCountPDU",
     "FileRecord",
     "FileRecordRequest",
+    "GetComEventCounterPDU",
+    "GetComEventLogPDU",
+    "GetCommEventCounterPDU",
+    "GetCommEventLogPDU",
     "MaskWriteRegisterPDU",
     "ReadCoilsPDU",
     "ReadDeviceIdentificationPDU",

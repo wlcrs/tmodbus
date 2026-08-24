@@ -1600,3 +1600,24 @@ async def test_timeout_does_not_log_error(
         await protocol.send_and_receive(1, _DummyPDU())
 
     assert not caplog.records
+
+
+async def test_send_and_receive_no_response_pdu(
+    mock_transport: MagicMock,
+) -> None:
+    """Test send_and_receive when PDU expects_response is False."""
+    protocol = ModbusAsciiProtocol(on_connection_lost=lambda _: None)
+    protocol.connection_made(mock_transport)
+    protocol._last_frame_ended_at = time.monotonic() - 10
+
+    class NoResponsePDU(BaseClientPDU[None]):
+        function_code = 0x08
+        expects_response = False
+
+        def encode_request(self) -> bytes:
+            return b"\x00\x04\x00\x00"
+
+        def decode_response(self, _response: bytes) -> None:
+            return None
+
+    await protocol.send_and_receive(1, NoResponsePDU())
