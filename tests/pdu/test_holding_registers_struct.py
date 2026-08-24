@@ -66,6 +66,19 @@ class TestHoldingRegisterReadMixin:
         assert isinstance(result, tuple)
         assert len(result) == 1
 
+    @pytest.mark.parametrize("word_order", ["big", "little"])
+    async def test_read_struct_format_std_struct(self, word_order: Literal["big", "little"]) -> None:
+        """Test read_struct_format with standard struct.Struct instance."""
+        client = MockClient(word_order=word_order)
+        client.execute.return_value = b"\x0a\x0b\x0c\x0d"
+
+        format_struct = struct.Struct(">I")
+        result = await client.read_struct_format(100, format_struct=format_struct)
+
+        assert client.execute.called
+        assert isinstance(result, tuple)
+        assert len(result) == 1
+
     async def test_read_struct_format_keeps_user_order_aware_struct(self) -> None:
         """Test that a user-provided OrderAwareStruct keeps its own orders."""
         client = MockClient(word_order="big")
@@ -306,6 +319,35 @@ class TestHoldingRegisterWriteMixin:
         pdu = client.execute.call_args[0][0]
         # Word-swapped (CDAB) content for 0x0A0B0C0D
         assert pdu.content == b"\x0c\x0d\x0a\x0b"
+
+    @pytest.mark.parametrize("word_order", ["big", "little"])
+    async def test_write_struct_format_std_struct(self, word_order: Literal["big", "little"]) -> None:
+        """Test write_struct_format with standard struct.Struct instance."""
+        client = MockClient(word_order=word_order)
+        client.execute.return_value = 2
+
+        format_struct = struct.Struct(">I")
+        result = await client.write_struct_format(100, (0x0A0B0C0D,), format_struct=format_struct)
+
+        assert result == 2
+        assert client.execute.called
+        pdu = client.execute.call_args[0][0]
+        assert pdu.start_address == 100
+        assert len(pdu.content) == 4
+
+    @pytest.mark.parametrize("word_order", ["big", "little"])
+    async def test_write_struct_format_string_format(self, word_order: Literal["big", "little"]) -> None:
+        """Test write_struct_format with string format."""
+        client = MockClient(word_order=word_order)
+        client.execute.return_value = 2
+
+        result = await client.write_struct_format(100, (0x0A0B0C0D,), format_struct=">I")
+
+        assert result == 2
+        assert client.execute.called
+        pdu = client.execute.call_args[0][0]
+        assert pdu.start_address == 100
+        assert len(pdu.content) == 4
 
     @pytest.mark.parametrize("word_order", ["big", "little"])
     async def test_write_simple_struct_format(self, word_order: Literal["big", "little"]) -> None:
