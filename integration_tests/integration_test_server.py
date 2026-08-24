@@ -105,7 +105,7 @@ def setup_router(device: ModbusDevice) -> ModbusRequestRouter:  # noqa: C901
 
     @router.register(WriteMultipleCoilsPDU)
     async def handle_write_multiple_coils(_unit_id: int, request: WriteMultipleCoilsPDU) -> int:
-        start = request.address
+        start = request.start_address
         for i, val in enumerate(request.values):
             device.coils[start + i] = val
         return len(request.values)
