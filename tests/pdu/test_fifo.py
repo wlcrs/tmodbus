@@ -16,6 +16,11 @@ class TestReadFifoQueuePDU:
         assert pdu.address == 0x04DE
         assert pdu.function_code == 0x18
 
+    def test_function_code_not_a_field(self) -> None:
+        """Test that function_code cannot be overridden per instance."""
+        with pytest.raises(TypeError):
+            ReadFifoQueuePDU(address=0x04DE, function_code=0x99)  # type: ignore[call-arg]
+
     @pytest.mark.parametrize(
         ("address", "expected_error"),
         [
