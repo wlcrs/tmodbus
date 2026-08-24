@@ -23,7 +23,7 @@ client_bin_path = Path(__file__).parent / "target/release/client"
 
 @pytest.fixture
 def virtual_serial_ports() -> Generator[tuple[Path, Path], None, None]:
-    """Fixture to start socat to create a virtual serial port pair link."""
+    """Fixture to create a virtual serial port pair link."""
     server_socket_path = Path(__file__).parent / "rmodbus-server-socket-test"
     client_socket_path = Path(__file__).parent / "rmodbus-client-socket-test"
     with make_virtual_serial_ports(server_socket_path, client_socket_path) as ports:

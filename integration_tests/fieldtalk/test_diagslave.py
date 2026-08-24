@@ -6,6 +6,7 @@ import logging
 import sys
 from collections.abc import AsyncGenerator
 from pathlib import Path
+from typing import Any
 
 import pytest
 from tmodbus.client import AsyncModbusClient
@@ -42,8 +43,21 @@ async def diagslave(protocol_mode: str, *args: str) -> AsyncGenerator[asyncio.su
         stdout=asyncio.subprocess.PIPE,
         stderr=asyncio.subprocess.PIPE,
     )
-    # Wait for the simulator to fully initialize
-    await asyncio.sleep(0.5)
+    assert process.stdout is not None
+    assert process.stderr is not None
+    ready = False
+    while True:
+        line = await process.stdout.readline()
+        if not line:
+            break
+        if b"Listening to network" in line:
+            ready = True
+            break
+    if not ready:
+        stdout, stderr = await process.communicate()
+        msg = f"diagslave failed to start:\n{stdout.decode()}\n{stderr.decode()}"
+        raise RuntimeError(msg)
+    await asyncio.sleep(0.05)
     try:
         yield process
     finally:
@@ -56,8 +70,18 @@ async def diagslave(protocol_mode: str, *args: str) -> AsyncGenerator[asyncio.su
             logger.debug("diagslave stderr:\n%s", stderr.decode())
 
 
-async def run_client_assertions(client: AsyncModbusClient) -> None:
+async def run_client_assertions(client: AsyncModbusClient, inter_request_delay: float = 0.05) -> None:
     """Run all assertions against the diagslave client."""
+    if inter_request_delay > 0:
+        orig_execute = client.execute
+
+        async def delayed_execute(pdu: Any) -> Any:
+            result = await orig_execute(pdu)
+            await asyncio.sleep(inter_request_delay)
+            return result
+
+        client.execute = delayed_execute  # type: ignore[method-assign]
+
     # 1. Coils
     # Write single coil and read back
     await client.write_single_coil(0, value=True)
@@ -183,8 +207,9 @@ async def test_diagslave_ascii_serial() -> None:
     server_path = Path(__file__).parent / "ascii-server-socket"
     client_path = Path(__file__).parent / "ascii-client-socket"
 
-    with make_virtual_serial_ports(server_path, client_path):
+    with make_virtual_serial_ports(server_path, client_path) as ports:
         async with diagslave("ascii", "-o", "10", str(server_path)):
+            ports.disable_server_echo()
             transport = AsyncAsciiTransport(
                 str(client_path),
                 baudrate=19200,

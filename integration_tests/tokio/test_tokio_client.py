@@ -26,9 +26,9 @@ def log_traffic(caplog: pytest.LogCaptureFixture) -> None:
 
 @pytest.fixture(scope="session")
 def server() -> Generator[None]:
-    """Start socat and server process."""
+    """Start server process."""
     with make_virtual_serial_ports(server_socket_path, client_socket_path):
-        # Start the server process and connect it to the socat server-socket
+        # Start the server process and connect it to the virtual serial socket
         server_process = subprocess.Popen(  # noqa: S603
             [
                 str(Path(__file__).parent / "target/release/tokio-server"),
