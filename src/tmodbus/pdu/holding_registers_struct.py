@@ -73,6 +73,8 @@ class HoldingRegisterReadMixin(SupportsExecuteAsync):
         pdu_class = RawReadInputRegistersPDU if input_register else RawReadHoldingRegistersPDU
 
         # Keep a user-provided OrderAwareStruct as-is: it already carries its own orders.
+        # This way, it is possible for the user to override the word_order and/or byte_order
+        # for this specific request, deviating from the instance defaults.
         if isinstance(format_struct, Struct) and not isinstance(format_struct, OrderAwareStruct):
             format_struct = OrderAwareStruct(
                 format_struct.format, word_order=self.word_order, byte_order=self.byte_order
