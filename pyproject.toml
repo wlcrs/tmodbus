@@ -15,7 +15,7 @@ keywords = [
 
 classifiers = [
   "Framework :: AsyncIO",
-  "Development Status :: 5 - Production/Stable",
+  "Development Status :: 4 - Beta",
   "Intended Audience :: Developers",
   "License :: OSI Approved :: BSD License",
   "Programming Language :: Python :: 3.12",
