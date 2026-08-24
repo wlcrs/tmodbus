@@ -397,3 +397,23 @@ async def test_rtu_server_broadcast() -> None:
     assert len(mock_serial_inst.write_calls) == 0
 
     await server.stop()
+
+
+def test_rtu_server_parse_frame_length_expected_data_len_none(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """Test that _parse_frame_length returns None when get_expected_request_data_length returns None."""
+    router = ModbusRequestRouter()
+    server = AsyncRtuServer(port="/dev/ttyUSB0", handler=router)
+
+    class DummyPdu:
+        @staticmethod
+        def get_expected_request_data_length(_data: bytes) -> int | None:
+            return None
+
+    monkeypatch.setattr(
+        "tmodbus.server.async_rtu.get_server_pdu_class_from_buffer",
+        lambda _: DummyPdu,
+    )
+    buffer = bytearray(b"\x01\x03\x00")
+    assert server._parse_frame_length(buffer) is None
