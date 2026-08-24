@@ -612,6 +612,14 @@ class TestWriteFileRecordPDU:
         expected = b"\x15\x0b\x06\x00\x04\x00\x07\x00\x02\x06\xaf\x04\xbe"
         assert encoded == expected
 
+    def test_encode_response_odd_length_data_rejected(self) -> None:
+        """Odd-length payloads are rejected when encoding response."""
+        records = [FileRecord(file_number=4, record_number=7, data=b"\x06\xaf\x04\xbe")]
+        pdu = WriteFileRecordPDU(file_records=records)
+        odd_records = [FileRecord(file_number=1, record_number=0, data=b"\x00\x01\x02")]
+        with pytest.raises(ValueError, match="Record data length cannot be odd"):
+            pdu.encode_response(odd_records)
+
     def test_decode_request_valid(self) -> None:
         """Test decode_request with valid request data."""
         # Valid request from spec example
