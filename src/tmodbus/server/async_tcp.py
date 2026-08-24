@@ -61,6 +61,7 @@ class AsyncTcpServer(AsyncBaseServer):
                       ▼
              handle_client()
                       │ (extracts client certificate from TLS peer cert, once per conn)
+                      ├───[ Cert/role parse failure ]─────────► [ Terminate Connection ]
                       │ (reads 7-byte MBAP header)
                       ├───[ IncompleteReadError ]─────────────► [ Terminate Connection ]
                       ▼
@@ -247,20 +248,25 @@ class AsyncTcpServer(AsyncBaseServer):
         addr = writer.get_extra_info("peername")
         logger.info("Client connected: %s", addr)
 
-        # Extract TLS client certificate once per connection (R-30).
-        # Returns None for plain TCP connections or if the client sent no cert.
-        client_cert = extract_client_cert(writer)
-        if client_cert is not None:
-            role = extract_modbus_role(client_cert)
-            logger.debug(
-                "TLS client cert: subject=%s role=%s",
-                client_cert.subject.rfc4514_string(),
-                role,
-            )
-
-        context = RequestContext(peer_addr=addr, client_cert=client_cert)
-
         try:
+            # Extract TLS client certificate once per connection (R-30).
+            # Returns None for plain TCP connections or if the client sent no cert.
+            # Kept inside the try so a parse failure cannot leak the socket.
+            try:
+                client_cert = extract_client_cert(writer)
+                if client_cert is not None:
+                    role = extract_modbus_role(client_cert)
+                    logger.debug(
+                        "TLS client cert: subject=%s role=%s",
+                        client_cert.subject.rfc4514_string(),
+                        role,
+                    )
+            except Exception as e:  # noqa: BLE001
+                logger.warning("Could not process TLS client certificate from %s, closing connection: %s", addr, e)
+                return
+
+            context = RequestContext(peer_addr=addr, client_cert=client_cert)
+
             while await self._handle_single_request(reader, writer, addr, context):
                 pass
         except asyncio.IncompleteReadError:
