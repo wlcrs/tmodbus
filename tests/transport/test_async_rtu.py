@@ -235,6 +235,44 @@ async def test_send_and_receive_fifo_queue_framing(
     assert result == [0x01B8, 0x1234]
 
 
+async def test_send_and_receive_chunk_ends_after_function_code(
+    mock_transport: MagicMock,
+) -> None:
+    """Regression: a chunk ending right after the function code must not crash framing.
+
+    With only unit id + function code buffered there is no length byte yet, so the
+    default length logic must report None (wait for more data) instead of raising
+    IndexError inside data_received.
+    """
+    from tmodbus.pdu import ReadHoldingRegistersPDU  # noqa: PLC0415
+
+    protocol = ModbusRtuProtocol(on_connection_lost=lambda _: None)
+    protocol.connection_made(mock_transport)
+
+    pdu = ReadHoldingRegistersPDU(start_address=0, quantity=2)
+    unit_id = 1
+    # Response: byte count 0x04, register values 0x0102, 0x0304.
+    response_pdu = bytes.fromhex("03 04 0102 0304".replace(" ", ""))
+    payload = bytes([unit_id]) + response_pdu
+    response_adu = payload + calculate_crc16(payload)
+
+    protocol._last_frame_ended_at = time.monotonic() - 10
+
+    async def simulate_response() -> None:
+        await asyncio.sleep(0.01)
+        protocol.data_received(response_adu[:2])  # exactly unit id + function code
+        await asyncio.sleep(0.01)
+        protocol.data_received(response_adu[2:])
+
+    result_task = asyncio.create_task(protocol.send_and_receive(unit_id, pdu))
+    response_task = asyncio.create_task(simulate_response())
+
+    result = await result_task
+    await response_task
+
+    assert result == [0x0102, 0x0304]
+
+
 async def test_send_and_receive_exception_status_framing(
     mock_transport: MagicMock,
 ) -> None:
@@ -1044,6 +1082,17 @@ async def test_determine_expected_frame_length__too_short(
     protocol.connection_made(mock_transport)
 
     protocol._buffer.extend(b"\01")
+    assert protocol._determine_expected_frame_length() is None
+
+
+async def test_determine_expected_frame_length__no_data_after_function_code(
+    mock_transport: MagicMock,
+) -> None:
+    """Only unit id + function code buffered: the length byte is missing, so wait for more data."""
+    protocol = ModbusRtuProtocol(on_connection_lost=lambda _: None)
+    protocol.connection_made(mock_transport)
+
+    protocol._buffer.extend(bytes.fromhex("01 03"))
     assert protocol._determine_expected_frame_length() is None
 
 
