@@ -30,10 +30,15 @@ async def test_invalid_constructor_args() -> None:
     """Test that invalid constructor arguments raise ValueError."""
     with pytest.raises(ValueError, match=r"Port must be .*"):
         AsyncUdpTransport("host", port=0)
+    with pytest.raises(ValueError, match=r"Port must be .*"):
+        AsyncUdpTransport("host", port=65536)
     with pytest.raises(ValueError, match=r"Timeout must .*"):
         AsyncUdpTransport("host", timeout=0)
     with pytest.raises(ValueError, match=r"Connect timeout must .*"):
         AsyncUdpTransport("host", connect_timeout=0)
+
+    # Port 65535 is valid
+    assert AsyncUdpTransport("host", port=65535).port == 65535
 
 
 async def test_open_connection_error(monkeypatch: pytest.MonkeyPatch) -> None:

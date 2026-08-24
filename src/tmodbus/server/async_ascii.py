@@ -77,6 +77,8 @@ class AsyncAsciiServer(AsyncBaseServer):
 
     async def start(self) -> None:
         """Start the server using serialx's async connection."""
+        if self._running:
+            return
         try:
             from serialx import open_serial_connection  # noqa: PLC0415
         except ImportError as e:
@@ -238,10 +240,13 @@ class AsyncAsciiServer(AsyncBaseServer):
         try:
             while self._running and self._reader:
                 try:
-                    # Read at least 1 byte
-                    data = await self._reader.read(1)
+                    # Read whatever is available (at least 1 byte)
+                    data = await self._reader.read(256)
                     if not data:
-                        continue
+                        # EOF: the serial stream is gone (e.g. USB adapter unplugged)
+                        logger.warning("Serial stream EOF on %s; stopping ASCII server loop", self.port)
+                        self._running = False
+                        break
                     buffer.extend(data)
 
                     while True:

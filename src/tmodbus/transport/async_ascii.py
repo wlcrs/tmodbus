@@ -209,12 +209,13 @@ class ModbusAsciiProtocol(asyncio.Protocol):
             except TimeoutError as e:
                 # Save PDU for timed-out request so any delayed response can be discarded cleanly
                 self._timed_out_requests[unit_id] = pdu
-                logger.exception(
-                    "Response timeout for unit %d after %.2f seconds. Cancelling read future.", unit_id, self.timeout
-                )
-                read_future.cancel()
                 msg = f"Response timeout after {self.timeout} seconds"
                 raise TimeoutError(msg) from e
+            except asyncio.CancelledError:
+                # Caller cancelled while the request was on the wire: track it like a
+                # timeout so a delayed response is not treated as garbage.
+                self._timed_out_requests[unit_id] = pdu
+                raise
             finally:
                 self._pending_request = None
 
@@ -260,13 +261,21 @@ class ModbusAsciiProtocol(asyncio.Protocol):
             )
             del self._buffer[:start_pos]
 
-    def _handle_inactive_unit_data(self, unit_id: int, base_function_code: int) -> None:
+    def _handle_inactive_unit_data(self, unit_id: int, base_function_code: int, raw: bytes) -> None:
         """Handle data for a unit ID with no active request."""
         timed_out_pdu = self._timed_out_requests.get(unit_id)
         if timed_out_pdu is None and self._pending_request is not None and self._pending_request.unit_id == unit_id:
             timed_out_pdu = self._pending_request.pdu
 
         if timed_out_pdu is not None and base_function_code == (timed_out_pdu.function_code & FUNCTION_CODE_MASK):
+            # Only clear tracking when the LRC validates (mirrors RTU's CRC check):
+            # a corrupted frame must not consume the tracking for the real delayed response.
+            if not validate_ascii_frame(raw):
+                logger.warning(
+                    "LRC validation failed for delayed response on unit %d. Discarding frame, keeping tracking.",
+                    unit_id,
+                )
+                return
             logger.info(
                 "Received delayed response (FC 0x%02X) for timed-out unit %d. Discarding.",
                 base_function_code,
@@ -279,6 +288,45 @@ class ModbusAsciiProtocol(asyncio.Protocol):
             "Received frame for unit %d with no pending request. Discarding frame.",
             unit_id,
         )
+
+    def _try_discard_delayed_matching_frame(
+        self,
+        unit_id: int,
+        base_function_code: int,
+        raw: bytes,
+        pending: _PendingRequest,
+    ) -> bool:
+        """Discard a delayed response for a timed-out request arriving during an active request.
+
+        Returns:
+            True if the frame was consumed (discarded), False if it belongs to the active request.
+
+        """
+        if base_function_code == (pending.pdu.function_code & FUNCTION_CODE_MASK):
+            return False
+
+        timed_out_pdu = self._timed_out_requests.get(unit_id)
+        if timed_out_pdu is None or base_function_code != (timed_out_pdu.function_code & FUNCTION_CODE_MASK):
+            return False
+
+        # Only clear tracking when the LRC validates (mirrors RTU's CRC check):
+        # a corrupted frame must not consume the tracking for the real delayed response.
+        if not validate_ascii_frame(raw):
+            logger.warning(
+                "LRC validation failed for delayed response on unit %d. Discarding frame, keeping tracking.",
+                unit_id,
+            )
+            return True
+
+        logger.info(
+            "Received delayed response (FC 0x%02X) for previous timed-out request on unit %d during "
+            "active request (FC 0x%02X). Discarding.",
+            base_function_code,
+            unit_id,
+            pending.pdu.function_code,
+        )
+        self._timed_out_requests.pop(unit_id, None)
+        return True
 
     def data_received(self, data: bytes) -> None:
         """Handle data received event."""
@@ -330,30 +378,14 @@ class ModbusAsciiProtocol(asyncio.Protocol):
             has_active_request = pending is not None and pending.unit_id == unit_id and not pending.future.done()
 
             if not has_active_request:
-                self._handle_inactive_unit_data(unit_id, base_function_code)
+                self._handle_inactive_unit_data(unit_id, base_function_code, raw)
                 continue
 
             assert pending is not None
 
             # Active request is present. Check if incoming frame belongs to active request or timed-out request.
-            active_expected_fc = pending.pdu.function_code & FUNCTION_CODE_MASK
-            if base_function_code != active_expected_fc:
-                timed_out_pdu = self._timed_out_requests.get(unit_id)
-                if timed_out_pdu is not None and base_function_code == (
-                    timed_out_pdu.function_code & FUNCTION_CODE_MASK
-                ):
-                    logger.info(
-                        "Received delayed response (FC 0x%02X) for previous timed-out request on unit %d during "
-                        "active request (FC 0x%02X). Discarding.",
-                        base_function_code,
-                        unit_id,
-                        pending.pdu.function_code,
-                    )
-                    self._timed_out_requests.pop(unit_id, None)
-                    continue
-
-            # Frame matches active request (or mismatch to be handled downstream)
-            self._timed_out_requests.pop(unit_id, None)
+            if self._try_discard_delayed_matching_frame(unit_id, base_function_code, raw, pending):
+                continue
 
             if not validate_ascii_frame(raw):
                 # The unit id is also part of the raw frame, so in theory it is possible that the LRC is caused by
@@ -367,6 +399,9 @@ class ModbusAsciiProtocol(asyncio.Protocol):
 
                 pending.future.set_exception(LRCError(response_bytes=frame))
                 continue
+
+            # Frame matches active request (or mismatch to be handled downstream) and passed the LRC check
+            self._timed_out_requests.pop(unit_id, None)
 
             # Deliver response to pending request
             pending.future.set_result(

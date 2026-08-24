@@ -1,6 +1,7 @@
 """Tests for tmodbus/server/async_rtu.py."""
 
 import asyncio
+import logging
 from collections.abc import Iterator
 from typing import cast
 from unittest.mock import patch
@@ -211,6 +212,37 @@ async def test_rtu_server_raw_traffic_logging() -> None:
         mock_log.assert_any_call("recv", b"\x01\x03", is_error=True)
 
 
+async def test_rtu_server_start_twice() -> None:
+    """Test starting the server twice returns early without reopening the port."""
+    router = ModbusRequestRouter()
+    server = AsyncRtuServer(port="/dev/ttyUSB0", handler=router)
+    await server.start()
+    reader = server._reader
+    await server.start()
+    assert server._reader is reader
+    await server.stop()
+
+
+async def test_rtu_server_exits_on_eof(caplog: pytest.LogCaptureFixture) -> None:
+    """EOF from the serial stream ends the serve loop instead of busy-looping."""
+    router = ModbusRequestRouter()
+    server = AsyncRtuServer(port="/dev/ttyUSB0", handler=router)
+    await server.start()
+
+    mock_serial_inst = cast("MockSerial", server._reader)
+    assert mock_serial_inst is not None
+    assert server._task is not None
+
+    with caplog.at_level(logging.WARNING):
+        await mock_serial_inst.read_queue.put(b"")
+        await asyncio.sleep(0.05)
+
+    assert server._task.done()
+    assert "EOF" in caplog.text
+
+    await server.stop()
+
+
 async def test_rtu_server_double_stop_and_serve_forever() -> None:
     """Test serve_forever and double stop on AsyncRtuServer."""
     router = ModbusRequestRouter()
@@ -247,10 +279,6 @@ async def test_rtu_server_edge_cases() -> None:  # noqa: PLR0915
 
     mock_serial_inst = cast("MockSerial", server._reader)
     assert mock_serial_inst is not None
-
-    # Test "if not data: continue" in RTU serve loop
-    await mock_serial_inst.read_queue.put(b"")
-    await asyncio.sleep(0.02)
 
     # Fragmented frame transmission: send only 2 bytes initially (hits "else: return None" in length parsing)
     await mock_serial_inst.read_queue.put(b"\x01\x03")

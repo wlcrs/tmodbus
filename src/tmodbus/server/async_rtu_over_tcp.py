@@ -82,6 +82,9 @@ class AsyncRtuOverTcpServer(AsyncBaseServer):
 
     async def start(self) -> None:
         """Start the server."""
+        if self._server is not None:
+            return
+
         self._server = await asyncio.start_server(
             self.handle_client,
             self.host,
@@ -102,8 +105,10 @@ class AsyncRtuOverTcpServer(AsyncBaseServer):
         """Start the server and block until cancelled."""
         await self.start()
         assert self._server is not None
-        async with self._server:
-            await self._server.serve_forever()
+        # Suppress cancellation per the AsyncBaseServer contract
+        with contextlib.suppress(asyncio.CancelledError):
+            async with self._server:
+                await self._server.serve_forever()
 
     def _parse_frame_length(self, buffer: bytearray) -> int | None:
         """Parse expected total frame length from buffer, or return None if not enough data.

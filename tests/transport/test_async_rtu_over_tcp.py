@@ -51,6 +51,11 @@ class TestAsyncRtuOverTcpTransportInit:
         with pytest.raises(ValueError, match="Port must be an integer between 1-65535"):
             AsyncRtuOverTcpTransport("192.168.1.100", port=65536)
 
+    def test_init_with_max_port(self) -> None:
+        """Test initialization with port 65535 is accepted."""
+        transport = AsyncRtuOverTcpTransport("192.168.1.100", port=65535)
+        assert transport.port == 65535
+
     def test_init_with_invalid_timeout(self) -> None:
         """Test initialization with invalid timeout raises ValueError."""
         with pytest.raises(ValueError, match="Timeout must be a positive number"):

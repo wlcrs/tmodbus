@@ -189,6 +189,13 @@ async def test_rtu_over_tcp_server_raw_traffic_logging(rtu_over_tcp_server: Asyn
         mock_log.assert_any_call("recv", b"\x01\x03", is_error=True)
 
 
+async def test_rtu_over_tcp_server_start_twice(rtu_over_tcp_server: AsyncRtuOverTcpServer) -> None:
+    """Test starting the server twice returns early without rebinding."""
+    server_obj = rtu_over_tcp_server._server
+    await rtu_over_tcp_server.start()  # Already started by fixture
+    assert rtu_over_tcp_server._server is server_obj
+
+
 async def test_rtu_over_tcp_server_double_stop_and_serve_forever() -> None:
     """Test serve_forever and double stop on AsyncRtuOverTcpServer."""
     router = ModbusRequestRouter()
@@ -196,9 +203,9 @@ async def test_rtu_over_tcp_server_double_stop_and_serve_forever() -> None:
     await rtu_tcp.stop()  # Stop before starting
     task = asyncio.create_task(rtu_tcp.serve_forever())
     await asyncio.sleep(0.05)
+    # Cancellation is suppressed internally per the AsyncBaseServer contract
     task.cancel()
-    with pytest.raises(asyncio.CancelledError):
-        await task
+    await task
     await rtu_tcp.stop()  # Second stop
 
 

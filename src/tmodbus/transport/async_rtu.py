@@ -400,6 +400,11 @@ class ModbusRtuProtocol(asyncio.Protocol):
                 self._timed_out_requests[unit_id] = pdu
                 msg = f"Response timeout after {self.timeout} seconds"
                 raise TimeoutError(msg) from e
+            except asyncio.CancelledError:
+                # Caller cancelled while the request was on the wire: track it like a
+                # timeout so a delayed response is not treated as garbage.
+                self._timed_out_requests[unit_id] = pdu
+                raise
             finally:
                 self._pending_request = None
 
@@ -664,6 +669,9 @@ class ModbusRtuProtocol(asyncio.Protocol):
         """
         self._buffer.extend(data)
         log_raw_traffic("recv", data)
+        # Received bytes are bus activity too: restart the 3.5-char silence clock so the
+        # next request keeps the inter-frame delay from the end of a received frame.
+        self._last_frame_ended_at = time.monotonic()
 
         last_error: Exception | None = None
 

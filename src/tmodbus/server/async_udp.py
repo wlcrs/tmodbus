@@ -79,8 +79,8 @@ class AsyncUdpServer(AsyncBaseServer):
         try:
             await self._serve_forever_future
         except asyncio.CancelledError:
+            # Suppress cancellation per the AsyncBaseServer contract
             await self.stop()
-            raise
 
     @property
     def sockets(self) -> list[Any]:
