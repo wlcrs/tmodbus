@@ -1323,28 +1323,30 @@ async def test_delayed_exception_response_during_active_request_same_unit(
     assert protocol._timed_out_requests[unit_id] is pdu1
 
     # Step 2: Request 2 (FC 0x06) is sent and active
+    # The tight timeout was only needed to make request 1 time out; request 2
+    # must not race the wall clock, so give it a generous timeout.
+    protocol.timeout = 10.0
+
     # Late exception response for Request 1 (FC 0x83, exception code 0x02)
     delayed_exc_frame_1 = build_ascii_frame(unit_id, b"\x83\x02")
     real_frame_2 = build_ascii_frame(unit_id, b"\x06\x00\x01\x11\x22")
 
-    async def deliver_delayed_exc_then_real() -> None:
-        await asyncio.sleep(0.01)
-        # Deliver late exception response for request 1
-        protocol.data_received(delayed_exc_frame_1)
-        # Active request should still be pending and not failed
-        assert protocol._pending_request is not None
-        assert not protocol._pending_request.future.done()
-        assert unit_id not in protocol._timed_out_requests
-
-        # Deliver real response for request 2
-        await asyncio.sleep(0.01)
-        protocol.data_received(real_frame_2)
-
     req2_task = asyncio.create_task(protocol.send_and_receive(unit_id, pdu2))
-    deliv_task = asyncio.create_task(deliver_delayed_exc_then_real())
+    while protocol._pending_request is None:
+        assert not req2_task.done()
+        await asyncio.sleep(0)
+
+    # Deliver late exception response for request 1
+    protocol.data_received(delayed_exc_frame_1)
+    # Active request should still be pending and not failed
+    assert protocol._pending_request is not None
+    assert not protocol._pending_request.future.done()
+    assert unit_id not in protocol._timed_out_requests
+
+    # Deliver real response for request 2
+    protocol.data_received(real_frame_2)
 
     result = await req2_task
-    await deliv_task
 
     assert result == ("decoded", b"\x06\x00\x01\x11\x22")
     assert len(protocol._buffer) == 0
