@@ -338,6 +338,7 @@ __all__ = [
     "AsyncSmartTransport",
     "AsyncTcpTransport",
     "AsyncUdpTransport",
+    "SerialXOptions",
     "create_async_ascii_client",
     "create_async_rtu_client",
     "create_async_rtu_over_tcp_client",

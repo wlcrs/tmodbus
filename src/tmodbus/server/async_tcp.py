@@ -93,8 +93,8 @@ class AsyncTcpServer(AsyncBaseServer):
         self,
         host: str,
         handler: AnyModbusHandler,
-        port: int = 502,
         *,
+        port: int = 502,
         ssl_context: _ssl.SSLContext | None = None,
         unregistered_unit_id_exception_code: int = ExceptionCode.GATEWAY_TARGET_DEVICE_FAILED_TO_RESPOND,
         **server_kwargs: Any,
@@ -103,8 +103,8 @@ class AsyncTcpServer(AsyncBaseServer):
 
         Args:
             host: Interface to bind to.
-            port: Port to listen on (default: 502 for plain TCP; use 802 for mbaps/TLS).
             handler: User-defined async handler for processing requests.
+            port: Port to listen on (default: 502 for plain TCP; use 802 for mbaps/TLS).
             ssl_context: Optional :class:`ssl.SSLContext` to enable TLS (mbaps).
                 When provided, all connections are wrapped in TLS.  For full mbaps
                 compliance (mutual authentication, TLS >= 1.2) configure the context

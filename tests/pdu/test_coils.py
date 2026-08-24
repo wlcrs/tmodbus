@@ -294,14 +294,14 @@ class TestWriteMultipleCoilsPDU:
         # Function code + address + quantity + byte count + data
         request = struct.pack(">BHHB", 0x0F, 100, 5, 1) + b"\x15"
         pdu = WriteMultipleCoilsPDU.decode_request(request)
-        assert pdu.address == 100
+        assert pdu.start_address == 100
         assert pdu.values == [True, False, True, False, True]
 
     def test_decode_request_valid_multiple_bytes(self) -> None:
         """Test decoding a valid Write Multiple Coils request with multiple bytes."""
         request = struct.pack(">BHHB", 0x0F, 50, 16, 2) + b"\xff\x00"
         pdu = WriteMultipleCoilsPDU.decode_request(request)
-        assert pdu.address == 50
+        assert pdu.start_address == 50
         assert len(pdu.values) == 16
         assert pdu.values == [True] * 8 + [False] * 8
 

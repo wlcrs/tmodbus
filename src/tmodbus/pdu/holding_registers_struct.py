@@ -72,7 +72,10 @@ class HoldingRegisterReadMixin(SupportsExecuteAsync):
         """
         pdu_class = RawReadInputRegistersPDU if input_register else RawReadHoldingRegistersPDU
 
-        if isinstance(format_struct, Struct):
+        # Keep a user-provided OrderAwareStruct as-is: it already carries its own orders.
+        # This way, it is possible for the user to override the word_order and/or byte_order
+        # for this specific request, deviating from the instance defaults.
+        if isinstance(format_struct, Struct) and not isinstance(format_struct, OrderAwareStruct):
             format_struct = OrderAwareStruct(
                 format_struct.format, word_order=self.word_order, byte_order=self.byte_order
             )
@@ -304,6 +307,33 @@ class HoldingRegisterReadMixin(SupportsExecuteAsync):
             ),
         )
 
+    async def read_double(
+        self,
+        start_address: int,
+        *,
+        input_register: bool = False,
+    ) -> float:
+        """Read holding registers and decode them as a double.
+
+        A double is 8 bytes wide (4 registers).
+
+        Args:
+            start_address: Starting address of the registers to read.
+            input_register: Whether to read holding registers (False) or input registers (True).
+
+        Returns:
+            Decoded double value.
+
+        """
+        return cast(
+            "float",
+            await self.read_simple_struct_format(
+                start_address,
+                format_struct=">d",
+                input_register=input_register,
+            ),
+        )
+
     async def read_string(
         self,
         start_address: int,
@@ -390,7 +420,8 @@ class HoldingRegisterWriteMixin(SupportsExecuteAsync):
             The number of registers that have been written.
 
         """
-        if isinstance(format_struct, Struct):
+        # Keep a user-provided OrderAwareStruct as-is: it already carries its own orders.
+        if isinstance(format_struct, Struct) and not isinstance(format_struct, OrderAwareStruct):
             format_struct = OrderAwareStruct(
                 format_struct.format, word_order=self.word_order, byte_order=self.byte_order
             )

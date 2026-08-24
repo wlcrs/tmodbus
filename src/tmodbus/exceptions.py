@@ -177,7 +177,7 @@ class GatewayTargetDeviceFailedToRespondError(ModbusResponseError):
 class AbnormalDeviceDescriptionError(ModbusResponseError):
     """The device description definition call returned a response."""
 
-    error_code = ExceptionCode.ABNORNMAL_DEVICE_DESCRIPTION
+    error_code = ExceptionCode.ABNORMAL_DEVICE_DESCRIPTION
 
 
 class UnknownModbusResponseError(ModbusResponseError):
