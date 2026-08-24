@@ -19,6 +19,7 @@ from tmodbus.server.handler import _handler_accepts_context
 from tmodbus.server.security import (
     MODBUS_ROLE_OID,
     MODBUS_SECURITY_PORT,
+    _first_role_extension_value,
     extract_client_cert,
     extract_modbus_role,
 )
@@ -36,7 +37,7 @@ try:
     from cryptography.hazmat import asn1
     from cryptography.hazmat.primitives import hashes, serialization
     from cryptography.hazmat.primitives.asymmetric import rsa
-    from cryptography.x509.oid import NameOID
+    from cryptography.x509.oid import ExtensionOID, NameOID
 
     CRYPTOGRAPHY_AVAILABLE = True
 except ImportError:
@@ -789,3 +790,87 @@ async def test_extract_modbus_role_cryptography_missing() -> None:
         pytest.raises(ImportError, match="The 'cryptography' package is required"),
     ):
         extract_modbus_role(mock_cert)
+
+
+def test_extract_modbus_role_duplicate_extension_critical() -> None:
+    """extract_modbus_role handles duplicate role extension when the first one is marked critical."""
+    key = _make_key()
+    ca_key = _make_key()
+    ca_cert = _make_ca_cert(ca_key)
+
+    role_bytes = b"Admin"
+    asn1_value = bytes([0x0C, len(role_bytes)]) + role_bytes
+
+    builder = (
+        x509.CertificateBuilder()
+        .subject_name(x509.Name([x509.NameAttribute(NameOID.COMMON_NAME, "TestCritDup")]))
+        .issuer_name(ca_cert.subject)
+        .public_key(key.public_key())
+        .serial_number(x509.random_serial_number())
+        .not_valid_before(_NOW)
+        .not_valid_after(_NOW + _VALIDITY)
+    )
+    builder._extensions = [
+        x509.Extension(
+            oid=_MODBUS_OID,
+            critical=True,
+            value=x509.UnrecognizedExtension(_MODBUS_OID, asn1_value),
+        ),
+        x509.Extension(
+            oid=_MODBUS_OID,
+            critical=False,
+            value=x509.UnrecognizedExtension(_MODBUS_OID, b"\x0c\x04User"),
+        ),
+    ]
+    cert = builder.sign(ca_key, hashes.SHA256())
+    assert extract_modbus_role(cert) == "Admin"
+
+
+def test_extract_modbus_role_duplicate_non_modbus_extension() -> None:
+    """extract_modbus_role returns None when duplicate extensions exist but none are Modbus role."""
+    key = _make_key()
+    ca_key = _make_key()
+    ca_cert = _make_ca_cert(ca_key)
+
+    builder = (
+        x509.CertificateBuilder()
+        .subject_name(x509.Name([x509.NameAttribute(NameOID.COMMON_NAME, "TestDupSAN")]))
+        .issuer_name(ca_cert.subject)
+        .public_key(key.public_key())
+        .serial_number(x509.random_serial_number())
+        .not_valid_before(_NOW)
+        .not_valid_after(_NOW + _VALIDITY)
+    )
+    builder._extensions = [
+        x509.Extension(
+            oid=ExtensionOID.SUBJECT_ALTERNATIVE_NAME,
+            critical=False,
+            value=x509.SubjectAlternativeName([x509.DNSName("example1.com")]),
+        ),
+        x509.Extension(
+            oid=ExtensionOID.SUBJECT_ALTERNATIVE_NAME,
+            critical=False,
+            value=x509.SubjectAlternativeName([x509.DNSName("example2.com")]),
+        ),
+    ]
+    cert = builder.sign(ca_key, hashes.SHA256())
+    assert extract_modbus_role(cert) is None
+
+
+def test_first_role_extension_value_no_extensions() -> None:
+    """_first_role_extension_value returns None when certificate has no extensions."""
+    key = _make_key()
+    ca_key = _make_key()
+    ca_cert = _make_ca_cert(ca_key)
+
+    builder = (
+        x509.CertificateBuilder()
+        .subject_name(x509.Name([x509.NameAttribute(NameOID.COMMON_NAME, "TestNoExt")]))
+        .issuer_name(ca_cert.subject)
+        .public_key(key.public_key())
+        .serial_number(x509.random_serial_number())
+        .not_valid_before(_NOW)
+        .not_valid_after(_NOW + _VALIDITY)
+    )
+    cert = builder.sign(ca_key, hashes.SHA256())
+    assert _first_role_extension_value(cert) is None
