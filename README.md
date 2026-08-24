@@ -33,10 +33,13 @@ We choose to use the terminology _client_ and _server_ instead, as it is more cl
 * Read input registers (`0x04`)
 * Write single coil (`0x05`)
 * Write single register (`0x06`)
-* Read exception status (`0x07`)
+* Read exception status (`0x07`, serial line only)
+* Diagnostics (`0x08`, serial line only — all 15 standard sub-functions supported)
+* Get comm event counter (`0x0B`, serial line only)
+* Get comm event log (`0x0C`, serial line only)
 * Write multiple coils (`0x0F`)
 * Write multiple registers (`0x10`)
-* Report server ID (`0x11`)
+* Report server ID (`0x11`, serial line only)
 * Read file record (`0x14`)
 * Write file record (`0x15`)
 * Mask write register (`0x16`)
@@ -44,9 +47,27 @@ We choose to use the terminology _client_ and _server_ instead, as it is more cl
 * Read FIFO queue (`0x18`)
 * Read device identification (`0x2B / 0x0E`)
 
+## Server Implementations
+
+`tModbus` includes asynchronous Modbus server implementations across all supported transports:
+
+* `AsyncTcpServer`: Modbus TCP server (supports plain TCP and SSL/TLS / Modbus Security)
+* `AsyncRtuServer`: Modbus RTU server over serial port
+* `AsyncAsciiServer`: Modbus ASCII server over serial port
+* `AsyncRtuOverTcpServer`: Modbus RTU over TCP server
+* `AsyncUdpServer`: Modbus UDP server
+
+### Key Server Features
+
+* **Type-Safe Dispatcher (`ModbusRequestRouter`)**: Map request PDU classes directly to async handlers. Static type checkers (e.g., mypy, pyright) validate that handler return types match the expected Modbus response payload.
+* **Unit ID Filtering**: Register handlers for specific unit IDs (slave addresses) or use wildcards to handle requests for all unit IDs.
+* **Context Awareness (`RequestContext`)**: Handlers can optionally receive connection metadata such as the client's peer IP address and TLS client certificate.
+* **Modbus/TCP Security (mbaps)**: Supports mutual TLS (mTLS) authentication and role extraction (`extract_modbus_role`) for Role-Based Access Control (RBAC).
+* **Standard Exception Handling**: Raising exceptions such as `IllegalDataAddressError` or `IllegalDataValueError` automatically encodes and returns the appropriate Modbus exception response PDU.
+
 ## Examples
 
-A simple example of an Async TCP client:
+### Async TCP Client
 
 ```python
 import asyncio
@@ -65,7 +86,52 @@ if __name__ == "__main__":
     asyncio.run(main())
 ```
 
-Various client and server examples (including Modbus Security) can be found in the [examples](./examples) folder.
+### Async TCP Server
+
+```python
+import asyncio
+
+from tmodbus.exceptions import IllegalDataAddressError
+from tmodbus.pdu import ReadHoldingRegistersPDU, WriteSingleRegisterPDU
+from tmodbus.server import AsyncTcpServer, ModbusRequestRouter
+
+# Simple in-memory register store: 100 registers
+REGISTER_STORE = [0] * 100
+
+router = ModbusRequestRouter()
+
+
+@router.register(ReadHoldingRegistersPDU, unit_id=1)
+async def handle_read_holding_registers(_unit_id: int, request: ReadHoldingRegistersPDU) -> list[int]:
+    """Handle incoming Read Holding Registers requests."""
+    addr = request.start_address
+    qty = request.quantity
+    if addr + qty > len(REGISTER_STORE):
+        raise IllegalDataAddressError(request.function_code)
+    return REGISTER_STORE[addr : addr + qty]
+
+
+@router.register(WriteSingleRegisterPDU, unit_id=1)
+async def handle_write_single_register(_unit_id: int, request: WriteSingleRegisterPDU) -> int:
+    """Handle incoming Write Single Register requests."""
+    if request.address >= len(REGISTER_STORE):
+        raise IllegalDataAddressError(request.function_code)
+    REGISTER_STORE[request.address] = request.value
+    return request.value
+
+
+async def main() -> None:
+    """Run the Modbus TCP Server."""
+    server = AsyncTcpServer(host="127.0.0.1", port=5020, handler=router)
+    print("Starting Modbus TCP Server on 127.0.0.1:5020...")
+    await server.serve_forever()
+
+
+if __name__ == "__main__":
+    asyncio.run(main())
+```
+
+Various client and server examples (including RTU, ASCII, RTU-over-TCP, UDP, and Modbus Security over TLS) can be found in the [examples](./examples) folder.
 
 ## Dependencies
 
