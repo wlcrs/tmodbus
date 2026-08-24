@@ -25,7 +25,7 @@ from tmodbus.utils.lrc import calculate_lrc, validate_lrc
 from tmodbus.utils.raw_traffic_logger import log_raw_traffic as base_log_raw_traffic
 
 from .async_base import AsyncBaseTransport
-from .async_rtu import SerialXOptions
+from .async_rtu import TIMED_OUT_REQUEST_EXPIRY, SerialXOptions
 
 logger = logging.getLogger(__name__)
 log_raw_traffic = partial(base_log_raw_traffic, "ASCII")
@@ -122,7 +122,8 @@ class ModbusAsciiProtocol(asyncio.Protocol):
     _buffer: bytearray
     _last_frame_ended_at: float
     _pending_request: _PendingRequest | None
-    _timed_out_requests: dict[int, BaseClientPDU[Any]]
+    # unit_id -> (pdu, time.monotonic() when the request timed out)
+    _timed_out_requests: dict[int, tuple[BaseClientPDU[Any], float]]
 
     def __init__(
         self,
@@ -208,13 +209,13 @@ class ModbusAsciiProtocol(asyncio.Protocol):
                 response = await asyncio.wait_for(read_future, timeout=self.timeout)
             except TimeoutError as e:
                 # Save PDU for timed-out request so any delayed response can be discarded cleanly
-                self._timed_out_requests[unit_id] = pdu
+                self._timed_out_requests[unit_id] = (pdu, time.monotonic())
                 msg = f"Response timeout after {self.timeout} seconds"
                 raise TimeoutError(msg) from e
             except asyncio.CancelledError:
                 # Caller cancelled while the request was on the wire: track it like a
                 # timeout so a delayed response is not treated as garbage.
-                self._timed_out_requests[unit_id] = pdu
+                self._timed_out_requests[unit_id] = (pdu, time.monotonic())
                 raise
             finally:
                 self._pending_request = None
@@ -263,7 +264,8 @@ class ModbusAsciiProtocol(asyncio.Protocol):
 
     def _handle_inactive_unit_data(self, unit_id: int, base_function_code: int, raw: bytes) -> None:
         """Handle data for a unit ID with no active request."""
-        timed_out_pdu = self._timed_out_requests.get(unit_id)
+        timed_out_entry = self._timed_out_requests.get(unit_id)
+        timed_out_pdu = timed_out_entry[0] if timed_out_entry is not None else None
         if timed_out_pdu is None and self._pending_request is not None and self._pending_request.unit_id == unit_id:
             timed_out_pdu = self._pending_request.pdu
 
@@ -305,8 +307,8 @@ class ModbusAsciiProtocol(asyncio.Protocol):
         if base_function_code == (pending.pdu.function_code & FUNCTION_CODE_MASK):
             return False
 
-        timed_out_pdu = self._timed_out_requests.get(unit_id)
-        if timed_out_pdu is None or base_function_code != (timed_out_pdu.function_code & FUNCTION_CODE_MASK):
+        timed_out_entry = self._timed_out_requests.get(unit_id)
+        if timed_out_entry is None or base_function_code != (timed_out_entry[0].function_code & FUNCTION_CODE_MASK):
             return False
 
         # Only clear tracking when the LRC validates (mirrors RTU's CRC check):
@@ -328,10 +330,24 @@ class ModbusAsciiProtocol(asyncio.Protocol):
         self._timed_out_requests.pop(unit_id, None)
         return True
 
+    def _purge_expired_timed_out_requests(self) -> None:
+        """Drop timed-out requests whose delayed response never arrived within the expiry horizon."""
+        deadline = time.monotonic() - TIMED_OUT_REQUEST_EXPIRY
+        for unit_id, (_, timed_out_at) in list(self._timed_out_requests.items()):
+            if timed_out_at < deadline:
+                logger.warning(
+                    "Timed-out request for unit %d expired after %.0f seconds without a delayed response.",
+                    unit_id,
+                    TIMED_OUT_REQUEST_EXPIRY,
+                )
+                del self._timed_out_requests[unit_id]
+
     def data_received(self, data: bytes) -> None:
         """Handle data received event."""
         self._buffer.extend(data)
         log_raw_traffic("recv", data)
+
+        self._purge_expired_timed_out_requests()
 
         # Try to process complete frames
         while len(self._buffer) >= 1:

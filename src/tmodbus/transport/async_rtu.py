@@ -75,6 +75,11 @@ RT = TypeVar("RT")
 
 DEFAULT_TIMEOUT = 10.0  # Default timeout in seconds for async operations
 
+# How long (in seconds) a timed-out request is remembered so its delayed response can be
+# framed and discarded. After this, the device is considered truly dead and the entry is
+# purged so stale PDUs cannot influence framing of future data indefinitely.
+TIMED_OUT_REQUEST_EXPIRY = 30.0
+
 
 class SerialXOptions(TypedDict):
     """Options for the SerialX connection."""
@@ -310,7 +315,8 @@ class ModbusRtuProtocol(asyncio.Protocol):
     _buffer: bytearray
     _last_frame_ended_at: float
     _pending_request: _PendingRequest | None
-    _timed_out_requests: dict[int, BaseClientPDU[Any]]
+    # unit_id -> (pdu, time.monotonic() when the request timed out)
+    _timed_out_requests: dict[int, tuple[BaseClientPDU[Any], float]]
 
     def __init__(
         self,
@@ -397,13 +403,13 @@ class ModbusRtuProtocol(asyncio.Protocol):
                 response = await asyncio.wait_for(read_future, timeout=self.timeout)
             except TimeoutError as e:
                 # Save PDU for timed-out request so any delayed response can be framed and discarded cleanly
-                self._timed_out_requests[unit_id] = pdu
+                self._timed_out_requests[unit_id] = (pdu, time.monotonic())
                 msg = f"Response timeout after {self.timeout} seconds"
                 raise TimeoutError(msg) from e
             except asyncio.CancelledError:
                 # Caller cancelled while the request was on the wire: track it like a
                 # timeout so a delayed response is not treated as garbage.
-                self._timed_out_requests[unit_id] = pdu
+                self._timed_out_requests[unit_id] = (pdu, time.monotonic())
                 raise
             finally:
                 self._pending_request = None
@@ -434,7 +440,7 @@ class ModbusRtuProtocol(asyncio.Protocol):
         - unit_id + exception response function code (base function code | EXCEPTION_RESPONSE_BIT)
         """
         headers: set[bytes] = set()
-        for uid, pdu in self._timed_out_requests.items():
+        for uid, (pdu, _) in self._timed_out_requests.items():
             base_fc = pdu.function_code & FUNCTION_CODE_MASK
             headers.add(bytes([uid, base_fc]))
             headers.add(bytes([uid, base_fc | EXCEPTION_RESPONSE_BIT]))
@@ -664,8 +670,9 @@ class ModbusRtuProtocol(asyncio.Protocol):
             True if waiting for more data, False if drained or skipped, or None if no match.
 
         """
-        timed_out_pdu = self._timed_out_requests.get(unit_id)
-        if timed_out_pdu is not None and len(self._buffer) >= 2:
+        timed_out_entry = self._timed_out_requests.get(unit_id)
+        if timed_out_entry is not None and len(self._buffer) >= 2:
+            timed_out_pdu = timed_out_entry[0]
             raw_function_code = self._buffer[1]
             base_function_code = raw_function_code & FUNCTION_CODE_MASK
             if (
@@ -683,7 +690,8 @@ class ModbusRtuProtocol(asyncio.Protocol):
             True if caller should return immediately (waiting for more data), False to continue.
 
         """
-        timed_out_pdu = self._timed_out_requests.get(unit_id)
+        timed_out_entry = self._timed_out_requests.get(unit_id)
+        timed_out_pdu = timed_out_entry[0] if timed_out_entry is not None else None
         if timed_out_pdu is None and self._pending_request is not None and self._pending_request.unit_id == unit_id:
             timed_out_pdu = self._pending_request.pdu
 
@@ -693,6 +701,18 @@ class ModbusRtuProtocol(asyncio.Protocol):
         # No pending or timed-out request for this unit_id - this is garbage data
         self._discard_garbage_data()
         return False
+
+    def _purge_expired_timed_out_requests(self) -> None:
+        """Drop timed-out requests whose delayed response never arrived within the expiry horizon."""
+        deadline = time.monotonic() - TIMED_OUT_REQUEST_EXPIRY
+        for unit_id, (_, timed_out_at) in list(self._timed_out_requests.items()):
+            if timed_out_at < deadline:
+                logger.warning(
+                    "Timed-out request for unit %d expired after %.0f seconds without a delayed response.",
+                    unit_id,
+                    TIMED_OUT_REQUEST_EXPIRY,
+                )
+                del self._timed_out_requests[unit_id]
 
     def data_received(self, data: bytes) -> None:
         """Handle data received event.
@@ -712,6 +732,8 @@ class ModbusRtuProtocol(asyncio.Protocol):
         # Received bytes are bus activity too: restart the 3.5-char silence clock so the
         # next request keeps the inter-frame delay from the end of a received frame.
         self._last_frame_ended_at = time.monotonic()
+
+        self._purge_expired_timed_out_requests()
 
         last_error: Exception | None = None
 

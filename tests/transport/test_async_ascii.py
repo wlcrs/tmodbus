@@ -4,6 +4,7 @@ import asyncio
 import logging
 import time
 from collections.abc import Callable
+from types import SimpleNamespace
 from typing import Any
 from unittest.mock import MagicMock, patch
 
@@ -21,6 +22,7 @@ from tmodbus.transport.async_ascii import (
     ASCII_FRAME_END,
     ASCII_FRAME_START,
     MAX_ASCII_FRAME_SIZE,
+    TIMED_OUT_REQUEST_EXPIRY,
     AsyncAsciiTransport,
     ModbusAsciiProtocol,
     _PendingRequest,
@@ -797,7 +799,7 @@ async def test_protocol_multiple_frames(mock_transport: MagicMock) -> None:
     with pytest.raises(TimeoutError):
         await protocol.send_and_receive(unit_id, pdu1)
 
-    assert protocol._timed_out_requests[unit_id] is pdu1
+    assert protocol._timed_out_requests[unit_id][0] is pdu1
 
     # Build delayed response for request 1 and valid response for request 2
     frame1 = build_ascii_frame(unit_id, b"\x03\x02\xaa\xbb")
@@ -1190,7 +1192,7 @@ async def test_send_and_receive_timeout_resets_pending_request(
         await protocol.send_and_receive(unit_id, pdu)
 
     assert protocol._pending_request is None
-    assert protocol._timed_out_requests[unit_id] is pdu
+    assert protocol._timed_out_requests[unit_id][0] is pdu
 
 
 async def test_send_and_receive_serialized_by_bus_lock(
@@ -1241,7 +1243,7 @@ async def test_delayed_response_after_timeout_is_cleanly_discarded(
     with pytest.raises(TimeoutError):
         await protocol.send_and_receive(unit_id, pdu)
 
-    assert protocol._timed_out_requests[unit_id] is pdu
+    assert protocol._timed_out_requests[unit_id][0] is pdu
 
     # Delayed response arrives
     delayed_frame = build_ascii_frame(unit_id, b"\x03\x02\x00\x55")
@@ -1271,7 +1273,7 @@ async def test_delayed_response_during_active_request_same_unit(
     with pytest.raises(TimeoutError):
         await protocol.send_and_receive(unit_id, pdu1)
 
-    assert protocol._timed_out_requests[unit_id] is pdu1
+    assert protocol._timed_out_requests[unit_id][0] is pdu1
 
     # Step 2: Request 2 (FC 0x06) is sent and active
     delayed_frame_1 = build_ascii_frame(unit_id, b"\x03\x02\xaa\xbb")
@@ -1320,7 +1322,7 @@ async def test_delayed_exception_response_during_active_request_same_unit(
     with pytest.raises(TimeoutError):
         await protocol.send_and_receive(unit_id, pdu1)
 
-    assert protocol._timed_out_requests[unit_id] is pdu1
+    assert protocol._timed_out_requests[unit_id][0] is pdu1
 
     # Step 2: Request 2 (FC 0x06) is sent and active
     # Late exception response for Request 1 (FC 0x83, exception code 0x02)
@@ -1366,7 +1368,7 @@ async def test_active_request_succeeds_and_clears_stale_timed_out_request(
     with pytest.raises(TimeoutError):
         await protocol.send_and_receive(unit_id, pdu1)
 
-    assert protocol._timed_out_requests[unit_id] is pdu1
+    assert protocol._timed_out_requests[unit_id][0] is pdu1
 
     # Request 2 is sent and succeeds
     response = build_ascii_frame(unit_id, b"\x03\x02\x00\x55")
@@ -1454,7 +1456,7 @@ async def test_cancelled_request_is_tracked_and_delayed_response_discarded(
         await task
 
     assert protocol._pending_request is None
-    assert protocol._timed_out_requests[unit_id] is pdu1
+    assert protocol._timed_out_requests[unit_id][0] is pdu1
 
     # Step 2: the delayed response is discarded and clears the tracking
     delayed_frame = build_ascii_frame(unit_id, b"\x03\x02\x00\x55")
@@ -1491,13 +1493,13 @@ async def test_corrupt_delayed_frame_keeps_timed_out_tracking(
 
     with pytest.raises(TimeoutError):
         await protocol.send_and_receive(unit_id, pdu)
-    assert protocol._timed_out_requests[unit_id] is pdu
+    assert protocol._timed_out_requests[unit_id][0] is pdu
 
     good_frame = build_ascii_frame(unit_id, b"\x03\x02\x00\x55")
     corrupt_frame = good_frame.replace(b"0055", b"0056")  # data changed, LRC now invalid
 
     protocol.data_received(corrupt_frame)
-    assert protocol._timed_out_requests[unit_id] is pdu  # tracking kept
+    assert protocol._timed_out_requests[unit_id][0] is pdu  # tracking kept
 
     protocol.data_received(good_frame)
     assert unit_id not in protocol._timed_out_requests
@@ -1522,7 +1524,7 @@ async def test_corrupt_delayed_frame_during_active_request_keeps_tracking(
     # Step 1: Request 1 (FC 0x03) times out
     with pytest.raises(TimeoutError):
         await protocol.send_and_receive(unit_id, pdu1)
-    assert protocol._timed_out_requests[unit_id] is pdu1
+    assert protocol._timed_out_requests[unit_id][0] is pdu1
 
     # Step 2: Request 2 (FC 0x06) is sent and active
     good_delayed_1 = build_ascii_frame(unit_id, b"\x03\x02\xaa\xbb")
@@ -1535,7 +1537,7 @@ async def test_corrupt_delayed_frame_during_active_request_keeps_tracking(
         protocol.data_received(corrupt_delayed_1)
         assert protocol._pending_request is not None
         assert not protocol._pending_request.future.done()
-        assert protocol._timed_out_requests[unit_id] is pdu1
+        assert protocol._timed_out_requests[unit_id][0] is pdu1
 
         # Real delayed frame clears the tracking
         protocol.data_received(good_delayed_1)
@@ -1566,7 +1568,7 @@ async def test_lrc_error_on_active_request_keeps_timed_out_tracking(
 
     stale_pdu = _DummyPDU()
     unit_id = 1
-    protocol._timed_out_requests[unit_id] = stale_pdu
+    protocol._timed_out_requests[unit_id] = (stale_pdu, time.monotonic())
 
     pdu = _DummyPDU()
     corrupt_frame = build_ascii_frame(unit_id, b"\x03\x02\x00\x55").replace(b"0055", b"0056")
@@ -1581,7 +1583,7 @@ async def test_lrc_error_on_active_request_keeps_timed_out_tracking(
         await task
     await deliv_task
 
-    assert protocol._timed_out_requests[unit_id] is stale_pdu
+    assert protocol._timed_out_requests[unit_id][0] is stale_pdu
 
 
 async def test_timeout_does_not_log_error(
@@ -1600,3 +1602,62 @@ async def test_timeout_does_not_log_error(
         await protocol.send_and_receive(1, _DummyPDU())
 
     assert not caplog.records
+
+
+async def test_timed_out_request_drained_within_expiry_horizon(
+    mock_transport: MagicMock,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """Test that a delayed response arriving just before the expiry horizon is still drained cleanly."""
+    protocol = ModbusAsciiProtocol(on_connection_lost=lambda _: None, timeout=0.05)
+    protocol.connection_made(mock_transport)
+
+    clock = {"now": 1000.0}
+    monkeypatch.setattr("tmodbus.transport.async_ascii.time", SimpleNamespace(monotonic=lambda: clock["now"]))
+
+    pdu = _DummyPDU()
+    unit_id = 1
+
+    with pytest.raises(TimeoutError):
+        await protocol.send_and_receive(unit_id, pdu)
+
+    # Registration records the monotonic clock
+    assert protocol._timed_out_requests[unit_id] == (pdu, 1000.0)
+
+    # Just before the horizon, the delayed response is still recognized and discarded cleanly
+    clock["now"] += TIMED_OUT_REQUEST_EXPIRY - 1
+    protocol.data_received(build_ascii_frame(unit_id, b"\x03\x02\x00\x55"))
+
+    assert len(protocol._buffer) == 0
+    assert unit_id not in protocol._timed_out_requests
+
+
+async def test_timed_out_request_expires_after_horizon(
+    mock_transport: MagicMock,
+    monkeypatch: pytest.MonkeyPatch,
+    caplog: pytest.LogCaptureFixture,
+) -> None:
+    """Test that a stale timed-out entry is purged and a late frame is treated as garbage."""
+    protocol = ModbusAsciiProtocol(on_connection_lost=lambda _: None, timeout=0.05)
+    protocol.connection_made(mock_transport)
+
+    clock = {"now": 1000.0}
+    monkeypatch.setattr("tmodbus.transport.async_ascii.time", SimpleNamespace(monotonic=lambda: clock["now"]))
+
+    pdu = _DummyPDU()
+    unit_id = 1
+
+    with pytest.raises(TimeoutError):
+        await protocol.send_and_receive(unit_id, pdu)
+
+    assert protocol._timed_out_requests[unit_id] == (pdu, 1000.0)
+
+    # After the horizon, the entry is purged before it is consulted:
+    # the late frame is discarded as an unexpected frame, as before tracking existed
+    clock["now"] += TIMED_OUT_REQUEST_EXPIRY + 1
+    with caplog.at_level(logging.WARNING):
+        protocol.data_received(build_ascii_frame(unit_id, b"\x03\x02\x00\x55"))
+
+    assert unit_id not in protocol._timed_out_requests
+    assert len(protocol._buffer) == 0
+    assert "expired" in caplog.text

@@ -5,6 +5,7 @@ import contextlib
 import logging
 import time
 from collections.abc import Callable
+from types import SimpleNamespace
 from typing import Any
 from unittest.mock import AsyncMock, MagicMock, patch
 
@@ -21,6 +22,7 @@ from tmodbus.exceptions import (
 from tmodbus.pdu.base import BaseClientPDU
 from tmodbus.transport.async_rtu import (
     MAX_RTU_FRAME_SIZE,
+    TIMED_OUT_REQUEST_EXPIRY,
     AsyncRtuTransport,
     ModbusRtuProtocol,
     _ModbusRtuMessage,
@@ -561,7 +563,7 @@ async def test_protocol_per_unit_request_tracking(
     with pytest.raises(TimeoutError):
         await protocol.send_and_receive(unit_id_1, pdu1)
 
-    assert protocol._timed_out_requests[unit_id_1] is pdu1
+    assert protocol._timed_out_requests[unit_id_1][0] is pdu1
 
     # Request 2 succeeds -> stored in _timed_out_requests[unit_id_2] (if timed out), but unit 1 is kept
     resp2_payload = bytes([unit_id_2, pdu2.function_code, 0x05])
@@ -577,7 +579,7 @@ async def test_protocol_per_unit_request_tracking(
 
     assert res2[0] == "decoded"
     # Unit 1 timed-out request is still tracked safely!
-    assert protocol._timed_out_requests[unit_id_1] is pdu1
+    assert protocol._timed_out_requests[unit_id_1][0] is pdu1
     assert unit_id_2 not in protocol._timed_out_requests
 
 
@@ -743,7 +745,7 @@ async def test_on_connection_lost_pending_futures(mock_serial_connection: tuple[
     send_task = asyncio.create_task(protocol.send_and_receive(unit_id, pdu))
     await asyncio.sleep(0.01)  # Ensure the send_and_receive has started
     assert protocol._pending_request is not None
-    protocol._timed_out_requests[3] = pdu
+    protocol._timed_out_requests[3] = (pdu, time.monotonic())
     # Now simulate connection lost
     protocol.connection_lost(None)
     assert len(protocol._timed_out_requests) == 0
@@ -1172,7 +1174,7 @@ async def test_send_and_receive_timeout_resets_pending_request(
         await protocol.send_and_receive(unit_id, pdu)
 
     assert protocol._pending_request is None
-    assert protocol._timed_out_requests[unit_id] is pdu
+    assert protocol._timed_out_requests[unit_id][0] is pdu
 
 
 async def test_sliding_window_recovers_when_noise_matches_unit_id(
@@ -1570,7 +1572,7 @@ async def test_delayed_response_after_timeout_is_cleanly_discarded_using_old_pdu
         await protocol.send_and_receive(unit_id, pdu1)
 
     # Verify that the timed out PDU is preserved
-    assert protocol._timed_out_requests[unit_id] is pdu1
+    assert protocol._timed_out_requests[unit_id][0] is pdu1
 
     # Step 2: Now the delayed response arrives. It should be framed and discarded cleanly.
     protocol.data_received(delayed_response)
@@ -1614,7 +1616,7 @@ async def test_try_drain_timed_out_response_branches(
 
     # 2. When _determine_expected_frame_length raises error -> pops and discards leading garbage slice
     protocol._buffer = bytearray(b"\x01\x65\x00\x00")
-    protocol._timed_out_requests[unit_id] = pdu
+    protocol._timed_out_requests[unit_id] = (pdu, time.monotonic())
     assert protocol._try_drain_timed_out_response(unit_id, pdu) is False
     assert unit_id not in protocol._timed_out_requests
     assert protocol._buffer == bytearray(b"")  # No plausible start ahead; entire slice discarded
@@ -1627,7 +1629,7 @@ async def test_try_drain_timed_out_response_branches(
 
     monkeypatch.setattr("tmodbus.transport.async_rtu.get_pdu_class", lambda _: DummyPduClass)
     protocol._buffer = bytearray(b"\x01\x03\x05\xff\xff\x01\x03\x05\xaa\xbb")  # bad frame followed by next candidate
-    protocol._timed_out_requests[unit_id] = pdu
+    protocol._timed_out_requests[unit_id] = (pdu, time.monotonic())
     assert protocol._try_drain_timed_out_response(unit_id, pdu) is False
     assert protocol._buffer == bytearray(b"\x01\x03\x05\xaa\xbb")  # Resynchronized to next plausible frame start
 
@@ -1642,7 +1644,7 @@ async def test_delayed_response_drained_in_chunks(
 
     pdu = _DummyPDU()
     unit_id = 1
-    protocol._timed_out_requests[unit_id] = pdu
+    protocol._timed_out_requests[unit_id] = (pdu, time.monotonic())
 
     class DummyPduClass:
         @staticmethod
@@ -1706,7 +1708,7 @@ async def test_delayed_response_arriving_during_active_request_different_fc(
     with pytest.raises(TimeoutError):
         await protocol.send_and_receive(unit_id, pdu1)
 
-    assert protocol._timed_out_requests[unit_id] is pdu1
+    assert protocol._timed_out_requests[unit_id][0] is pdu1
 
     # Step 2: Request 2 is dispatched (FC 0x06) and is active
     delayed_payload_1 = bytes([unit_id, 0x03, 0xAA])
@@ -1762,7 +1764,7 @@ async def test_active_request_succeeds_and_clears_stale_timed_out_request(
     with pytest.raises(TimeoutError):
         await protocol.send_and_receive(unit_id, pdu1)
 
-    assert protocol._timed_out_requests[unit_id] is pdu1
+    assert protocol._timed_out_requests[unit_id][0] is pdu1
 
     # Request 2 is sent, and its response arrives directly
     resp_payload = bytes([unit_id, pdu2.function_code, 0x55])
@@ -1811,7 +1813,7 @@ async def test_delayed_exception_response_arriving_during_active_request(
     with pytest.raises(TimeoutError):
         await protocol.send_and_receive(unit_id, pdu1)
 
-    assert protocol._timed_out_requests[unit_id] is pdu1
+    assert protocol._timed_out_requests[unit_id][0] is pdu1
 
     # Step 2: Request 2 (FC 0x06) is sent and active
     # Late response for Request 1 is an Exception Response (FC 0x83, Exception Code 0x02)
@@ -1885,7 +1887,7 @@ async def test_delayed_response_in_chunks_during_active_request(
     with pytest.raises(TimeoutError):
         await protocol.send_and_receive(unit_id, pdu1)
 
-    assert protocol._timed_out_requests[unit_id] is pdu1
+    assert protocol._timed_out_requests[unit_id][0] is pdu1
 
     # Step 2: Request 2 (FC 0x06) is sent and active
     delayed_payload_1 = bytes([unit_id, 0x03, 0xAA, 0xBB])
@@ -2044,7 +2046,7 @@ async def test_cancelled_request_is_tracked_and_delayed_response_drained(
         await task
 
     assert protocol._pending_request is None
-    assert protocol._timed_out_requests[unit_id] is pdu1
+    assert protocol._timed_out_requests[unit_id][0] is pdu1
 
     # Step 2: the delayed response is framed and discarded cleanly
     protocol.data_received(delayed_response)
@@ -2208,3 +2210,71 @@ async def test_discard_garbage_data_when_buffer_starts_with_valid_header(
     protocol._discard_garbage_data()
 
     assert protocol._buffer == bytearray(b"\x01\x03\x05\xaa\xbb")
+
+
+async def test_timed_out_request_drained_within_expiry_horizon(
+    mock_transport: MagicMock,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """Test that a delayed response arriving just before the expiry horizon is still drained cleanly."""
+    protocol = ModbusRtuProtocol(on_connection_lost=lambda _: None, timeout=0.05)
+    protocol.connection_made(mock_transport)
+
+    clock = {"now": 1000.0}
+    monkeypatch.setattr("tmodbus.transport.async_rtu.time", SimpleNamespace(monotonic=lambda: clock["now"]))
+
+    pdu = _DummyPDU()
+    unit_id = 1
+
+    class DummyPduClass:
+        @staticmethod
+        def get_expected_response_data_length(_begin_bytes: bytes) -> int:
+            return 1
+
+    monkeypatch.setattr("tmodbus.transport.async_rtu.get_pdu_class", lambda _: DummyPduClass)
+
+    with pytest.raises(TimeoutError):
+        await protocol.send_and_receive(unit_id, pdu)
+
+    # Registration records the monotonic clock
+    assert protocol._timed_out_requests[unit_id] == (pdu, 1000.0)
+
+    # Just before the horizon, the delayed response is still framed and drained cleanly
+    clock["now"] += TIMED_OUT_REQUEST_EXPIRY - 1
+    delayed_payload = bytes([unit_id, pdu.function_code, 0x05])
+    protocol.data_received(delayed_payload + calculate_crc16(delayed_payload))
+
+    assert len(protocol._buffer) == 0
+    assert unit_id not in protocol._timed_out_requests
+
+
+async def test_timed_out_request_expires_after_horizon(
+    mock_transport: MagicMock,
+    monkeypatch: pytest.MonkeyPatch,
+    caplog: pytest.LogCaptureFixture,
+) -> None:
+    """Test that a stale timed-out entry is purged and a late frame is treated as garbage."""
+    protocol = ModbusRtuProtocol(on_connection_lost=lambda _: None, timeout=0.05)
+    protocol.connection_made(mock_transport)
+
+    clock = {"now": 1000.0}
+    monkeypatch.setattr("tmodbus.transport.async_rtu.time", SimpleNamespace(monotonic=lambda: clock["now"]))
+
+    pdu = _DummyPDU()
+    unit_id = 1
+
+    with pytest.raises(TimeoutError):
+        await protocol.send_and_receive(unit_id, pdu)
+
+    assert protocol._timed_out_requests[unit_id] == (pdu, 1000.0)
+
+    # After the horizon, the entry is purged before it is consulted:
+    # the late frame is discarded as garbage, as before tracking existed
+    clock["now"] += TIMED_OUT_REQUEST_EXPIRY + 1
+    delayed_payload = bytes([unit_id, pdu.function_code, 0x05])
+    with caplog.at_level(logging.WARNING):
+        protocol.data_received(delayed_payload + calculate_crc16(delayed_payload))
+
+    assert unit_id not in protocol._timed_out_requests
+    assert len(protocol._buffer) == 0
+    assert "expired" in caplog.text
