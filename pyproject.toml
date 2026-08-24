@@ -52,7 +52,7 @@ build-backend = "hatchling.build"
 only-packages = true
 
 [tool.hatch.build.targets.sdist]
-only-include = ["examples", "src", "tests"]
+only-include = ["docs/source", "examples", "src", "tests"]
 
 [tool.hatch.version]
 source = "vcs"
