@@ -27,6 +27,8 @@ more details.
 
 .. autofunction:: tmodbus.create_async_rtu_over_tcp_client
 
+.. autofunction:: tmodbus.create_async_udp_client
+
 **************
  Client layer
 **************
@@ -93,8 +95,8 @@ When the server responds with an error, tModbus will raise the corresponding sub
 - 0x0B Gateway target device failed to respond:
   :class:`~tmodbus.exceptions.GatewayTargetDeviceFailedToRespondError`.
 
-If an unknown exception code is returned, a generic
-:class:`~tmodbus.exceptions.ModbusResponseError` will be raised.
+If an unknown exception code is returned, an
+:class:`~tmodbus.exceptions.UnknownModbusResponseError` will be raised.
 
 When the server responds with an invalid response, tModbus will raise the corresponding
 subclass of :class:`~tmodbus.exceptions.InvalidResponseError`:

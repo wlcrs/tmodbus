@@ -6,7 +6,7 @@ from .const import ExceptionCode
 
 
 class TModbusError(Exception):
-    """Base exception class for ModbusLink library."""
+    """Base exception class for tModbus library."""
 
 
 class ModbusConnectionError(TModbusError):
@@ -19,7 +19,7 @@ class ModbusConnectionError(TModbusError):
     """The bytes that were read before the connection error occurred. Can be empty."""
 
     def __init__(self, *args: Any, bytes_read: bytes | None = None, **kwargs: Any) -> None:
-        """Initialize RTUFrameError."""
+        """Initialize ModbusConnectionError."""
         super().__init__(*args, **kwargs)
         self.response_bytes = bytes_read or b""
 
@@ -45,7 +45,7 @@ class InvalidResponseError(TModbusError):
     response_bytes: bytes
 
     def __init__(self, *args: Any, response_bytes: bytes, **kwargs: Any) -> None:
-        """Initialize RTUFrameError."""
+        """Initialize InvalidResponseError."""
         super().__init__(*args, **kwargs)
         self.response_bytes = response_bytes
 

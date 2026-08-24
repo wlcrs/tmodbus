@@ -14,6 +14,36 @@ def test_init_odd_size_raises() -> None:
 
 
 @pytest.mark.parametrize(
+    "format_str",
+    [
+        ">bIb",  # I starts at odd offset 1
+        ">BHB",  # H starts at odd offset 1
+        ">bHb",  # H starts at odd offset 1
+        ">3sb",  # odd-sized string cannot map onto whole registers
+    ],
+)
+def test_init_unaligned_value_raises(format_str: str) -> None:
+    """Test that values straddling register boundaries raise when reordering is configured."""
+    with pytest.raises(ValueError, match="align to whole registers"):
+        OrderAwareStruct(format_str, word_order="little")
+
+
+def test_init_unaligned_value_allowed_without_reordering() -> None:
+    """Test that plain big/big structs still accept any register-sized format."""
+    s = OrderAwareStruct(">bIb")
+    assert s.pack(1, 0x0A0B0C0D, 2) == b"\x01\x0a\x0b\x0c\x0d\x02"
+
+
+def test_init_no_byte_order_prefix_raises() -> None:
+    """Test that prefix-less (native alignment) formats raise when reordering is configured."""
+    for format_str in ["BI", "@BI"]:
+        with pytest.raises(ValueError, match="byte-order prefix"):
+            OrderAwareStruct(format_str, word_order="little")
+    # Plain big/big still accepts native formats
+    assert OrderAwareStruct("BI").size == struct.calcsize("BI")
+
+
+@pytest.mark.parametrize(
     ("format_str", "word_order", "value", "expected_bytes"),
     [
         # Single register (2 bytes) - no swapping needed
@@ -135,6 +165,47 @@ def test_roundtrip(
     assert unpacked == values
 
 
+@pytest.mark.parametrize(
+    ("word_order", "byte_order", "data", "expected_values"),
+    [
+        # Two consecutive 32-bit values 0x0A0B0C0D, 0x01020304 on the wire:
+        # ABCD
+        ("big", "big", b"\x0a\x0b\x0c\x0d\x01\x02\x03\x04", (0x0A0B0C0D, 0x01020304)),
+        # BADC
+        ("big", "little", b"\x0b\x0a\x0d\x0c\x02\x01\x04\x03", (0x0A0B0C0D, 0x01020304)),
+        # CDAB
+        ("little", "big", b"\x0c\x0d\x0a\x0b\x03\x04\x01\x02", (0x0A0B0C0D, 0x01020304)),
+        # DCBA
+        ("little", "little", b"\x0d\x0c\x0b\x0a\x04\x03\x02\x01", (0x0A0B0C0D, 0x01020304)),
+    ],
+)
+def test_iter_unpack(
+    word_order: Literal["big", "little"],
+    byte_order: Literal["big", "little"],
+    data: bytes,
+    expected_values: tuple[int, ...],
+) -> None:
+    """Test that iter_unpack applies the same reordering as unpack to every chunk."""
+    s = OrderAwareStruct(">I", word_order=word_order, byte_order=byte_order)
+    assert tuple(v for (v,) in s.iter_unpack(data)) == expected_values
+    # Each chunk must decode identically to unpack
+    assert [s.unpack(data[i : i + 4]) for i in range(0, len(data), 4)] == list(s.iter_unpack(data))
+
+
+def test_iter_unpack_multi_value_format() -> None:
+    """Test iter_unpack with a multi-value format."""
+    s = OrderAwareStruct(">HI", word_order="little")
+    data = s.pack(0x0102, 0x0A0B0C0D) + s.pack(0x0304, 0x01020304)
+    assert list(s.iter_unpack(data)) == [(0x0102, 0x0A0B0C0D), (0x0304, 0x01020304)]
+
+
+def test_iter_unpack_wrong_length_raises() -> None:
+    """Test that iter_unpack raises eagerly on a buffer that is not a multiple of size."""
+    s = OrderAwareStruct(">I", word_order="little")
+    with pytest.raises(struct.error, match="multiple of 4 bytes"):
+        s.iter_unpack(b"\x00" * 6)
+
+
 def test_unpack_from() -> None:
     """Test unpack_from with offset."""
     s = OrderAwareStruct(">I", word_order="big")
@@ -190,6 +261,41 @@ def test_pack_into() -> None:
     buffer = bytearray(8)
     s.pack_into(buffer, 2, 0x0A0B0C0D)
     assert buffer == b"\x00\x00\x0c\x0d\x0a\x0b\x00\x00"
+
+
+def test_pack_into_too_small_buffer_raises() -> None:
+    """Test pack_into raises struct.error instead of growing an undersized buffer."""
+    s = OrderAwareStruct(">I", word_order="little")
+    buffer = bytearray(2)
+    with pytest.raises(struct.error, match="pack_into requires a buffer of at least 4 bytes"):
+        s.pack_into(buffer, 0, 0x0A0B0C0D)
+    assert len(buffer) == 2
+    with pytest.raises(struct.error, match="at least 8 bytes for packing 4 bytes at offset 4"):
+        s.pack_into(bytearray(6), 4, 0x0A0B0C0D)
+
+
+def test_pack_into_negative_offset() -> None:
+    """Test pack_into resolves valid negative offsets from the buffer end, like stdlib."""
+    s = OrderAwareStruct(">I", word_order="little")
+    buffer = bytearray(8)
+    s.pack_into(buffer, -6, 0x0A0B0C0D)
+    assert buffer == b"\x00\x00\x0c\x0d\x0a\x0b\x00\x00"
+
+
+def test_pack_into_negative_offset_no_space() -> None:
+    """Test pack_into raises when a negative offset leaves no room for the value."""
+    s = OrderAwareStruct(">I", word_order="little")
+    buffer = bytearray(8)
+    with pytest.raises(struct.error, match="no space to pack 4 bytes at offset -2"):
+        s.pack_into(buffer, -2, 0x0A0B0C0D)
+    assert buffer == bytearray(8)
+
+
+def test_pack_into_negative_offset_out_of_range() -> None:
+    """Test pack_into raises when a negative offset exceeds the buffer start."""
+    s = OrderAwareStruct(">I", word_order="little")
+    with pytest.raises(struct.error, match="offset -9 out of range for 8-byte buffer"):
+        s.pack_into(bytearray(8), -9, 0x0A0B0C0D)
 
 
 @pytest.mark.parametrize(
@@ -360,6 +466,11 @@ def test_byte_order_multiple_values() -> None:
     s_abcd = OrderAwareStruct(">HI", word_order="big", byte_order="big")
     packed_abcd = s_abcd.pack(0x0102, 0x0A0B0C0D)
     assert packed_abcd == b"\x01\x02\x0a\x0b\x0c\x0d"
+
+    # BADC: word_order="big", byte_order="little"
+    s_badc = OrderAwareStruct(">HI", word_order="big", byte_order="little")
+    packed_badc = s_badc.pack(0x0102, 0x0A0B0C0D)
+    assert packed_badc == b"\x01\x02\x0b\x0a\x0d\x0c"
 
     # CDAB: word_order="little", byte_order="big"
     s_cdab = OrderAwareStruct(">HI", word_order="little", byte_order="big")

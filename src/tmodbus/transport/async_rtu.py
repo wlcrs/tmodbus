@@ -385,7 +385,7 @@ class ModbusRtuProtocol(asyncio.Protocol):
                 self._last_frame_ended_at = time.monotonic()
                 return broadcast_response
 
-            read_future: asyncio.Future[_ModbusRtuMessage] = asyncio.get_event_loop().create_future()
+            read_future: asyncio.Future[_ModbusRtuMessage] = asyncio.get_running_loop().create_future()
             self._pending_request = _PendingRequest(unit_id=unit_id, future=read_future, pdu=pdu)
 
             self.transport.write(request_adu)
@@ -457,6 +457,21 @@ class ModbusRtuProtocol(asyncio.Protocol):
         )
         del self._buffer[:discard_count]
 
+    def _resync_discard_length(self) -> int:
+        """Get the number of leading bytes to discard to resynchronize after a bad frame.
+
+        Skips ahead to the next byte matching an expected unit id, so a garbage burst is
+        dropped in one slice instead of one byte per pass through the receive loop.
+        """
+        expected_unit_ids: set[int] = set(self._timed_out_requests.keys())
+        if self._pending_request is not None and not self._pending_request.future.done():
+            expected_unit_ids.add(self._pending_request.unit_id)
+
+        for i in range(1, len(self._buffer)):
+            if self._buffer[i] in expected_unit_ids:
+                return i
+        return 1  # no plausible frame start ahead; drop only the leading byte
+
     def _determine_expected_frame_length(self, pending_pdu: BaseClientPDU[Any] | None = None) -> int | None:
         """Determine expected frame length based on current buffer contents.
 
@@ -502,7 +517,10 @@ class ModbusRtuProtocol(asyncio.Protocol):
                     msg = f"Cannot frame response with unsupported function code {function_code:#04x}"
                     raise RTUFrameError(msg, response_bytes=bytes(self._buffer)) from e
 
-            expected_response_data_length = pdu_class.get_expected_response_data_length(bytes(self._buffer[2:]))
+            # memoryview avoids an intermediate bytearray copy on every incoming chunk
+            expected_response_data_length = pdu_class.get_expected_response_data_length(
+                bytes(memoryview(self._buffer)[2:])
+            )
 
             if expected_response_data_length is None:
                 # the PDU class reported that it cannot yet determine the length of this response
@@ -544,13 +562,13 @@ class ModbusRtuProtocol(asyncio.Protocol):
             expected_total_frame_length = self._determine_expected_frame_length(timed_out_pdu)
         except (RTUFrameError, FunctionCodeError):
             self._timed_out_requests.pop(unit_id, None)
-            del self._buffer[0]
+            del self._buffer[: self._resync_discard_length()]
             return False
 
         if expected_total_frame_length is None or len(self._buffer) < expected_total_frame_length:
             return True  # Wait for full delayed frame
 
-        candidate_frame = bytes(self._buffer[:expected_total_frame_length])
+        candidate_frame = bytes(memoryview(self._buffer)[:expected_total_frame_length])
         if validate_crc16(candidate_frame):
             del self._buffer[:expected_total_frame_length]
             self._timed_out_requests.pop(unit_id, None)
@@ -560,7 +578,7 @@ class ModbusRtuProtocol(asyncio.Protocol):
                 candidate_frame.hex(" ").upper(),
             )
         else:
-            del self._buffer[0]
+            del self._buffer[: self._resync_discard_length()]
         return False
 
     def _validate_and_deliver_frame(
@@ -570,7 +588,7 @@ class ModbusRtuProtocol(asyncio.Protocol):
         pending_future: asyncio.Future[_ModbusRtuMessage],
     ) -> Exception | None:
         """Extract, validate, and deliver a complete candidate frame."""
-        candidate_frame = bytes(self._buffer[:expected_length])
+        candidate_frame = bytes(memoryview(self._buffer)[:expected_length])
         if validate_crc16(candidate_frame):
             del self._buffer[:expected_length]
             pdu_bytes = candidate_frame[1:-2]  # Remove address and CRC
@@ -585,13 +603,14 @@ class ModbusRtuProtocol(asyncio.Protocol):
             )
             return None
 
+        discard_length = self._resync_discard_length()
         logger.warning(
-            "CRC validation failed for candidate frame (%d bytes: %s). Discarding leading byte %s to resynchronize.",
+            "CRC validation failed for candidate frame (%d bytes: %s). Discarding %d byte(s) to resynchronize.",
             len(candidate_frame),
             candidate_frame.hex(" ").upper(),
-            self._buffer[0:1].hex(" ").upper(),
+            discard_length,
         )
-        del self._buffer[0]
+        del self._buffer[:discard_length]
         return CRCError(response_bytes=candidate_frame)
 
     def _try_drain_delayed_matching_response(

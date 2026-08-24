@@ -6,8 +6,6 @@ import logging
 from functools import partial
 from typing import Any, Literal
 
-from serialx import open_serial_connection
-
 from tmodbus.const import BROADCAST_UNIT_ID, EXCEPTION_RESPONSE_BIT
 from tmodbus.exceptions import InvalidRequestError
 from tmodbus.utils.lrc import calculate_lrc, validate_lrc
@@ -81,6 +79,14 @@ class AsyncAsciiServer(AsyncBaseServer):
         """Start the server using serialx's async connection."""
         if self._running:
             return
+        try:
+            from serialx import open_serial_connection  # noqa: PLC0415
+        except ImportError as e:
+            msg = (
+                "The 'serialx' package is required for AsyncAsciiServer."
+                " Install with 'pip install tmodbus[async-serial]'"
+            )
+            raise ImportError(msg) from e
 
         reader, writer = await open_serial_connection(url=self.port, baudrate=self.baudrate, **self.serial_kwargs)
         self._reader = reader

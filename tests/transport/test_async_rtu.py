@@ -1350,6 +1350,46 @@ async def test_request_aware_framing_rejects_mismatched_function_code(
     assert result[0] == "decoded"
 
 
+async def test_large_garbage_burst_resynchronizes(
+    mock_transport: MagicMock,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """Test that a large garbage burst before the response is discarded and the frame still parses."""
+    protocol = ModbusRtuProtocol(on_connection_lost=lambda _: None)
+    protocol.connection_made(mock_transport)
+
+    pdu = _DummyPDU()  # FC 0x03
+    unit_id = 1
+    response_data = b"\x05"
+
+    class DummyPduClass:
+        @staticmethod
+        def get_expected_response_data_length(_begin_bytes: bytes) -> int:
+            return 1
+
+    monkeypatch.setattr("tmodbus.transport.async_rtu.get_pdu_class", lambda _: DummyPduClass)
+    protocol._last_frame_ended_at = time.monotonic() - 10
+
+    good_payload = bytes([unit_id, pdu.function_code]) + response_data
+    good_frame = good_payload + calculate_crc16(good_payload)
+
+    # Garbage burst: implausible bytes, then many false frame starts for unit 1 that never pass CRC
+    garbage = b"\xff\xfe\xfd" * 500 + bytes([unit_id, pdu.function_code, 0xAA, 0xBB, 0xCC]) * 500
+
+    async def simulate_stream() -> None:
+        await asyncio.sleep(0.01)
+        protocol.data_received(garbage + good_frame)
+
+    result_task = asyncio.create_task(protocol.send_and_receive(unit_id, pdu))
+    response_task = asyncio.create_task(simulate_stream())
+
+    result = await result_task
+    await response_task
+
+    assert result == ("decoded", b"\x03\x05")
+    assert len(protocol._buffer) == 0
+
+
 async def test_determine_expected_frame_length_subfunction_pdu(
     mock_transport: MagicMock,
     monkeypatch: pytest.MonkeyPatch,

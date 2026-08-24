@@ -227,6 +227,49 @@ async def test_router_ctx_parameter_name_passing() -> None:
     assert captured[0].peer_addr == ("127.0.0.1", 12345)
 
 
+async def test_router_keyword_only_param_not_context_aware() -> None:
+    """Test that a two-positional handler with an extra keyword-only parameter dispatches plainly."""
+    router = ModbusRequestRouter()
+
+    @router.register(ReadHoldingRegistersPDU)
+    async def handle_read(_unit_id: int, _request: ReadHoldingRegistersPDU, *, log: Any = None) -> list[int]:
+        _ = log
+        return [42]
+
+    req = ReadHoldingRegistersPDU(start_address=0, quantity=1)
+    assert await router(1, req) == [42]
+
+
+async def test_router_var_keyword_param_not_context_aware() -> None:
+    """Test that a two-positional handler with **kwargs dispatches plainly."""
+    router = ModbusRequestRouter()
+
+    @router.register(ReadHoldingRegistersPDU)
+    async def handle_read(_unit_id: int, _request: ReadHoldingRegistersPDU, **kwargs: Any) -> list[int]:
+        assert not kwargs
+        return [42]
+
+    req = ReadHoldingRegistersPDU(start_address=0, quantity=1)
+    assert await router(1, req) == [42]
+
+
+async def test_router_var_positional_is_context_aware() -> None:
+    """Test that a handler with *args receives the context as a positional argument."""
+    router = ModbusRequestRouter()
+    captured: list[RequestContext | None] = []
+
+    @router.register(ReadHoldingRegistersPDU)
+    async def handle_read(_unit_id: int, _request: ReadHoldingRegistersPDU, *args: Any) -> list[int]:
+        captured.append(args[0])
+        return [42]
+
+    ctx = RequestContext(peer_addr=("127.0.0.1", 12345))
+    req = ReadHoldingRegistersPDU(start_address=0, quantity=1)
+    await router(1, req, context=ctx)
+
+    assert captured == [ctx]
+
+
 def test_handler_supports_unit_id_plain() -> None:
     """Test handler_supports_unit_id with a plain function/callable."""
 
