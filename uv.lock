@@ -1360,7 +1360,7 @@ test = [
 
 [package.metadata]
 requires-dist = [
-    { name = "cryptography", marker = "extra == 'security'", specifier = ">=38.0" },
+    { name = "cryptography", marker = "extra == 'security'", specifier = ">=47.0" },
     { name = "serialx", marker = "extra == 'async-serial'" },
     { name = "tenacity", specifier = ">=8.2.0,!=8.4.0" },
 ]

@@ -6,8 +6,6 @@ import logging
 from functools import partial
 from typing import Any, Literal
 
-from serialx import open_serial_connection
-
 from tmodbus.const import BROADCAST_UNIT_ID
 from tmodbus.exceptions import InvalidRequestError
 from tmodbus.utils.crc import calculate_crc16, validate_crc16
@@ -83,6 +81,16 @@ class AsyncRtuServer(AsyncBaseServer):
 
     async def start(self) -> None:
         """Start the server using serialx's async connection."""
+        if self._running:
+            return
+        try:
+            from serialx import open_serial_connection  # noqa: PLC0415
+        except ImportError as e:
+            msg = (
+                "The 'serialx' package is required for AsyncRtuServer. Install with 'pip install tmodbus[async-serial]'"
+            )
+            raise ImportError(msg) from e
+
         reader, writer = await open_serial_connection(url=self.port, baudrate=self.baudrate, **self.serial_kwargs)
         self._reader = reader
         self._writer = writer
@@ -138,6 +146,9 @@ class AsyncRtuServer(AsyncBaseServer):
         if len(buffer) > 2:
             expected_data_len = pdu_class.get_expected_request_data_length(bytes(buffer[2:]))
         else:
+            return None
+
+        if expected_data_len is None:
             return None
 
         expected_total_len = 1 + 1 + expected_data_len + 2  # unit_id + fc + data + crc
@@ -254,10 +265,13 @@ class AsyncRtuServer(AsyncBaseServer):
         try:
             while self._running and self._reader:
                 try:
-                    # Read at least 1 byte
-                    data = await self._reader.read(1)
+                    # Read whatever is available (at least 1 byte)
+                    data = await self._reader.read(256)
                     if not data:
-                        continue
+                        # EOF: the serial stream is gone (e.g. USB adapter unplugged)
+                        logger.warning("Serial stream EOF on %s; stopping RTU server loop", self.port)
+                        self._running = False
+                        break
                     # Record time for each received byte to observe actual bus activity
                     self._last_recv_time = asyncio.get_running_loop().time()
                     buffer.extend(data)

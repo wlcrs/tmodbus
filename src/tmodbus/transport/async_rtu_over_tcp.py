@@ -71,7 +71,7 @@ class AsyncRtuOverTcpTransport(AsyncBaseTransport):
             ValueError: When parameters are invalid
 
         """
-        if not 0 < port < 65535:
+        if not 0 < port <= 65535:
             msg = "Port must be an integer between 1-65535."
             raise ValueError(msg)
         if timeout <= 0:

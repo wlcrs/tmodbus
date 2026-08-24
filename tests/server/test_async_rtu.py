@@ -1,6 +1,7 @@
 """Tests for tmodbus/server/async_rtu.py."""
 
 import asyncio
+import logging
 from collections.abc import Iterator
 from typing import cast
 from unittest.mock import patch
@@ -56,7 +57,7 @@ def patch_serial() -> Iterator[type[MockSerial]]:
         inst = MockSerial(url or "", baudrate=baudrate, **kwargs)
         return inst, inst
 
-    with patch("tmodbus.server.async_rtu.open_serial_connection", new=fake_open_serial_connection):
+    with patch("serialx.open_serial_connection", new=fake_open_serial_connection):
         yield MockSerial
 
 
@@ -211,6 +212,37 @@ async def test_rtu_server_raw_traffic_logging() -> None:
         mock_log.assert_any_call("recv", b"\x01\x03", is_error=True)
 
 
+async def test_rtu_server_start_twice() -> None:
+    """Test starting the server twice returns early without reopening the port."""
+    router = ModbusRequestRouter()
+    server = AsyncRtuServer(port="/dev/ttyUSB0", handler=router)
+    await server.start()
+    reader = server._reader
+    await server.start()
+    assert server._reader is reader
+    await server.stop()
+
+
+async def test_rtu_server_exits_on_eof(caplog: pytest.LogCaptureFixture) -> None:
+    """EOF from the serial stream ends the serve loop instead of busy-looping."""
+    router = ModbusRequestRouter()
+    server = AsyncRtuServer(port="/dev/ttyUSB0", handler=router)
+    await server.start()
+
+    mock_serial_inst = cast("MockSerial", server._reader)
+    assert mock_serial_inst is not None
+    assert server._task is not None
+
+    with caplog.at_level(logging.WARNING):
+        await mock_serial_inst.read_queue.put(b"")
+        await asyncio.sleep(0.05)
+
+    assert server._task.done()
+    assert "EOF" in caplog.text
+
+    await server.stop()
+
+
 async def test_rtu_server_double_stop_and_serve_forever() -> None:
     """Test serve_forever and double stop on AsyncRtuServer."""
     router = ModbusRequestRouter()
@@ -247,10 +279,6 @@ async def test_rtu_server_edge_cases() -> None:  # noqa: PLR0915
 
     mock_serial_inst = cast("MockSerial", server._reader)
     assert mock_serial_inst is not None
-
-    # Test "if not data: continue" in RTU serve loop
-    await mock_serial_inst.read_queue.put(b"")
-    await asyncio.sleep(0.02)
 
     # Fragmented frame transmission: send only 2 bytes initially (hits "else: return None" in length parsing)
     await mock_serial_inst.read_queue.put(b"\x01\x03")
@@ -397,3 +425,23 @@ async def test_rtu_server_broadcast() -> None:
     assert len(mock_serial_inst.write_calls) == 0
 
     await server.stop()
+
+
+def test_rtu_server_parse_frame_length_expected_data_len_none(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """Test that _parse_frame_length returns None when get_expected_request_data_length returns None."""
+    router = ModbusRequestRouter()
+    server = AsyncRtuServer(port="/dev/ttyUSB0", handler=router)
+
+    class DummyPdu:
+        @staticmethod
+        def get_expected_request_data_length(_data: bytes) -> int | None:
+            return None
+
+    monkeypatch.setattr(
+        "tmodbus.server.async_rtu.get_server_pdu_class_from_buffer",
+        lambda _: DummyPdu,
+    )
+    buffer = bytearray(b"\x01\x03\x00")
+    assert server._parse_frame_length(buffer) is None

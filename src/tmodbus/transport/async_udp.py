@@ -68,7 +68,7 @@ class AsyncUdpTransport(AsyncBaseTransport):
             TypeError: When parameter types are incorrect
 
         """
-        if not 0 < port < 65535:
+        if not 0 < port <= 65535:
             msg = "Port must be an integer between 1-65535."
             raise ValueError(msg)
         if timeout <= 0:
@@ -236,7 +236,7 @@ class ModbusUdpProtocol(asyncio.DatagramProtocol):
 
         request_frame = mbap_header + request_pdu_bytes
 
-        read_future: asyncio.Future[_ModbusMessage] = asyncio.get_event_loop().create_future()
+        read_future: asyncio.Future[_ModbusMessage] = asyncio.get_running_loop().create_future()
         self._pending_requests[current_transaction_id] = read_future
 
         self.transport.sendto(request_frame)

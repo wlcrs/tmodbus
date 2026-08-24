@@ -222,9 +222,9 @@ async def test_udp_server_serve_forever_cancelled() -> None:
     task = asyncio.create_task(server.serve_forever())
     await asyncio.sleep(0.05)
     assert len(server.sockets) > 0
+    # Cancellation is suppressed internally per the AsyncBaseServer contract
     task.cancel()
-    with pytest.raises(asyncio.CancelledError):
-        await task
+    await task
     assert len(server.sockets) == 0
 
 

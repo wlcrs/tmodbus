@@ -220,6 +220,13 @@ async def test_tcp_server_abrupt_disconnect(tcp_server: AsyncTcpServer) -> None:
         await writer.wait_closed()
 
 
+async def test_tcp_server_start_twice(tcp_server: AsyncTcpServer) -> None:
+    """Test starting the server twice returns early without rebinding."""
+    server_obj = tcp_server._server
+    await tcp_server.start()  # Already started by fixture
+    assert tcp_server._server is server_obj
+
+
 async def test_tcp_server_double_stop(tcp_server: AsyncTcpServer) -> None:
     """Test that stop() can be called multiple times safely."""
     await tcp_server.stop()
@@ -237,9 +244,9 @@ async def test_tcp_server_serve_forever() -> None:
     assert server._server is not None
     assert server._server.is_serving()
 
+    # Cancellation is suppressed internally per the AsyncBaseServer contract
     task.cancel()
-    with pytest.raises(asyncio.CancelledError):
-        await task
+    await task
     await server.stop()
 
 

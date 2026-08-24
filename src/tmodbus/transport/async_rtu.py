@@ -294,7 +294,7 @@ class _PendingRequest:
 
     unit_id: int
     future: asyncio.Future[_ModbusRtuMessage]
-    pdu: BaseClientPDU[Any] | None = None
+    pdu: BaseClientPDU[Any]
 
 
 class ModbusRtuProtocol(asyncio.Protocol):
@@ -385,7 +385,7 @@ class ModbusRtuProtocol(asyncio.Protocol):
                 self._last_frame_ended_at = time.monotonic()
                 return broadcast_response
 
-            read_future: asyncio.Future[_ModbusRtuMessage] = asyncio.get_event_loop().create_future()
+            read_future: asyncio.Future[_ModbusRtuMessage] = asyncio.get_running_loop().create_future()
             self._pending_request = _PendingRequest(unit_id=unit_id, future=read_future, pdu=pdu)
 
             self.transport.write(request_adu)
@@ -400,6 +400,11 @@ class ModbusRtuProtocol(asyncio.Protocol):
                 self._timed_out_requests[unit_id] = pdu
                 msg = f"Response timeout after {self.timeout} seconds"
                 raise TimeoutError(msg) from e
+            except asyncio.CancelledError:
+                # Caller cancelled while the request was on the wire: track it like a
+                # timeout so a delayed response is not treated as garbage.
+                self._timed_out_requests[unit_id] = pdu
+                raise
             finally:
                 self._pending_request = None
 
@@ -421,13 +426,43 @@ class ModbusRtuProtocol(asyncio.Protocol):
             # Return decoded response
             return pdu.decode_response(response.pdu_bytes)
 
+    def _get_expected_headers(self) -> set[bytes]:
+        """Get set of expected 2-byte headers (unit_id + function_code).
+
+        For each active or timed-out request, valid response headers are:
+        - unit_id + base function code
+        - unit_id + exception response function code (base function code | EXCEPTION_RESPONSE_BIT)
+        """
+        headers: set[bytes] = set()
+        for uid, pdu in self._timed_out_requests.items():
+            base_fc = pdu.function_code & FUNCTION_CODE_MASK
+            headers.add(bytes([uid, base_fc]))
+            headers.add(bytes([uid, base_fc | EXCEPTION_RESPONSE_BIT]))
+
+        if self._pending_request is not None and not self._pending_request.future.done():
+            pdu = self._pending_request.pdu
+            base_fc = pdu.function_code & FUNCTION_CODE_MASK
+            headers.add(bytes([self._pending_request.unit_id, base_fc]))
+            headers.add(bytes([self._pending_request.unit_id, base_fc | EXCEPTION_RESPONSE_BIT]))
+
+        return headers
+
+    def _find_next_frame_start(self, start: int, headers: set[bytes]) -> int:
+        """Find the index of the next plausible frame start starting from `start`."""
+        positions = [pos for h in headers if (pos := self._buffer.find(h, start)) != -1]
+        if positions:
+            return min(positions)
+
+        # Check if the very last byte could be the unit_id of a frame whose FC hasn't arrived
+        if len(self._buffer) > start and any(h[0] == self._buffer[-1] for h in headers):
+            return len(self._buffer) - 1
+
+        return len(self._buffer)
+
     def _discard_garbage_data(self) -> None:
         """Discard garbage data from the buffer."""
-        expected_unit_ids: set[int] = set(self._timed_out_requests.keys())
-        if self._pending_request is not None and not self._pending_request.future.done():
-            expected_unit_ids.add(self._pending_request.unit_id)
-
-        if not expected_unit_ids:
+        headers = self._get_expected_headers()
+        if not headers:
             # No pending requests at all - discard everything
             logger.warning(
                 "Received data with no pending requests. Discarding %d bytes: %s",
@@ -437,20 +472,50 @@ class ModbusRtuProtocol(asyncio.Protocol):
             self._buffer.clear()
             return
 
-        # Search for the first byte matching an expected unit_id
-        discard_count = len(self._buffer)
-        for i, byte in enumerate(self._buffer):
-            if byte in expected_unit_ids:
-                discard_count = i
-                break
+        discard_count = self._find_next_frame_start(0, headers)
+        if discard_count > 0:
+            discarded = bytes(self._buffer[:discard_count])
+            logger.warning(
+                "Discarding %d byte(s): %s",
+                discard_count,
+                discarded.hex(" ").upper(),
+            )
+            del self._buffer[:discard_count]
 
-        discarded = bytes(self._buffer[:discard_count])
-        logger.warning(
-            "Discarding %d byte(s): %s",
-            discard_count,
-            discarded.hex(" ").upper(),
-        )
-        del self._buffer[:discard_count]
+    def _resync_discard_length(self) -> int:
+        """Get the number of leading bytes to discard to resynchronize after a bad frame.
+
+        Skips ahead to the next byte sequence matching an expected 2-byte header,
+        so a garbage burst is dropped in one slice instead of one byte per pass
+        through the receive loop.
+        """
+        headers = self._get_expected_headers()
+        if not headers:
+            return max(1, len(self._buffer))
+
+        return max(1, self._find_next_frame_start(1, headers))
+
+    def _validate_function_code(
+        self,
+        function_code: int,
+        pending_pdu: BaseClientPDU[Any] | None,
+    ) -> None:
+        """Validate that the incoming function code matches the expected pending request."""
+        if pending_pdu is None:
+            return
+
+        expected_base_fc = pending_pdu.function_code & FUNCTION_CODE_MASK
+        if function_code & EXCEPTION_RESPONSE_BIT:
+            if (function_code & FUNCTION_CODE_MASK) != expected_base_fc:
+                expected_fc = expected_base_fc | EXCEPTION_RESPONSE_BIT
+                msg = (
+                    f"Function code mismatch for exception response: "
+                    f"expected {expected_fc:#04x}, received {function_code:#04x}"
+                )
+                raise FunctionCodeError(msg, response_bytes=bytes(self._buffer))
+        elif function_code != pending_pdu.function_code:
+            msg = f"Function code mismatch: expected {pending_pdu.function_code:#04x}, received {function_code:#04x}"
+            raise FunctionCodeError(msg, response_bytes=bytes(self._buffer))
 
     def _determine_expected_frame_length(self, pending_pdu: BaseClientPDU[Any] | None = None) -> int | None:
         """Determine expected frame length based on current buffer contents.
@@ -466,16 +531,11 @@ class ModbusRtuProtocol(asyncio.Protocol):
         if len(self._buffer) < 2:
             return None  # Need at least address + function code
         function_code = self._buffer[1]
+        self._validate_function_code(function_code, pending_pdu)
 
         if function_code & EXCEPTION_RESPONSE_BIT:  # Exception response
             expected_total_frame_length = 5  # address + exception FC + exception code + CRC
         else:
-            if pending_pdu is not None and function_code != pending_pdu.function_code:
-                msg = (
-                    f"Function code mismatch: expected {pending_pdu.function_code:#04x}, received {function_code:#04x}"
-                )
-                raise FunctionCodeError(msg, response_bytes=bytes(self._buffer))
-
             # check if we can already determine the expected length with the available data
             try:
                 if not is_function_code_for_subfunction_pdu(function_code):
@@ -497,7 +557,10 @@ class ModbusRtuProtocol(asyncio.Protocol):
                     msg = f"Cannot frame response with unsupported function code {function_code:#04x}"
                     raise RTUFrameError(msg, response_bytes=bytes(self._buffer)) from e
 
-            expected_response_data_length = pdu_class.get_expected_response_data_length(bytes(self._buffer[2:]))
+            # memoryview avoids an intermediate bytearray copy on every incoming chunk
+            expected_response_data_length = pdu_class.get_expected_response_data_length(
+                bytes(memoryview(self._buffer)[2:])
+            )
 
             if expected_response_data_length is None:
                 # the PDU class reported that it cannot yet determine the length of this response
@@ -539,13 +602,13 @@ class ModbusRtuProtocol(asyncio.Protocol):
             expected_total_frame_length = self._determine_expected_frame_length(timed_out_pdu)
         except (RTUFrameError, FunctionCodeError):
             self._timed_out_requests.pop(unit_id, None)
-            del self._buffer[0]
+            del self._buffer[: self._resync_discard_length()]
             return False
 
         if expected_total_frame_length is None or len(self._buffer) < expected_total_frame_length:
             return True  # Wait for full delayed frame
 
-        candidate_frame = bytes(self._buffer[:expected_total_frame_length])
+        candidate_frame = bytes(memoryview(self._buffer)[:expected_total_frame_length])
         if validate_crc16(candidate_frame):
             del self._buffer[:expected_total_frame_length]
             self._timed_out_requests.pop(unit_id, None)
@@ -555,7 +618,7 @@ class ModbusRtuProtocol(asyncio.Protocol):
                 candidate_frame.hex(" ").upper(),
             )
         else:
-            del self._buffer[0]
+            del self._buffer[: self._resync_discard_length()]
         return False
 
     def _validate_and_deliver_frame(
@@ -565,7 +628,7 @@ class ModbusRtuProtocol(asyncio.Protocol):
         pending_future: asyncio.Future[_ModbusRtuMessage],
     ) -> Exception | None:
         """Extract, validate, and deliver a complete candidate frame."""
-        candidate_frame = bytes(self._buffer[:expected_length])
+        candidate_frame = bytes(memoryview(self._buffer)[:expected_length])
         if validate_crc16(candidate_frame):
             del self._buffer[:expected_length]
             pdu_bytes = candidate_frame[1:-2]  # Remove address and CRC
@@ -580,13 +643,14 @@ class ModbusRtuProtocol(asyncio.Protocol):
             )
             return None
 
+        discard_length = self._resync_discard_length()
         logger.warning(
-            "CRC validation failed for candidate frame (%d bytes: %s). Discarding leading byte %s to resynchronize.",
+            "CRC validation failed for candidate frame (%d bytes: %s). Discarding %d byte(s) to resynchronize.",
             len(candidate_frame),
             candidate_frame.hex(" ").upper(),
-            self._buffer[0:1].hex(" ").upper(),
+            discard_length,
         )
-        del self._buffer[0]
+        del self._buffer[:discard_length]
         return CRCError(response_bytes=candidate_frame)
 
     def _try_drain_delayed_matching_response(
@@ -645,6 +709,9 @@ class ModbusRtuProtocol(asyncio.Protocol):
         """
         self._buffer.extend(data)
         log_raw_traffic("recv", data)
+        # Received bytes are bus activity too: restart the 3.5-char silence clock so the
+        # next request keeps the inter-frame delay from the end of a received frame.
+        self._last_frame_ended_at = time.monotonic()
 
         last_error: Exception | None = None
 
@@ -674,15 +741,15 @@ class ModbusRtuProtocol(asyncio.Protocol):
             try:
                 expected_total_frame_length = self._determine_expected_frame_length(pending.pdu)
             except (RTUFrameError, FunctionCodeError) as e:
+                discard_length = self._resync_discard_length()
                 logger.warning(
-                    "Framing error for unit %d: %s. Discarding leading byte %s",
+                    "Framing error for unit %d: %s. Discarding %d byte(s) to resynchronize.",
                     unit_id,
                     e,
-                    self._buffer[0:1].hex(" ").upper() if self._buffer else "",
+                    discard_length,
                 )
                 last_error = e
-                if self._buffer:
-                    del self._buffer[0]
+                del self._buffer[:discard_length]
                 continue
 
             if expected_total_frame_length is None or len(self._buffer) < expected_total_frame_length:

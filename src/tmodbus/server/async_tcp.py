@@ -128,6 +128,9 @@ class AsyncTcpServer(AsyncBaseServer):
 
     async def start(self) -> None:
         """Start the server."""
+        if self._server is not None:
+            return
+
         self._server = await asyncio.start_server(
             self.handle_client,
             self.host,
@@ -152,8 +155,10 @@ class AsyncTcpServer(AsyncBaseServer):
         """Start the server and block until cancelled."""
         await self.start()
         assert self._server is not None
-        async with self._server:
-            await self._server.serve_forever()
+        # Suppress cancellation per the AsyncBaseServer contract
+        with contextlib.suppress(asyncio.CancelledError):
+            async with self._server:
+                await self._server.serve_forever()
 
     async def _handle_single_request(
         self,

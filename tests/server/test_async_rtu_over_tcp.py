@@ -189,6 +189,13 @@ async def test_rtu_over_tcp_server_raw_traffic_logging(rtu_over_tcp_server: Asyn
         mock_log.assert_any_call("recv", b"\x01\x03", is_error=True)
 
 
+async def test_rtu_over_tcp_server_start_twice(rtu_over_tcp_server: AsyncRtuOverTcpServer) -> None:
+    """Test starting the server twice returns early without rebinding."""
+    server_obj = rtu_over_tcp_server._server
+    await rtu_over_tcp_server.start()  # Already started by fixture
+    assert rtu_over_tcp_server._server is server_obj
+
+
 async def test_rtu_over_tcp_server_double_stop_and_serve_forever() -> None:
     """Test serve_forever and double stop on AsyncRtuOverTcpServer."""
     router = ModbusRequestRouter()
@@ -196,9 +203,9 @@ async def test_rtu_over_tcp_server_double_stop_and_serve_forever() -> None:
     await rtu_tcp.stop()  # Stop before starting
     task = asyncio.create_task(rtu_tcp.serve_forever())
     await asyncio.sleep(0.05)
+    # Cancellation is suppressed internally per the AsyncBaseServer contract
     task.cancel()
-    with pytest.raises(asyncio.CancelledError):
-        await task
+    await task
     await rtu_tcp.stop()  # Second stop
 
 
@@ -433,3 +440,23 @@ async def test_rtu_over_tcp_server_configurable_exception_code() -> None:
 
     finally:
         await server.stop()
+
+
+def test_rtu_over_tcp_server_parse_frame_length_expected_data_len_none(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """Test that _parse_frame_length returns None when get_expected_request_data_length returns None."""
+    router = ModbusRequestRouter()
+    server = AsyncRtuOverTcpServer(host="127.0.0.1", port=0, handler=router)
+
+    class DummyPdu:
+        @staticmethod
+        def get_expected_request_data_length(_data: bytes) -> int | None:
+            return None
+
+    monkeypatch.setattr(
+        "tmodbus.server.async_rtu_over_tcp.get_server_pdu_class_from_buffer",
+        lambda _: DummyPdu,
+    )
+    buffer = bytearray(b"\x01\x03\x00")
+    assert server._parse_frame_length(buffer) is None

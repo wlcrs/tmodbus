@@ -235,6 +235,44 @@ async def test_send_and_receive_fifo_queue_framing(
     assert result == [0x01B8, 0x1234]
 
 
+async def test_send_and_receive_chunk_ends_after_function_code(
+    mock_transport: MagicMock,
+) -> None:
+    """Regression: a chunk ending right after the function code must not crash framing.
+
+    With only unit id + function code buffered there is no length byte yet, so the
+    default length logic must report None (wait for more data) instead of raising
+    IndexError inside data_received.
+    """
+    from tmodbus.pdu import ReadHoldingRegistersPDU  # noqa: PLC0415
+
+    protocol = ModbusRtuProtocol(on_connection_lost=lambda _: None)
+    protocol.connection_made(mock_transport)
+
+    pdu = ReadHoldingRegistersPDU(start_address=0, quantity=2)
+    unit_id = 1
+    # Response: byte count 0x04, register values 0x0102, 0x0304.
+    response_pdu = bytes.fromhex("03 04 0102 0304".replace(" ", ""))
+    payload = bytes([unit_id]) + response_pdu
+    response_adu = payload + calculate_crc16(payload)
+
+    protocol._last_frame_ended_at = time.monotonic() - 10
+
+    async def simulate_response() -> None:
+        await asyncio.sleep(0.01)
+        protocol.data_received(response_adu[:2])  # exactly unit id + function code
+        await asyncio.sleep(0.01)
+        protocol.data_received(response_adu[2:])
+
+    result_task = asyncio.create_task(protocol.send_and_receive(unit_id, pdu))
+    response_task = asyncio.create_task(simulate_response())
+
+    result = await result_task
+    await response_task
+
+    assert result == [0x0102, 0x0304]
+
+
 async def test_send_and_receive_exception_status_framing(
     mock_transport: MagicMock,
 ) -> None:
@@ -1047,6 +1085,17 @@ async def test_determine_expected_frame_length__too_short(
     assert protocol._determine_expected_frame_length() is None
 
 
+async def test_determine_expected_frame_length__no_data_after_function_code(
+    mock_transport: MagicMock,
+) -> None:
+    """Only unit id + function code buffered: the length byte is missing, so wait for more data."""
+    protocol = ModbusRtuProtocol(on_connection_lost=lambda _: None)
+    protocol.connection_made(mock_transport)
+
+    protocol._buffer.extend(bytes.fromhex("01 03"))
+    assert protocol._determine_expected_frame_length() is None
+
+
 async def test_determine_expected_frame_length__too_short_subfunction_pdu(
     mock_transport: MagicMock,
 ) -> None:
@@ -1350,6 +1399,46 @@ async def test_request_aware_framing_rejects_mismatched_function_code(
     assert result[0] == "decoded"
 
 
+async def test_large_garbage_burst_resynchronizes(
+    mock_transport: MagicMock,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """Test that a large garbage burst before the response is discarded and the frame still parses."""
+    protocol = ModbusRtuProtocol(on_connection_lost=lambda _: None)
+    protocol.connection_made(mock_transport)
+
+    pdu = _DummyPDU()  # FC 0x03
+    unit_id = 1
+    response_data = b"\x05"
+
+    class DummyPduClass:
+        @staticmethod
+        def get_expected_response_data_length(_begin_bytes: bytes) -> int:
+            return 1
+
+    monkeypatch.setattr("tmodbus.transport.async_rtu.get_pdu_class", lambda _: DummyPduClass)
+    protocol._last_frame_ended_at = time.monotonic() - 10
+
+    good_payload = bytes([unit_id, pdu.function_code]) + response_data
+    good_frame = good_payload + calculate_crc16(good_payload)
+
+    # Garbage burst: implausible bytes, then many false frame starts for unit 1 that never pass CRC
+    garbage = b"\xff\xfe\xfd" * 500 + bytes([unit_id, pdu.function_code, 0xAA, 0xBB, 0xCC]) * 500
+
+    async def simulate_stream() -> None:
+        await asyncio.sleep(0.01)
+        protocol.data_received(garbage + good_frame)
+
+    result_task = asyncio.create_task(protocol.send_and_receive(unit_id, pdu))
+    response_task = asyncio.create_task(simulate_stream())
+
+    result = await result_task
+    await response_task
+
+    assert result == ("decoded", b"\x03\x05")
+    assert len(protocol._buffer) == 0
+
+
 async def test_determine_expected_frame_length_subfunction_pdu(
     mock_transport: MagicMock,
     monkeypatch: pytest.MonkeyPatch,
@@ -1523,24 +1612,24 @@ async def test_try_drain_timed_out_response_branches(
     protocol._buffer = bytearray(b"\x01")
     assert protocol._try_drain_timed_out_response(unit_id, pdu) is True
 
-    # 2. When _determine_expected_frame_length raises error -> pops and discards leading byte
+    # 2. When _determine_expected_frame_length raises error -> pops and discards leading garbage slice
     protocol._buffer = bytearray(b"\x01\x65\x00\x00")
     protocol._timed_out_requests[unit_id] = pdu
     assert protocol._try_drain_timed_out_response(unit_id, pdu) is False
     assert unit_id not in protocol._timed_out_requests
-    assert protocol._buffer == bytearray(b"\x65\x00\x00")
+    assert protocol._buffer == bytearray(b"")  # No plausible start ahead; entire slice discarded
 
-    # 3. When candidate frame has invalid CRC -> del buffer[0] and returns False
+    # 3. When candidate frame has invalid CRC -> discards bad frame up to next plausible start
     class DummyPduClass:
         @staticmethod
         def get_expected_response_data_length(_begin_bytes: bytes) -> int:
             return 1
 
     monkeypatch.setattr("tmodbus.transport.async_rtu.get_pdu_class", lambda _: DummyPduClass)
-    protocol._buffer = bytearray(b"\x01\x03\x05\xff\xff")  # bad CRC
+    protocol._buffer = bytearray(b"\x01\x03\x05\xff\xff\x01\x03\x05\xaa\xbb")  # bad frame followed by next candidate
     protocol._timed_out_requests[unit_id] = pdu
     assert protocol._try_drain_timed_out_response(unit_id, pdu) is False
-    assert protocol._buffer == bytearray(b"\x03\x05\xff\xff")  # Leading 0x01 was deleted
+    assert protocol._buffer == bytearray(b"\x01\x03\x05\xaa\xbb")  # Resynchronized to next plausible frame start
 
 
 async def test_delayed_response_drained_in_chunks(
@@ -1868,3 +1957,254 @@ async def test_data_received_falls_back_to_pending_request_pdu_when_future_done(
     # When data_received processes this, it falls back to _pending_request.pdu and cleanly drains it
     protocol.data_received(response)
     assert len(protocol._buffer) == 0
+
+
+async def test_next_request_waits_interframe_delay_after_received_response(
+    mock_transport: MagicMock,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """A received response restarts the inter-frame silence clock for the next request."""
+    protocol = ModbusRtuProtocol(on_connection_lost=lambda _: None, interframe_delay=0.1)
+    protocol.connection_made(mock_transport)
+
+    pdu = _DummyPDU()
+    unit_id = 1
+    payload = bytes([unit_id, pdu.function_code, 0x05])
+    response_adu = payload + calculate_crc16(payload)
+
+    class DummyPduClass:
+        @staticmethod
+        def get_expected_response_data_length(_begin_bytes: bytes) -> int:
+            return 1
+
+    monkeypatch.setattr("tmodbus.transport.async_rtu.get_pdu_class", lambda _: DummyPduClass)
+    protocol._last_frame_ended_at = time.monotonic() - 10
+
+    async def simulate_response() -> None:
+        await asyncio.sleep(0.01)
+        protocol.data_received(response_adu)
+
+    task = asyncio.create_task(protocol.send_and_receive(unit_id, pdu))
+    resp_task = asyncio.create_task(simulate_response())
+    await task
+    await resp_task
+
+    # data_received stamped the end of the received frame (not the primed value)
+    response_received_at = protocol._last_frame_ended_at
+    assert time.monotonic() - response_received_at < 5
+
+    write_times: list[float] = []
+    request_written = asyncio.Event()
+
+    def record_write(_data: bytes) -> None:
+        write_times.append(time.monotonic())
+        request_written.set()
+
+    mock_transport.write.side_effect = record_write
+
+    async def simulate_second_response() -> None:
+        await request_written.wait()
+        protocol.data_received(response_adu)
+
+    task2 = asyncio.create_task(protocol.send_and_receive(unit_id, pdu))
+    resp2_task = asyncio.create_task(simulate_second_response())
+    await task2
+    await resp2_task
+
+    # The second request must wait out the inter-frame delay measured from the received response
+    assert write_times[0] - response_received_at >= 0.1 - 0.001
+
+
+async def test_cancelled_request_is_tracked_and_delayed_response_drained(
+    mock_transport: MagicMock,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """A cancelled in-flight request is tracked so its delayed response is drained cleanly."""
+    protocol = ModbusRtuProtocol(on_connection_lost=lambda _: None, timeout=1.0)
+    protocol.connection_made(mock_transport)
+
+    pdu1 = _DummyPDU()
+    unit_id = 1
+    delayed_payload = bytes([unit_id, pdu1.function_code, 0x05])
+    delayed_response = delayed_payload + calculate_crc16(delayed_payload)
+
+    class DummyPduClass:
+        @staticmethod
+        def get_expected_response_data_length(_begin_bytes: bytes) -> int:
+            return 1
+
+    monkeypatch.setattr("tmodbus.transport.async_rtu.get_pdu_class", lambda _: DummyPduClass)
+    protocol._last_frame_ended_at = time.monotonic() - 10
+
+    # Step 1: request is cancelled while in flight
+    task = asyncio.create_task(protocol.send_and_receive(unit_id, pdu1))
+    await asyncio.sleep(0.01)
+    task.cancel()
+    with pytest.raises(asyncio.CancelledError):
+        await task
+
+    assert protocol._pending_request is None
+    assert protocol._timed_out_requests[unit_id] is pdu1
+
+    # Step 2: the delayed response is framed and discarded cleanly
+    protocol.data_received(delayed_response)
+    assert len(protocol._buffer) == 0
+    assert unit_id not in protocol._timed_out_requests
+
+    # Step 3: next request succeeds without stale interference
+    pdu2 = _DummyPDU()
+    new_payload = bytes([unit_id, pdu2.function_code, 0x09])
+    new_response = new_payload + calculate_crc16(new_payload)
+
+    async def simulate_new_response() -> None:
+        await asyncio.sleep(0.01)
+        protocol.data_received(new_response)
+
+    task2 = asyncio.create_task(protocol.send_and_receive(unit_id, pdu2))
+    resp_task = asyncio.create_task(simulate_new_response())
+    result = await task2
+    await resp_task
+
+    assert result == ("decoded", b"\x03\x09")
+
+
+async def test_resync_skips_matching_unit_id_with_wrong_function_code(
+    mock_transport: MagicMock,
+) -> None:
+    """Test that _resync_discard_length skips embedded unit_id bytes whose following byte is not an expected FC."""
+    protocol = ModbusRtuProtocol(on_connection_lost=lambda _: None)
+    protocol.connection_made(mock_transport)
+
+    pdu = _DummyPDU()  # FC 0x03
+    unit_id = 1
+    protocol._pending_request = _PendingRequest(
+        unit_id=unit_id,
+        future=asyncio.get_event_loop().create_future(),
+        pdu=pdu,
+    )
+
+    # Buffer starts with bad frame (unit 1, FC 03), followed by false starts:
+    # 01 90 (wrong FC), 01 E1 (wrong FC), 01 00 (wrong FC), 01 0B (wrong FC)
+    # and finally a valid frame: 01 03 05 + CRC
+    valid_payload = bytes([unit_id, pdu.function_code, 0x05])
+    valid_frame = valid_payload + calculate_crc16(valid_payload)
+
+    corrupted_data = (
+        bytes([unit_id, pdu.function_code, 0xFF, 0xFF, 0xFF])  # bad frame at index 0 (len 5)
+        + bytes([unit_id, 0x90, 0x00, 0x00])  # false start 1 (index 5)
+        + bytes([unit_id, 0xE1, 0x03, 0xFF])  # false start 2 (index 9)
+        + bytes([unit_id, 0x00, 0x0F, 0x80])  # false start 3 (index 13)
+        + bytes([unit_id, 0x0B, 0x00, 0x00])  # false start 4 (index 17)
+        + valid_frame  # valid frame starts at index 21
+    )
+
+    protocol._buffer = bytearray(corrupted_data)
+
+    # _resync_discard_length should skip all false starts and return index 21 directly
+    assert protocol._resync_discard_length() == 21
+
+
+async def test_extract_log_real_life_resync_recovery(
+    mock_transport: MagicMock,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """Test recovery from real-life scenario in extract.log where payload contains multiple 0x01 bytes."""
+    protocol = ModbusRtuProtocol(on_connection_lost=lambda _: None)
+    protocol.connection_made(mock_transport)
+
+    pdu = _DummyPDU()  # FC 0x03
+    unit_id = 1
+
+    class DummyPduClass:
+        @staticmethod
+        def get_expected_response_data_length(begin_bytes: bytes) -> int:
+            if not begin_bytes:
+                return 1
+            # In Modbus Read Holding Registers, first data byte is byte count
+            return begin_bytes[0] + 1
+
+    monkeypatch.setattr("tmodbus.transport.async_rtu.get_pdu_class", lambda _: DummyPduClass)
+    protocol._last_frame_ended_at = time.monotonic() - 10
+
+    # Valid response frame
+    good_payload = bytes([unit_id, pdu.function_code, 0x02, 0x12, 0x34])  # 2 bytes data
+    good_frame = good_payload + calculate_crc16(good_payload)
+
+    # Corrupt frame that fails CRC and contains embedded 0x01 bytes with non-matching function codes
+    corrupt_candidate = (
+        bytes([unit_id, pdu.function_code, 0x08])  # byte count 8 (candidate total length = 1 + 1 + 1 + 8 + 2 = 13)
+        + bytes([0x01, 0x90, 0x00, 0x02, 0x01, 0xE1, 0x03, 0xFF])
+        + b"\x00\x00"  # invalid CRC
+    )
+
+    async def simulate_traffic() -> None:
+        await asyncio.sleep(0.01)
+        protocol.data_received(corrupt_candidate + good_frame)
+
+    task = asyncio.create_task(protocol.send_and_receive(unit_id, pdu))
+    sim_task = asyncio.create_task(simulate_traffic())
+
+    result = await task
+    await sim_task
+
+    assert result == ("decoded", b"\x03\x02\x12\x34")
+    assert len(protocol._buffer) == 0
+
+
+async def test_determine_expected_frame_length_exception_fc_mismatch(
+    mock_transport: MagicMock,
+) -> None:
+    """Test that _determine_expected_frame_length rejects exception responses with mismatched function code."""
+    protocol = ModbusRtuProtocol(on_connection_lost=lambda _: None)
+    protocol.connection_made(mock_transport)
+
+    pdu = _DummyPDU()  # FC 0x03
+    # 0x90 is exception response for FC 0x10, not 0x03 (which expects 0x83)
+    protocol._buffer = bytearray(b"\x01\x90\x02\x00\x00")
+
+    with pytest.raises(FunctionCodeError, match=r"Function code mismatch for exception response"):
+        protocol._determine_expected_frame_length(pdu)
+
+
+async def test_discard_garbage_data_preserves_trailing_unit_id(
+    mock_transport: MagicMock,
+) -> None:
+    """Test that _discard_garbage_data retains trailing single byte matching unit_id when waiting for next chunk."""
+    protocol = ModbusRtuProtocol(on_connection_lost=lambda _: None)
+    protocol.connection_made(mock_transport)
+
+    pdu = _DummyPDU()
+    unit_id = 1
+    protocol._pending_request = _PendingRequest(
+        unit_id=unit_id,
+        future=asyncio.get_event_loop().create_future(),
+        pdu=pdu,
+    )
+
+    # Buffer has garbage ending in 0x01 (unit_id) as the very last byte
+    protocol._buffer = bytearray(b"\xff\xfe\xfd\x01")
+    protocol._discard_garbage_data()
+
+    # The 3 leading garbage bytes are discarded, but the trailing 0x01 is preserved
+    assert protocol._buffer == bytearray(b"\x01")
+
+
+async def test_discard_garbage_data_when_buffer_starts_with_valid_header(
+    mock_transport: MagicMock,
+) -> None:
+    """Test that _discard_garbage_data does not discard anything when buffer starts with a valid header."""
+    protocol = ModbusRtuProtocol(on_connection_lost=lambda _: None)
+    protocol.connection_made(mock_transport)
+
+    pdu = _DummyPDU()
+    unit_id = 1
+    protocol._pending_request = _PendingRequest(
+        unit_id=unit_id,
+        future=asyncio.get_event_loop().create_future(),
+        pdu=pdu,
+    )
+
+    protocol._buffer = bytearray(b"\x01\x03\x05\xaa\xbb")
+    protocol._discard_garbage_data()
+
+    assert protocol._buffer == bytearray(b"\x01\x03\x05\xaa\xbb")
