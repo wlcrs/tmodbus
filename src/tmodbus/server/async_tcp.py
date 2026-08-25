@@ -252,20 +252,21 @@ class AsyncTcpServer(AsyncBaseServer):
             # Extract TLS client certificate once per connection (R-30).
             # Returns None for plain TCP connections or if the client sent no cert.
             # Kept inside the try so a parse failure cannot leak the socket.
+            client_role = None
             try:
                 client_cert = extract_client_cert(writer)
                 if client_cert is not None:
-                    role = extract_modbus_role(client_cert)
+                    client_role = extract_modbus_role(client_cert)
                     logger.debug(
                         "TLS client cert: subject=%s role=%s",
                         client_cert.subject.rfc4514_string(),
-                        role,
+                        client_role,
                     )
             except Exception as e:  # noqa: BLE001
                 logger.warning("Could not process TLS client certificate from %s, closing connection: %s", addr, e)
                 return
 
-            context = RequestContext(peer_addr=addr, client_cert=client_cert)
+            context = RequestContext(peer_addr=addr, client_cert=client_cert, client_role=client_role)
 
             while await self._handle_single_request(reader, writer, addr, context):
                 pass

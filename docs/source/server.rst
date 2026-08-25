@@ -239,6 +239,8 @@ The `RequestContext` object has the following fields:
   54321)``) if available.
 - ``client_cert``: A :class:`cryptography.x509.Certificate` containing the parsed client
   x.509 certificate when connected over TLS.
+- ``client_role``: The Modbus role string extracted from the client certificate, or
+  ``None`` for plain TCP connections or certificates without a role extension.
 
 *************************************************
  Modbus/TCP Security (mbaps) & Mutual TLS (mTLS)

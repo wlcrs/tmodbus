@@ -446,6 +446,7 @@ async def test_tls_server_cert_info_injected(
     assert client_cert is not None
     assert "TestClient" in client_cert.subject.rfc4514_string()
     assert extract_modbus_role(client_cert) == "Operator"
+    assert context.client_role == "Operator"
     san_ext = client_cert.extensions.get_extension_for_class(x509.SubjectAlternativeName)
     san_ips = [str(name.value) for name in san_ext.value if isinstance(name, x509.IPAddress)]
     assert "127.0.0.1" in san_ips
@@ -469,6 +470,7 @@ async def test_tls_server_cert_no_role(
     client_cert = context.client_cert
     assert client_cert is not None
     assert extract_modbus_role(client_cert) is None
+    assert context.client_role is None
 
 
 async def test_tls_server_cert_duplicate_role_uses_first(
@@ -490,6 +492,7 @@ async def test_tls_server_cert_duplicate_role_uses_first(
     client_cert = context.client_cert
     assert client_cert is not None
     assert extract_modbus_role(client_cert) == "Operator"
+    assert context.client_role == "Operator"
 
 
 async def test_tls_server_cert_malformed_role_handled(
@@ -511,6 +514,7 @@ async def test_tls_server_cert_malformed_role_handled(
     client_cert = context.client_cert
     assert client_cert is not None
     assert extract_modbus_role(client_cert) is None
+    assert context.client_role is None
 
 
 async def test_tls_server_cert_processing_failure_closes_connection(
@@ -607,6 +611,7 @@ async def test_plain_tcp_context_is_populated() -> None:
         assert context is not None
         assert context.peer_addr is not None
         assert context.client_cert is None
+        assert context.client_role is None
     finally:
         await server.stop()
 
