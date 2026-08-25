@@ -13,10 +13,10 @@ from tmodbus.pdu.base import BasePDU
 class ReadFifoQueuePDU(BasePDU[list[int]]):
     """Read FIFO Queue PDU (Function Code 0x18)."""
 
-    address: int
-
-    function_code: int = FunctionCode.READ_FIFO_QUEUE
+    function_code = FunctionCode.READ_FIFO_QUEUE
     rtu_request_data_length = 2  # address (2)
+
+    address: int
 
     def __post_init__(self) -> None:
         """Initialize Read FIFO Queue PDU.
