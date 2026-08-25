@@ -64,6 +64,46 @@ async def test_router_registration_and_dispatch() -> None:
         await router(1, unregistered_req)
 
 
+async def test_router_registration_batch_is_atomic() -> None:
+    """Test that a failing register() call leaves the router unchanged."""
+    router = ModbusRequestRouter()
+    req = ReadHoldingRegistersPDU(start_address=10, quantity=1)
+
+    # Batch with an internal duplicate: nothing is registered
+    with pytest.raises(ValueError, match="already registered"):
+
+        @router.register(ReadHoldingRegistersPDU, unit_id=[1, 2, 1])
+        async def handle_dup(_unit_id: int, _request: ReadHoldingRegistersPDU) -> list[int]:
+            return [-1]
+
+    for unit in (1, 2):
+        with pytest.raises(IllegalFunctionError):
+            await router(unit, req)
+
+    # Batch conflicting with an existing registration: pre-existing state intact
+    @router.register(ReadHoldingRegistersPDU, unit_id=2)
+    async def handle_unit_2(_unit_id: int, _request: ReadHoldingRegistersPDU) -> list[int]:
+        return [2]
+
+    with pytest.raises(ValueError, match="already registered"):
+
+        @router.register(ReadHoldingRegistersPDU, unit_id=[1, 2])
+        async def handle_conflict(_unit_id: int, _request: ReadHoldingRegistersPDU) -> list[int]:
+            return [-1]
+
+    assert await router(2, req) == [2]
+    with pytest.raises(IllegalFunctionError):
+        await router(1, req)
+
+    # A valid batch still registers all unit IDs
+    @router.register(ReadHoldingRegistersPDU, unit_id=[3, 4])
+    async def handle_units_3_4(unit_id: int, _request: ReadHoldingRegistersPDU) -> list[int]:
+        return [unit_id]
+
+    assert await router(3, req) == [3]
+    assert await router(4, req) == [4]
+
+
 async def test_handle_modbus_request_success() -> None:
     """Test handle_modbus_request encodes successful responses."""
     router = ModbusRequestRouter()

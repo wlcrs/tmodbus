@@ -212,23 +212,19 @@ class ModbusRequestRouter(ModbusHandler):
             # Ensure pdu_class has function_code (since it should be a BasePDU subclass)
             func_code = pdu_class.function_code
 
-            def add_handler(uid: int | None) -> None:
-                if uid not in self._handlers:
-                    self._handlers[uid] = {}
+            unit_ids: list[int | None] = [unit_id] if unit_id is None or isinstance(unit_id, int) else list(unit_id)
 
-                if func_code in self._handlers[uid]:
+            # Validate the whole batch before mutating, so a failing call
+            # leaves the router unchanged.
+            seen: set[int | None] = set()
+            for uid in unit_ids:
+                if uid in seen or func_code in self._handlers.get(uid, {}):
                     msg = f"Handler for function code {func_code} and unit ID {uid} already registered"
                     raise ValueError(msg)
+                seen.add(uid)
 
-                self._handlers[uid][func_code] = handler
-
-            if unit_id is None:
-                add_handler(None)
-            elif isinstance(unit_id, int):
-                add_handler(unit_id)
-            else:
-                for uid in unit_id:
-                    add_handler(uid)
+            for uid in unit_ids:
+                self._handlers.setdefault(uid, {})[func_code] = handler
             return handler
 
         return decorator
