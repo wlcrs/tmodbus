@@ -46,14 +46,6 @@ class RequestContext:
     with client certificate validation enabled.
     """
 
-    client_role: str | None = None
-    """The Modbus role extracted from the client TLS certificate (if available).
-
-    Only populated when ``client_cert`` is present and carries the Modbus role
-    OID extension (``1.3.6.1.4.1.50316.802.1``). ``None`` for plain TCP
-    connections or certificates without a role.
-    """
-
 
 # A type alias for the type-erased underlying handler callable.
 type RouterHandler = Callable[[int, Any], Awaitable[Any]]
