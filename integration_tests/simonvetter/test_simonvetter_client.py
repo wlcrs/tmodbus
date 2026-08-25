@@ -1,12 +1,14 @@
 """Integration tests for tmodbus against the simonvetter/modbus client and server."""
 
 import asyncio
+import sys
 from pathlib import Path
 
 import pytest
 from tmodbus.client import AsyncModbusClient
 from tmodbus.transport import AsyncTcpTransport
 
+sys.path.append(str(Path(__file__).parent.parent))
 from helpers import find_free_port
 
 server_bin_path = Path(__file__).parent / "server"
@@ -57,6 +59,28 @@ async def test_tcp_client() -> None:
         # 4. Input Registers
         res = await client.read_input_registers(0, 2)
         assert res == [1234, 5678]
+
+        # 5. Struct / Typed helpers
+        await client.write_int16(50, -1234)
+        assert await client.read_int16(50) == -1234
+
+        await client.write_uint16(51, 65000)
+        assert await client.read_uint16(51) == 65000
+
+        await client.write_int32(52, -12345678)
+        assert await client.read_int32(52) == -12345678
+
+        await client.write_uint32(54, 3000000000)
+        assert await client.read_uint32(54) == 3000000000
+
+        await client.write_float(56, 3.141592)
+        assert pytest.approx(await client.read_float(56), rel=1e-5) == 3.141592
+
+        await client.write_double(58, 2.718281828459045)
+        assert pytest.approx(await client.read_double(58), rel=1e-9) == 2.718281828459045
+
+        await client.write_string(62, "SimonVetter", number_of_registers=6)
+        assert (await client.read_string(62, number_of_registers=6)).rstrip("\x00") == "SimonVetter"
 
         await client.disconnect()
     finally:
