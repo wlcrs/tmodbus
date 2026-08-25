@@ -57,6 +57,7 @@ from tmodbus.const import BROADCAST_UNIT_ID, EXCEPTION_RESPONSE_BIT, FUNCTION_CO
 from tmodbus.exceptions import (
     CRCError,
     FunctionCodeError,
+    InvalidRequestError,
     ModbusConnectionError,
     RTUFrameError,
     UnknownModbusResponseError,
@@ -113,6 +114,27 @@ def compute_interframe_delay(one_char_send_duration: float) -> float:
     interframe_delay = 3.5 * one_char_send_duration
 
     return max(interframe_delay, 0.00175)  # Ensure at least 1.75 ms for faster baud rates
+
+
+def _validate_rtu_request_length(pdu: BaseClientPDU[Any], request_pdu_bytes: bytes) -> None:
+    """Reject a request that the receiving server will not be able to frame.
+
+    RTU framing is length-based, so a server determines where the request ends from
+    the PDU's declared length. A request that does not encode to that length would be
+    cut short and fail its CRC check, which surfaces as a timeout rather than as the
+    encoding mistake it is.
+    """
+    expected = pdu.rtu_request_data_length
+    if expected is None:
+        return
+
+    actual = len(request_pdu_bytes) - 1  # excluding the function code
+    if actual != expected:
+        msg = (
+            f"{type(pdu).__name__} encodes {actual} data bytes but declares "
+            f"{expected} for RTU framing, so this request cannot be framed over RTU."
+        )
+        raise InvalidRequestError(msg, request_bytes=request_pdu_bytes)
 
 
 def compute_max_continuous_transmission_delay(one_char_send_duration: float) -> float:
@@ -373,6 +395,7 @@ class ModbusRtuProtocol(asyncio.Protocol):
 
             # Build request frame
             request_pdu_bytes = pdu.encode_request()
+            _validate_rtu_request_length(pdu, request_pdu_bytes)
             frame_prefix = bytes([unit_id]) + request_pdu_bytes
             crc = calculate_crc16(frame_prefix)
             request_adu = frame_prefix + crc

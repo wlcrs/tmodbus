@@ -12,6 +12,7 @@ class BaseClientPDU[RT](ABC):
     """Base class that defines the functions needed to handle Modbus PDUs on the client-side."""
 
     function_code: int
+    rtu_request_data_length: int | None = None
     rtu_response_data_length: int | None = None
     expects_response: bool = True
 
@@ -68,8 +69,6 @@ class BaseClientPDU[RT](ABC):
 
 class BasePDU[RT](BaseClientPDU[RT]):
     """Base class that defines the functions needed to handle Modbus PDUs on both the client-side and server-side."""
-
-    rtu_request_data_length: int | None = None
 
     ### Server methods ###
 
