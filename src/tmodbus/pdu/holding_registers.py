@@ -490,6 +490,14 @@ class RawWriteMultipleRegistersPDU(BasePDU[int]):
             value,
         )
 
+    @classmethod
+    def get_expected_request_data_length(cls, data: bytes) -> int:
+        """Get the expected number of bytes for the data part of the request PDU."""
+        if len(data) < 5:
+            return 5  # wait for byte count
+        byte_count = data[4]
+        return 5 + byte_count
+
 
 class WriteMultipleRegistersPDU(BasePDU[int]):
     """Write Multiple Registers PDU."""

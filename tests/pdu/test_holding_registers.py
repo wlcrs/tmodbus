@@ -565,6 +565,11 @@ class TestRawWriteMultipleRegistersPDU:
         response = pdu.encode_response(2)
         assert pdu.get_expected_response_data_length(response[1:]) == len(response) - 1
 
+    def test_get_expected_request_data_length(self) -> None:
+        """Test get_expected_request_data_length."""
+        assert RawWriteMultipleRegistersPDU.get_expected_request_data_length(b"\x00\x00\x00\x00") == 5
+        assert RawWriteMultipleRegistersPDU.get_expected_request_data_length(b"\x00\x00\x00\x00\x02") == 7
+
 
 # ============================================================================
 # WriteMultipleRegistersPDU Additional Tests
