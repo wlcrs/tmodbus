@@ -149,6 +149,8 @@ class BaseSubFunctionClientPDU[RT](BaseClientPDU[RT]):
             return cls.rtu_response_data_length
 
         # otherwise, we assume that the next byte contains the length of the remaining data
+        if len(data) <= cls.sub_function_code_length:
+            return None  # length byte not received yet
         return cls.sub_function_code_length + 1 + data[cls.sub_function_code_length]
 
 
@@ -158,19 +160,18 @@ class BaseSubFunctionPDU[RT](BaseSubFunctionClientPDU[RT], BasePDU[RT]):
     sub_function_code: int
 
     @classmethod
-    def get_expected_request_data_length(cls, data: bytes) -> int:
+    def get_expected_request_data_length(cls, data: bytes) -> int | None:
         """Get the expected number of bytes for the data part of the request PDU.
 
         This method should be implemented by subclasses to return the expected
         length of the request based on the specific PDU type.
 
         Returns:
-            Expected length of the request PDU in bytes
+            Expected length of the request PDU in bytes, or None if it cannot be determined yet.
 
         """
         if len(data) < cls.sub_function_code_length:
-            msg = "Request data too short to read sub-function code"
-            raise InvalidRequestError(msg, request_bytes=data)
+            return None  # sub-function code not received yet
         received_sub_func = int.from_bytes(data[: cls.sub_function_code_length], "big")
 
         if received_sub_func != cls.sub_function_code:
@@ -181,4 +182,7 @@ class BaseSubFunctionPDU[RT](BaseSubFunctionClientPDU[RT], BasePDU[RT]):
         if cls.rtu_request_data_length is not None:
             return cls.rtu_request_data_length
 
-        return 1 + data[0]
+        # otherwise, we assume that the next byte contains the length of the remaining data
+        if len(data) <= cls.sub_function_code_length:
+            return None  # length byte not received yet
+        return cls.sub_function_code_length + 1 + data[cls.sub_function_code_length]

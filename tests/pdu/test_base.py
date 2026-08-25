@@ -364,8 +364,8 @@ class TestBaseSubFunctionPDU:
         # Should return the fixed length when sub-function code matches
         assert TestPDU.get_expected_request_data_length(b"\x0e\x00") == 15
 
-    def test_get_expected_request_data_length_from_first_byte(self) -> None:
-        """Test get_expected_request_data_length when length is in first byte."""
+    def test_get_expected_request_data_length_from_byte_count(self) -> None:
+        """Test the length is read from the byte count following the sub-function code."""
 
         class TestPDU(BaseSubFunctionPDU[int]):
             function_code = 0x2B
@@ -384,9 +384,12 @@ class TestBaseSubFunctionPDU:
             def encode_response(self, _value: int) -> bytes:
                 return b""
 
-        # First byte is sub-function code (0x0E = 14)
-        # Expected: 1 (length byte) + 14 = 15
-        assert TestPDU.get_expected_request_data_length(b"\x0e") == 15
+        # Only the sub-function code has arrived, so the byte count is still unknown.
+        assert TestPDU.get_expected_request_data_length(b"\x0e") is None
+        assert TestPDU.get_expected_response_data_length(b"\x0e") is None
+        # Sub-function code (1) + byte count (1) + 4 bytes of data
+        assert TestPDU.get_expected_request_data_length(b"\x0e\x04") == 6
+        assert TestPDU.get_expected_response_data_length(b"\x0e\x04") == 6
         # First byte is different value
         with pytest.raises(InvalidRequestError):
             TestPDU.get_expected_request_data_length(b"\x0d")
@@ -419,7 +422,6 @@ class TestBaseSubFunctionPDU:
         assert TestLargeSubFuncPDU.get_expected_request_data_length(data) == 8
         assert TestLargeSubFuncPDU.get_expected_response_data_length(data) == 8
 
-        # Short data
+        # Short data: neither side can determine a length yet
         assert TestLargeSubFuncPDU.get_expected_response_data_length(b"\x12\x34") is None
-        with pytest.raises(InvalidRequestError):
-            TestLargeSubFuncPDU.get_expected_request_data_length(b"\x12\x34")
+        assert TestLargeSubFuncPDU.get_expected_request_data_length(b"\x12\x34") is None
