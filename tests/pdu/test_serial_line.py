@@ -175,6 +175,15 @@ def test_encode_response_byte_count_too_high() -> None:
         pdu.encode_response(value)
 
 
+def test_encode_response_server_id_with_status_bytes_rejected() -> None:
+    """Test encode_response rejects a server ID containing 0x00 or 0xFF bytes."""
+    pdu = ReportServerIdPDU()
+    for server_id in (b"a\x00b", b"a\xffb"):
+        value = ServerIdResponse(server_id=server_id, run_indicator_status=True, additional_data=b"")
+        with pytest.raises(ValueError, match="Server ID must not contain 0x00 or 0xFF bytes"):
+            pdu.encode_response(value)
+
+
 # --- Diagnostics Sub-Function PDU Tests ---
 def test_diagnostics_query_data_encode_decode() -> None:
     """Test DiagnosticsQueryDataPDU encoding and decoding."""
@@ -317,8 +326,10 @@ def test_diagnostics_query_and_restart_error_paths() -> None:
     with pytest.raises(ValueError, match="even number of bytes"):
         DiagnosticsQueryDataPDU(b"\x01")
     q_pdu = DiagnosticsQueryDataPDU()
-    with pytest.raises(ValueError, match="even number of bytes"):
+    with pytest.raises(ValueError, match="does not match request length"):
         q_pdu.encode_response(b"\x01")
+    with pytest.raises(ValueError, match="response length 4 does not match request length 2"):
+        q_pdu.encode_response(b"\x12\x34\x56\x78")
     with pytest.raises(InvalidRequestError, match="too short"):
         DiagnosticsQueryDataPDU.decode_request(b"\x08\x00")
     with pytest.raises(InvalidRequestError, match="Invalid function/sub-function"):
@@ -437,6 +448,18 @@ def test_get_comm_event_counter_encode_decode() -> None:
     with pytest.raises(FunctionCodeError, match="Invalid function code"):
         pdu.decode_response(b"\x8b\xff\xff\x01\x08")
 
+    assert pdu.encode_response(CommEventCounterResponse(status=0x0000, event_count=0)) == b"\x0b\x00\x00\x00\x00"
+
+    with pytest.raises(ValueError, match="Status 0x1234 invalid, expected 0x0000 or 0xFFFF"):
+        pdu.encode_response(CommEventCounterResponse(status=0x1234, event_count=0))
+    with pytest.raises(ValueError, match=r"Event count -1 out of range \(0-65535\)"):
+        pdu.encode_response(CommEventCounterResponse(status=0x0000, event_count=-1))
+    with pytest.raises(ValueError, match=r"Event count 65536 out of range \(0-65535\)"):
+        pdu.encode_response(CommEventCounterResponse(status=0x0000, event_count=0x10000))
+
+    # Decoding stays lenient: devices in the wild send other status values.
+    assert pdu.decode_response(b"\x0b\x12\x34\x00\x01") == CommEventCounterResponse(status=0x1234, event_count=1)
+
 
 # --- GetCommEventLogPDU (FC0C) Tests ---
 
@@ -473,3 +496,15 @@ def test_get_comm_event_log_encode_decode() -> None:
     # Invalid function code
     with pytest.raises(FunctionCodeError, match="Invalid function code"):
         pdu.decode_response(b"\x8c\x08\x00\x00\x01\x08\x01\x21\x20\x00")
+
+    # The 64-event maximum is accepted; one more is rejected.
+    max_events = CommEventLogResponse(status=0, event_count=0, message_count=0, events=b"\x20" * 64)
+    assert pdu.decode_response(pdu.encode_response(max_events)) == max_events
+
+    too_many = CommEventLogResponse(status=0, event_count=0, message_count=0, events=b"\x20" * 65)
+    with pytest.raises(ValueError, match="Comm event log length 65 exceeds the maximum of 64"):
+        pdu.encode_response(too_many)
+
+    # Decoding stays lenient for devices that report more than 64 events.
+    lenient = b"\x0c\x47\x00\x00\x00\x00\x00\x00" + b"\x20" * 65
+    assert pdu.decode_response(lenient).events == b"\x20" * 65

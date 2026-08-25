@@ -83,8 +83,9 @@ class DiagnosticsQueryDataPDU(BaseDiagnosticsSubFunctionPDU[bytes]):
 
     def encode_response(self, value: bytes) -> bytes:
         """Encode response PDU."""
-        if len(value) % 2 != 0:
-            msg = "Diagnostics query data must be an even number of bytes"
+        # Return Query Data must echo the request data exactly.
+        if len(value) != len(self.data):
+            msg = f"Diagnostics query data response length {len(value)} does not match request length {len(self.data)}"
             raise ValueError(msg)
         return struct.pack(">BH", self.function_code, self.sub_function_code) + value
 
@@ -544,6 +545,12 @@ class GetCommEventCounterPDU(BasePDU[CommEventCounterResponse]):
 
     def encode_response(self, value: CommEventCounterResponse) -> bytes:
         """Encode the response PDU."""
+        if value.status not in (0x0000, 0xFFFF):
+            msg = f"Status {value.status:#06x} invalid, expected 0x0000 or 0xFFFF"
+            raise ValueError(msg)
+        if not (0 <= value.event_count <= 0xFFFF):
+            msg = f"Event count {value.event_count} out of range (0-65535)"
+            raise ValueError(msg)
         return struct.pack(">BHH", self.function_code, value.status, value.event_count)
 
     def decode_response(self, response: bytes) -> CommEventCounterResponse:
@@ -562,6 +569,9 @@ class GetCommEventCounterPDU(BasePDU[CommEventCounterResponse]):
 
 # Alias matching const FunctionCode naming convention
 GetComEventCounterPDU = GetCommEventCounterPDU
+
+
+MAX_COMM_EVENT_LOG_EVENTS = 64
 
 
 @dataclass(frozen=True)
@@ -602,6 +612,10 @@ class GetCommEventLogPDU(BasePDU[CommEventLogResponse]):
 
     def encode_response(self, value: CommEventLogResponse) -> bytes:
         """Encode the response PDU."""
+        # The specification caps the event log at 64 single-byte events.
+        if len(value.events) > MAX_COMM_EVENT_LOG_EVENTS:
+            msg = f"Comm event log length {len(value.events)} exceeds the maximum of {MAX_COMM_EVENT_LOG_EVENTS}."
+            raise ValueError(msg)
         byte_count = 6 + len(value.events)
         return (
             struct.pack(">BBHHH", self.function_code, byte_count, value.status, value.event_count, value.message_count)
@@ -680,6 +694,12 @@ class ReportServerIdPDU(BasePDU[ServerIdResponse]):
             InvalidResponseError: If the response is invalid.
             FunctionCodeError: If function code is incorrect.
 
+        Note:
+            The specification does not delimit the server ID: this method treats the first
+            0x00/0xFF byte after the byte count as the run indicator status. A server ID that
+            itself contains 0x00 or 0xFF is therefore mis-split into server_id/run
+            indicator/additional_data.
+
         """
         # response format: function code (1 byte) + byte count (1 byte) + server ID + status (1 byte)
 
@@ -752,9 +772,14 @@ class ReportServerIdPDU(BasePDU[ServerIdResponse]):
             Encoded bytes of the response PDU.
 
         Raises:
-            ValueError: If the byte count is out of range.
+            ValueError: If the byte count is out of range, or the server ID contains 0x00 or 0xFF.
 
         """
+        # decode_response locates the run indicator status as the first 0x00/0xFF byte after
+        # the byte count, so those values inside the server ID would corrupt the round-trip.
+        if ID_ON in value.server_id or ID_OFF in value.server_id:
+            msg = "Server ID must not contain 0x00 or 0xFF bytes"
+            raise ValueError(msg)
         byte_count = len(value.server_id) + 1 + len(value.additional_data)  # +1 for run indicator status
         if byte_count > 0xFF:
             msg = f"Server ID response byte count {byte_count} exceeds the maximum of 255."
