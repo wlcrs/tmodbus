@@ -93,7 +93,9 @@ When the server responds with an error, tModbus will raise the corresponding sub
 - 0x0A Gateway path unavailable:
   :class:`~tmodbus.exceptions.GatewayPathUnavailableError`
 - 0x0B Gateway target device failed to respond:
-  :class:`~tmodbus.exceptions.GatewayTargetDeviceFailedToRespondError`.
+  :class:`~tmodbus.exceptions.GatewayTargetDeviceFailedToRespondError`
+- 0xAB Abnormal device description:
+  :class:`~tmodbus.exceptions.AbnormalDeviceDescriptionError`.
 
 If an unknown exception code is returned, an
 :class:`~tmodbus.exceptions.UnknownModbusResponseError` will be raised.
@@ -102,6 +104,7 @@ When the server responds with an invalid response, tModbus will raise the corres
 subclass of :class:`~tmodbus.exceptions.InvalidResponseError`:
 
 - RTU Frame Error: :class:`~tmodbus.exceptions.RTUFrameError`
+- ASCII Frame Error: :class:`~tmodbus.exceptions.ASCIIFrameError`
 - Invalid CRC: :class:`~tmodbus.exceptions.CRCError`
 - Invalid LRC: :class:`~tmodbus.exceptions.LRCError`
 - Header mismatch: :class:`~tmodbus.exceptions.HeaderMismatchError`
