@@ -7,12 +7,14 @@ from unittest.mock import AsyncMock, MagicMock, patch
 
 import pytest
 from tmodbus.exceptions import (
+    InvalidRequestError,
     InvalidResponseError,
     ModbusConnectionError,
     ModbusResponseError,
     UnknownModbusResponseError,
 )
 from tmodbus.pdu.base import BaseClientPDU
+from tmodbus.pdu.serial_line import DiagnosticsForceListenOnlyModePDU
 from tmodbus.transport.async_udp import AsyncUdpTransport, ModbusUdpProtocol
 
 
@@ -204,6 +206,23 @@ async def test_protocol_send_and_receive_timeout() -> None:
     pdu = _DummyPDU()
     with pytest.raises(TimeoutError, match=r"Response timeout after .*"):
         await protocol.send_and_receive(unit_id=1, pdu=pdu)
+
+
+async def test_protocol_send_and_receive_no_response_pdu() -> None:
+    """Test send_and_receive rejects a PDU that expects no response."""
+    protocol = ModbusUdpProtocol(on_connection_lost=lambda _: None, timeout=10.0)
+    mock_transport = MagicMock(spec=asyncio.DatagramTransport)
+    mock_transport.is_closing.return_value = False
+    protocol.connection_made(mock_transport)
+
+    pdu = DiagnosticsForceListenOnlyModePDU()
+
+    with pytest.raises(InvalidRequestError, match="only supported on serial transports"):
+        await protocol.send_and_receive(unit_id=1, pdu=pdu)
+
+    # Nothing sent, no pending future left behind
+    mock_transport.sendto.assert_not_called()
+    assert not protocol._pending_requests
 
 
 async def test_protocol_datagram_received_invalid_length() -> None:

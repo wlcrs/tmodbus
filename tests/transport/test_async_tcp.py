@@ -6,8 +6,9 @@ import time
 from unittest.mock import AsyncMock, MagicMock, patch
 
 import pytest
-from tmodbus.exceptions import InvalidResponseError, ModbusConnectionError, ModbusResponseError
+from tmodbus.exceptions import InvalidRequestError, InvalidResponseError, ModbusConnectionError, ModbusResponseError
 from tmodbus.pdu.base import BaseClientPDU
+from tmodbus.pdu.serial_line import DiagnosticsForceListenOnlyModePDU
 from tmodbus.transport.async_tcp import AsyncTcpTransport, ModbusTcpProtocol, _ModbusMessage
 
 
@@ -326,6 +327,23 @@ async def test_protocol_send_and_receive_timeout() -> None:
     # Should timeout since no response is sent
     with pytest.raises(TimeoutError, match="Response timeout"):
         await protocol.send_and_receive(1, pdu)
+
+
+async def test_protocol_send_and_receive_no_response_pdu() -> None:
+    """Test send_and_receive rejects a PDU that expects no response."""
+    protocol = ModbusTcpProtocol(on_connection_lost=lambda _: None, timeout=10.0)
+    mock_transport = MagicMock(spec=asyncio.WriteTransport)
+    mock_transport.is_closing.return_value = False
+    protocol.connection_made(mock_transport)
+
+    pdu = DiagnosticsForceListenOnlyModePDU()
+
+    with pytest.raises(InvalidRequestError, match="only supported on serial transports"):
+        await protocol.send_and_receive(1, pdu)
+
+    # Nothing sent, no pending future left behind
+    mock_transport.write.assert_not_called()
+    assert not protocol._pending_requests
 
 
 async def test_protocol_send_and_receive_invalid_protocol_id(caplog: pytest.LogCaptureFixture) -> None:
