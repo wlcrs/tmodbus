@@ -394,7 +394,7 @@ def test_router_stores_wants_context_true() -> None:
         return []
 
     # Access internal structure to verify
-    entry = router._handlers[None][ReadHoldingRegistersPDU.function_code]
+    entry = router._handlers[None][(ReadHoldingRegistersPDU.function_code, None)]
     assert _handler_accepts_context(entry) is True
 
 
@@ -406,7 +406,7 @@ def test_router_stores_wants_context_false() -> None:
     async def handler(_unit_id: int, _request: ReadHoldingRegistersPDU) -> list[int]:
         return []
 
-    entry = router._handlers[None][ReadHoldingRegistersPDU.function_code]
+    entry = router._handlers[None][(ReadHoldingRegistersPDU.function_code, None)]
     assert _handler_accepts_context(entry) is False
 
 

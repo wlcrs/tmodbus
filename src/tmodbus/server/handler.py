@@ -182,9 +182,12 @@ class ModbusRequestRouter(ModbusHandler):
         # Structure:
         #   Outer Key: `int | None` representing the unit ID (slave address).
         #              `None` acts as a wildcard fallback key for any unit ID.
-        #   Inner Key: `int` representing the Modbus function code (e.g. 0x03).
-        #   Value:     `RouterHandler` mapping the function code to the handler.
-        self._handlers: dict[int | None, dict[int, RouterHandler]] = {}
+        #   Inner Key: `(function_code, sub_function_code)` tuple. The sub-function
+        #              code is `None` for PDUs without one (e.g. 0x03), so PDUs that
+        #              share a function code (e.g. Diagnostics 0x08) route per
+        #              sub-function.
+        #   Value:     `RouterHandler` mapping that key to the handler.
+        self._handlers: dict[int | None, dict[tuple[int, int | None], RouterHandler]] = {}
 
     def supports_unit_id(self, unit_id: int, /) -> bool:
         """Check if the handler supports the given unit ID."""
@@ -201,6 +204,11 @@ class ModbusRequestRouter(ModbusHandler):
         The handler's signature is inspected dynamically on dispatch to determine
         whether to inject the :class:`RequestContext`.
 
+        PDU classes with a ``sub_function_code`` attribute (e.g. the Diagnostics
+        PDUs, which all share function code 0x08) are registered per sub-function,
+        so each sub-function gets its own handler. A request for a sub-function
+        without a handler is answered with an Illegal Function exception.
+
         Note:
             For Modbus RTU/ASCII (serial line), to handle broadcast requests, a handler
             must be explicitly registered for unit ID 0 (or register a default wildcard
@@ -211,6 +219,8 @@ class ModbusRequestRouter(ModbusHandler):
         def decorator(handler: Callable[..., Awaitable[T]]) -> Callable[..., Awaitable[T]]:
             # Ensure pdu_class has function_code (since it should be a BasePDU subclass)
             func_code = pdu_class.function_code
+            sub_func_code: int | None = getattr(pdu_class, "sub_function_code", None)
+            key = (func_code, sub_func_code)
 
             unit_ids: list[int | None] = [unit_id] if unit_id is None or isinstance(unit_id, int) else list(unit_id)
 
@@ -218,13 +228,14 @@ class ModbusRequestRouter(ModbusHandler):
             # leaves the router unchanged.
             seen: set[int | None] = set()
             for uid in unit_ids:
-                if uid in seen or func_code in self._handlers.get(uid, {}):
-                    msg = f"Handler for function code {func_code} and unit ID {uid} already registered"
+                if uid in seen or key in self._handlers.get(uid, {}):
+                    sub_func = f" sub-function code {sub_func_code}" if sub_func_code is not None else ""
+                    msg = f"Handler for function code {func_code}{sub_func} and unit ID {uid} already registered"
                     raise ValueError(msg)
                 seen.add(uid)
 
             for uid in unit_ids:
-                self._handlers.setdefault(uid, {})[func_code] = handler
+                self._handlers.setdefault(uid, {})[key] = handler
             return handler
 
         return decorator
@@ -249,7 +260,7 @@ class ModbusRequestRouter(ModbusHandler):
 
         Raises:
             IllegalFunctionError: If no handler is registered for the function code
-                specified in the request PDU.
+                (and sub-function code, if any) specified in the request PDU.
 
         """
         # First, try to find handlers for the specific unit ID
@@ -261,7 +272,7 @@ class ModbusRequestRouter(ModbusHandler):
         if func_handlers is None:
             raise IllegalFunctionError(request.function_code)
 
-        handler = func_handlers.get(request.function_code)
+        handler = func_handlers.get((request.function_code, getattr(request, "sub_function_code", None)))
         if handler is None:
             raise IllegalFunctionError(request.function_code)
 

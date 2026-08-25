@@ -272,6 +272,19 @@ def setup_router(device: ModbusDevice) -> ModbusRequestRouter:  # noqa: C901, PL
         return device.fifo_queues.get(request.address, [])
 
     @router.register(DiagnosticsQueryDataPDU)
+    @router.register(DiagnosticsRestartCommunicationsOptionPDU)
+    @router.register(DiagnosticsDiagnosticRegisterPDU)
+    @router.register(DiagnosticsChangeAsciiInputDelimiterPDU)
+    @router.register(DiagnosticsClearCountersAndRegisterPDU)
+    @router.register(DiagnosticsBusMessageCountPDU)
+    @router.register(DiagnosticsBusCommunicationErrorCountPDU)
+    @router.register(DiagnosticsBusExceptionErrorCountPDU)
+    @router.register(DiagnosticsServerMessageCountPDU)
+    @router.register(DiagnosticsServerNoResponseCountPDU)
+    @router.register(DiagnosticsServerNakCountPDU)
+    @router.register(DiagnosticsServerBusyCountPDU)
+    @router.register(DiagnosticsBusCharacterOverrunCountPDU)
+    @router.register(DiagnosticsClearOverrunCounterAndFlagPDU)
     async def handle_diagnostics(  # noqa: C901, PLR0911, PLR0912
         _unit_id: int, request: BaseDiagnosticsSubFunctionPDU[Any]
     ) -> Any:
