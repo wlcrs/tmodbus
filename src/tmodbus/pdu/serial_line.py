@@ -42,8 +42,7 @@ class DiagnosticsQueryDataPDU(BaseDiagnosticsSubFunctionPDU[bytes]):
     """Diagnostics sub-function 0x0000: Return Query Data."""
 
     sub_function_code = DiagnosticSubFunction.RETURN_QUERY_DATA
-    # Length-based RTU framing only works for the spec-standard 2-byte data field.
-    rtu_request_data_length = 4
+    rtu_request_data_length = 4  # sub-function (2) + query data (2)
     rtu_response_data_length = 4
 
     def __init__(self, data: bytes = b"\x00\x00") -> None:
