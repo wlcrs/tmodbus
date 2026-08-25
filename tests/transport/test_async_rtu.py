@@ -1464,12 +1464,12 @@ async def test_determine_expected_frame_length_subfunction_pdu(
     monkeypatch.setattr("tmodbus.transport.async_rtu.get_subfunction_pdu_class", lambda _fc, _sfc: DummySubPDU)
 
     pdu = DummySubPDU()
-    protocol._buffer = bytearray(b"\x01\x08\x00\x00")
-    # Less than 6 bytes for subfunction PDU returns None
+    protocol._buffer = bytearray(b"\x01\x08\x00\x00\x00\x00")
+    # Less than 7 bytes for FC 0x08 subfunction PDU (2-byte subfunction code) returns None
     assert protocol._determine_expected_frame_length(pdu) is None
 
-    # With >= 6 bytes returns length (1 + 1 + 2 + 2 = 6)
-    protocol._buffer = bytearray(b"\x01\x08\x00\x00\x00\x00")
+    # With >= 7 bytes returns length (1 + 1 + 2 + 2 = 6)
+    protocol._buffer = bytearray(b"\x01\x08\x00\x00\x00\x00\x00")
     assert protocol._determine_expected_frame_length(pdu) == 6
 
 
@@ -2208,3 +2208,40 @@ async def test_discard_garbage_data_when_buffer_starts_with_valid_header(
     protocol._discard_garbage_data()
 
     assert protocol._buffer == bytearray(b"\x01\x03\x05\xaa\xbb")
+
+
+async def test_send_and_receive_no_response_pdu(
+    mock_transport: MagicMock,
+) -> None:
+    """Test send_and_receive when PDU expects_response is False."""
+    protocol = ModbusRtuProtocol(on_connection_lost=lambda _: None)
+    protocol.connection_made(mock_transport)
+    protocol._last_frame_ended_at = time.monotonic() - 10
+
+    class NoResponsePDU(BaseClientPDU[None]):
+        function_code = 0x08
+        expects_response = False
+
+        def encode_request(self) -> bytes:
+            return b"\x00\x04\x00\x00"
+
+        def decode_response(self, _response: bytes) -> None:
+            return None
+
+    await protocol.send_and_receive(1, NoResponsePDU())
+
+
+def test_rtu_protocol_fc08_partial_buffer(mock_transport: MagicMock) -> None:
+    """Test data_received on ModbusRtuProtocol with partial FC08 Diagnostics frame."""
+    protocol = ModbusRtuProtocol(on_connection_lost=lambda _: None)
+    protocol.connection_made(mock_transport)
+
+    # 0x01 address, 0x08 FC, 0x00 sub-func byte 1 (missing 2nd sub-func byte, length < 7)
+    protocol.data_received(b"\x01\x08\x00")
+    assert protocol._pending_request is None
+
+    # Test buffer >= 7 bytes for FC08 Diagnostics frame parsing
+    protocol._buffer = bytearray(b"\x01\x08\x00\x00\x00")
+    assert protocol._determine_expected_frame_length() is None
+    protocol._buffer = bytearray(b"\x01\x08\x00\x00\x00\x00\x00")
+    assert protocol._determine_expected_frame_length() == 9

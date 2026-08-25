@@ -9,7 +9,7 @@ import time
 from collections.abc import Callable
 from dataclasses import dataclass
 from functools import partial
-from typing import Any, TypeVar, Unpack
+from typing import Any, TypeVar, Unpack, cast
 
 from tmodbus.const import BROADCAST_UNIT_ID, EXCEPTION_RESPONSE_BIT, FUNCTION_CODE_MASK
 from tmodbus.exceptions import (
@@ -187,13 +187,14 @@ class ModbusAsciiProtocol(asyncio.Protocol):
                 await asyncio.sleep(to_wait)
 
             # Async send request
-            if broadcast_response is not None:
-                # We're broadcasting, so we don't need to wait for a response
-                # Just send it and return immediately
+            if not pdu.expects_response or broadcast_response is not None:
+                # We don't expect a response (broadcast or no-response PDU), so send and return immediately
                 self.transport.write(request_adu)
                 log_raw_traffic("sent", request_adu)
                 self._last_frame_ended_at = time.monotonic()
-                return broadcast_response
+                if broadcast_response is not None:
+                    return broadcast_response
+                return cast("RT", None)
 
             read_future: asyncio.Future[_ModbusAsciiMessage] = asyncio.get_running_loop().create_future()
             self._pending_request = _PendingRequest(unit_id=unit_id, future=read_future, pdu=pdu)
@@ -219,23 +220,27 @@ class ModbusAsciiProtocol(asyncio.Protocol):
             finally:
                 self._pending_request = None
 
-            # Check if it's an exception response
-            if len(response.pdu_bytes) > 0 and response.pdu_bytes[0] & EXCEPTION_RESPONSE_BIT:  # Exception response
-                function_code = response.pdu_bytes[0] & FUNCTION_CODE_MASK  # Remove exception flag bit
-                exception_code = response.pdu_bytes[1] if len(response.pdu_bytes) > 1 else 0
+            return self._decode_response_pdu(response, pdu)
 
-                if exception_code in error_code_to_exception_map:
-                    raise error_code_to_exception_map[exception_code](function_code)
-                raise UnknownModbusResponseError(exception_code, function_code)
+    def _decode_response_pdu(self, response: _ModbusAsciiMessage, pdu: BaseClientPDU[RT]) -> RT:
+        """Validate and decode the received PDU response."""
+        # Check if it's an exception response
+        if len(response.pdu_bytes) > 0 and response.pdu_bytes[0] & EXCEPTION_RESPONSE_BIT:
+            function_code = response.pdu_bytes[0] & FUNCTION_CODE_MASK
+            exception_code = response.pdu_bytes[1] if len(response.pdu_bytes) > 1 else 0
 
-            # Validate function code
-            response_function_code = response.pdu_bytes[0]
-            if response_function_code != pdu.function_code:
-                msg = f"Function code mismatch: expected {pdu.function_code}, received {response_function_code}"
-                raise FunctionCodeError(msg, response_bytes=response.bytes)
+            if exception_code in error_code_to_exception_map:
+                raise error_code_to_exception_map[exception_code](function_code)
+            raise UnknownModbusResponseError(exception_code, function_code)
 
-            # Return decoded response
-            return pdu.decode_response(response.pdu_bytes)
+        # Validate function code
+        response_function_code = response.pdu_bytes[0]
+        if response_function_code != pdu.function_code:
+            msg = f"Function code mismatch: expected {pdu.function_code}, received {response_function_code}"
+            raise FunctionCodeError(msg, response_bytes=response.bytes)
+
+        # Return decoded response
+        return pdu.decode_response(response.pdu_bytes)
 
     def _discard_garbage_data(self) -> None:
         """Discard garbage data from the buffer until we find a frame start."""
@@ -506,11 +511,11 @@ class AsyncAsciiTransport(AsyncBaseTransport):
             )
 
         except TimeoutError:
-            logger.warning("Async Serial connection timeout: %s", self.port, exc_info=True)
+            logger.debug("Async Serial connection timeout: %s", self.port, exc_info=True)
             self._abort_failed_open()
             raise
         except Exception as e:
-            logger.exception("Async Serial connection error: %s", self.port)
+            logger.debug("Async Serial connection error: %s", self.port, exc_info=True)
             self._abort_failed_open()
             raise ModbusConnectionError from e
 

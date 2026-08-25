@@ -166,7 +166,7 @@ class AsyncRtuOverTcpServer(AsyncBaseServer):
             else:
                 response_pdu_bytes = await handle_modbus_request(unit_id, request_pdu, self.handler)
 
-        if unit_id != BROADCAST_UNIT_ID:
+        if response_pdu_bytes and (is_error or (unit_id != BROADCAST_UNIT_ID and request_pdu.expects_response)):
             out_frame = bytearray([unit_id]) + response_pdu_bytes
             crc = calculate_crc16(bytes(out_frame))
             out_frame.extend(crc)
@@ -176,7 +176,7 @@ class AsyncRtuOverTcpServer(AsyncBaseServer):
             await writer.drain()
         else:
             logger.debug(
-                "Response ignored for broadcast request. Not sending response bytes: %s",
+                "Response ignored for broadcast or no-response request. Not sending response bytes: %s",
                 format_bytes(response_pdu_bytes),
             )
         return not is_error

@@ -4,7 +4,7 @@ from collections.abc import Awaitable
 from typing import Any, cast
 
 import pytest
-from tmodbus.exceptions import IllegalDataAddressError, IllegalFunctionError
+from tmodbus.exceptions import IllegalDataAddressError, IllegalFunctionError, SuppressResponseError
 from tmodbus.pdu import BasePDU, ReadHoldingRegistersPDU, WriteSingleRegisterPDU
 from tmodbus.server import (
     AnyModbusHandler,
@@ -98,13 +98,26 @@ async def test_handle_modbus_request_unexpected_error() -> None:
 
     @router.register(ReadHoldingRegistersPDU)
     async def handle_read(_unit_id: int, _request: ReadHoldingRegistersPDU) -> list[int]:
-        msg = "Something went wrong"
+        msg = "Database offline"
         raise RuntimeError(msg)
 
     req = ReadHoldingRegistersPDU(start_address=0, quantity=2)
     response_bytes = await handle_modbus_request(1, req, router)
-    # Expected SERVER_DEVICE_FAILURE exception code (0x04)
+    # Expected exception response: (function_code | 0x80) (1 byte) + ServerDeviceFailure (0x04)
     assert response_bytes == b"\x83\x04"
+
+
+async def test_handle_modbus_request_suppress_response_error() -> None:
+    """Test handle_modbus_request returns empty bytes when SuppressResponseError is raised."""
+    router = ModbusRequestRouter()
+
+    @router.register(ReadHoldingRegistersPDU)
+    async def handle_read(_unit_id: int, _request: ReadHoldingRegistersPDU) -> list[int]:
+        raise SuppressResponseError
+
+    req = ReadHoldingRegistersPDU(start_address=0, quantity=2)
+    response_bytes = await handle_modbus_request(1, req, router)
+    assert response_bytes == b""
 
 
 async def test_router_unit_id_routing() -> None:

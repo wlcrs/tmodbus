@@ -1,6 +1,7 @@
 """Holding/Input Registers PDU Module."""
 
 import struct
+from collections.abc import Sequence
 from dataclasses import dataclass
 from typing import Self
 
@@ -37,6 +38,10 @@ class RawReadHoldingRegistersPDU(BasePDU[bytes]):
             msg = "Quantity must be between 1 and 125."
             raise ValueError(msg)
         self.quantity = quantity
+
+        if start_address + quantity > 65536:
+            msg = "Start address plus quantity must not exceed 65536."
+            raise ValueError(msg)
 
     def encode_request(self) -> bytes:
         """Convert PDU to bytes.
@@ -399,6 +404,10 @@ class RawWriteMultipleRegistersPDU(BasePDU[int]):
             msg = "Content length cannot be odd; each register is 2 bytes."
             raise ValueError(msg)
 
+        if start_address + len(content) // 2 > 65536:
+            msg = "Start address plus number of registers must not exceed 65536."
+            raise ValueError(msg)
+
         self.content = content
 
     def encode_request(self) -> bytes:
@@ -513,6 +522,14 @@ class RawWriteMultipleRegistersPDU(BasePDU[int]):
             self.start_address,
             value,
         )
+
+    @classmethod
+    def get_expected_request_data_length(cls, data: bytes) -> int:
+        """Get the expected number of bytes for the data part of the request PDU."""
+        if len(data) < 5:
+            return 5  # wait for byte count
+        byte_count = data[4]
+        return 5 + byte_count
 
 
 class WriteMultipleRegistersPDU(BasePDU[int]):
@@ -764,7 +781,7 @@ class ReadWriteMultipleRegistersPDU(BasePDU[list[int]]):
     read_start_address: int
     read_quantity: int
     write_start_address: int
-    write_values: list[int]
+    write_values: Sequence[int]
 
     REQUEST_HEADER_STRUCT = struct.Struct(">BHHHHB")
 
@@ -778,6 +795,9 @@ class ReadWriteMultipleRegistersPDU(BasePDU[list[int]]):
 
     def __post_init__(self) -> None:
         """Validate parameters after initialization."""
+        # Store an immutable copy so the frozen dataclass stays hashable.
+        object.__setattr__(self, "write_values", tuple(self.write_values))
+
         if not (0 <= self.read_start_address < 65536):
             msg = "Read starting address must be between 0 and 65535."
             raise ValueError(msg)
@@ -786,12 +806,20 @@ class ReadWriteMultipleRegistersPDU(BasePDU[list[int]]):
             msg = "Read quantity must be between 1 and 125."
             raise ValueError(msg)
 
+        if self.read_start_address + self.read_quantity > 65536:
+            msg = "Read starting address plus read quantity must not exceed 65536."
+            raise ValueError(msg)
+
         if not (0 <= self.write_start_address < 65536):
             msg = "Write starting address must be between 0 and 65535."
             raise ValueError(msg)
 
         if not (1 <= len(self.write_values) <= 121):
             msg = "Number of registers to write must be between 1 and 121."
+            raise ValueError(msg)
+
+        if self.write_start_address + len(self.write_values) > 65536:
+            msg = "Write starting address plus number of registers to write must not exceed 65536."
             raise ValueError(msg)
 
         for idx, value in enumerate(self.write_values):

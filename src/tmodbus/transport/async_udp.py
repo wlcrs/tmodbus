@@ -104,10 +104,10 @@ class AsyncUdpTransport(AsyncBaseTransport):
 
             logger.info("Async UDP endpoint established: %s:%d", self.host, self.port)
         except TimeoutError:
-            logger.warning("Async UDP endpoint creation timeout: %s:%d", self.host, self.port, exc_info=True)
+            logger.debug("Async UDP endpoint creation timeout: %s:%d", self.host, self.port, exc_info=True)
             raise
         except Exception as e:
-            logger.exception("Async UDP endpoint creation error: %s:%d", self.host, self.port)
+            logger.debug("Async UDP endpoint creation error: %s:%d", self.host, self.port, exc_info=True)
             raise ModbusConnectionError from e
 
     async def close(self) -> None:

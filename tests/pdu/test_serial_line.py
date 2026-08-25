@@ -1,10 +1,34 @@
-"""Tests for tmodbus/pdu/serial_line.py ."""
+"""Tests for serial line PDUs."""
 
 import struct
 
 import pytest
-from tmodbus.exceptions import InvalidRequestError, InvalidResponseError
-from tmodbus.pdu.serial_line import ID_OFF, ID_ON, ReportServerIdPDU, ServerIdResponse
+from tmodbus.exceptions import FunctionCodeError, InvalidRequestError, InvalidResponseError
+from tmodbus.pdu.serial_line import (
+    ID_OFF,
+    ID_ON,
+    CommEventCounterResponse,
+    CommEventLogResponse,
+    DiagnosticsBusCharacterOverrunCountPDU,
+    DiagnosticsBusCommunicationErrorCountPDU,
+    DiagnosticsBusExceptionErrorCountPDU,
+    DiagnosticsBusMessageCountPDU,
+    DiagnosticsChangeAsciiInputDelimiterPDU,
+    DiagnosticsClearCountersAndRegisterPDU,
+    DiagnosticsClearOverrunCounterAndFlagPDU,
+    DiagnosticsDiagnosticRegisterPDU,
+    DiagnosticsForceListenOnlyModePDU,
+    DiagnosticsQueryDataPDU,
+    DiagnosticsRestartCommunicationsOptionPDU,
+    DiagnosticsServerBusyCountPDU,
+    DiagnosticsServerMessageCountPDU,
+    DiagnosticsServerNakCountPDU,
+    DiagnosticsServerNoResponseCountPDU,
+    GetCommEventCounterPDU,
+    GetCommEventLogPDU,
+    ReportServerIdPDU,
+    ServerIdResponse,
+)
 
 
 def make_response(
@@ -149,3 +173,300 @@ def test_encode_response_byte_count_too_high() -> None:
     value = ServerIdResponse(server_id=b"\x01" * 255, run_indicator_status=True, additional_data=b"")
     with pytest.raises(ValueError, match="Server ID response byte count 256 exceeds the maximum of 255"):
         pdu.encode_response(value)
+        
+        
+# --- Diagnostics Sub-Function PDU Tests ---
+def test_diagnostics_query_data_encode_decode() -> None:
+    """Test DiagnosticsQueryDataPDU encoding and decoding."""
+    pdu = DiagnosticsQueryDataPDU(b"\xa5\x37")
+    encoded = pdu.encode_request()
+    assert encoded == b"\x08\x00\x00\xa5\x37"
+
+    decoded_req = DiagnosticsQueryDataPDU.decode_request(encoded)
+    assert decoded_req.data == b"\xa5\x37"
+
+    resp_encoded = pdu.encode_response(b"\xa5\x37")
+    assert resp_encoded == b"\x08\x00\x00\xa5\x37"
+
+    resp_decoded = pdu.decode_response(resp_encoded)
+    assert resp_decoded == b"\xa5\x37"
+
+    # Odd length validation
+    with pytest.raises(ValueError, match="even number of bytes"):
+        DiagnosticsQueryDataPDU(b"\xa5")
+
+
+def test_diagnostics_restart_communications_option() -> None:
+    """Test DiagnosticsRestartCommunicationsOptionPDU encoding and decoding."""
+    pdu = DiagnosticsRestartCommunicationsOptionPDU(clear_event_log=True)
+    assert pdu.encode_request() == b"\x08\x00\x01\xff\x00"
+
+    decoded_req = DiagnosticsRestartCommunicationsOptionPDU.decode_request(b"\x08\x00\x01\xff\x00")
+    assert decoded_req.clear_event_log is True
+
+    assert pdu.encode_response(True) == b"\x08\x00\x01\xff\x00"  # noqa: FBT003
+    assert pdu.decode_response(b"\x08\x00\x01\xff\x00") is True
+
+
+def test_diagnostics_diagnostic_register() -> None:
+    """Test DiagnosticsDiagnosticRegisterPDU encoding and decoding."""
+    pdu = DiagnosticsDiagnosticRegisterPDU()
+    assert pdu.encode_request() == b"\x08\x00\x02\x00\x00"
+
+    decoded_req = DiagnosticsDiagnosticRegisterPDU.decode_request(b"\x08\x00\x02\x00\x00")
+    assert isinstance(decoded_req, DiagnosticsDiagnosticRegisterPDU)
+
+    assert pdu.encode_response(0x1234) == b"\x08\x00\x02\x12\x34"
+    assert pdu.decode_response(b"\x08\x00\x02\x12\x34") == 0x1234
+
+
+def test_diagnostics_change_ascii_input_delimiter() -> None:
+    """Test DiagnosticsChangeAsciiInputDelimiterPDU encoding and decoding."""
+    pdu = DiagnosticsChangeAsciiInputDelimiterPDU(delimiter=0x0A)
+    assert pdu.encode_request() == b"\x08\x00\x03\x0a\x00"
+
+    decoded_req = DiagnosticsChangeAsciiInputDelimiterPDU.decode_request(b"\x08\x00\x03\x0a\x00")
+    assert decoded_req.delimiter == 0x0A
+
+    assert pdu.encode_response(0x0A) == b"\x08\x00\x03\x0a\x00"
+    assert pdu.decode_response(b"\x08\x00\x03\x0a\x00") == 0x0A
+
+
+def test_diagnostics_force_listen_only_mode() -> None:
+    """Test DiagnosticsForceListenOnlyModePDU behavior (no response expected)."""
+    pdu = DiagnosticsForceListenOnlyModePDU()
+    assert pdu.expects_response is False
+    assert pdu.encode_request() == b"\x08\x00\x04\x00\x00"
+    pdu.get_broadcast_response()
+
+    decoded_req = DiagnosticsForceListenOnlyModePDU.decode_request(b"\x08\x00\x04\x00\x00")
+    assert isinstance(decoded_req, DiagnosticsForceListenOnlyModePDU)
+
+
+def test_all_diagnostic_classes_full_coverage() -> None:
+    """Test encode_request, decode_request, encode_response, decode_response for all diagnostic classes."""
+    # Query data short length tests
+    assert DiagnosticsQueryDataPDU.get_expected_response_data_length(b"\x00") == 4
+    assert DiagnosticsQueryDataPDU.get_expected_request_data_length(b"\x00") == 4
+    assert DiagnosticsQueryDataPDU.get_expected_response_data_length(b"\x00\x00\x12\x34") == 4
+    assert DiagnosticsQueryDataPDU.get_expected_request_data_length(b"\x00\x00\x12\x34") == 4
+
+    # Listen only mode response
+    p_listen = DiagnosticsForceListenOnlyModePDU()
+    assert p_listen.encode_request() == b"\x08\x00\x04\x00\x00"
+    assert p_listen.encode_response() == b""
+
+    with pytest.raises(InvalidResponseError):
+        p_listen.decode_response(b"\x08\x00\x04\x00\x00")
+
+    # Clear counters and register
+    p_clear = DiagnosticsClearCountersAndRegisterPDU()
+    assert p_clear.encode_request() == b"\x08\x00\x0a\x00\x00"
+    assert p_clear.encode_response() == b"\x08\x00\x0a\x00\x00"
+    p_clear.decode_response(b"\x08\x00\x0a\x00\x00")
+    assert isinstance(
+        DiagnosticsClearCountersAndRegisterPDU.decode_request(b"\x08\x00\x0a\x00\x00"),
+        DiagnosticsClearCountersAndRegisterPDU,
+    )
+
+    # Clear overrun counter and flag
+    p_overrun = DiagnosticsClearOverrunCounterAndFlagPDU()
+    assert p_overrun.encode_request() == b"\x08\x00\x14\x00\x00"
+    assert p_overrun.encode_response() == b"\x08\x00\x14\x00\x00"
+    p_overrun.decode_response(b"\x08\x00\x14\x00\x00")
+    assert isinstance(
+        DiagnosticsClearOverrunCounterAndFlagPDU.decode_request(b"\x08\x00\x14\x00\x00"),
+        DiagnosticsClearOverrunCounterAndFlagPDU,
+    )
+
+    # All counter classes
+    counter_classes = [
+        DiagnosticsBusMessageCountPDU,
+        DiagnosticsBusCommunicationErrorCountPDU,
+        DiagnosticsBusExceptionErrorCountPDU,
+        DiagnosticsServerMessageCountPDU,
+        DiagnosticsServerNoResponseCountPDU,
+        DiagnosticsServerNakCountPDU,
+        DiagnosticsServerBusyCountPDU,
+        DiagnosticsBusCharacterOverrunCountPDU,
+    ]
+    for cls in counter_classes:
+        inst = cls()
+        req_bytes = inst.encode_request()
+        dec_req = cls.decode_request(req_bytes)
+        assert isinstance(dec_req, cls)
+        resp_bytes = inst.encode_response(100)
+        dec_resp = inst.decode_response(resp_bytes)
+        assert dec_resp == 100
+
+
+def test_diagnostics_listen_only_error_paths() -> None:
+    """Test error validation paths for query data and restart options."""
+    with pytest.raises(InvalidRequestError, match="Request length"):
+        DiagnosticsForceListenOnlyModePDU.decode_request(b"\x08\x00")
+    with pytest.raises(InvalidRequestError, match="Invalid function/sub-function"):
+        DiagnosticsForceListenOnlyModePDU.decode_request(b"\x08\x00\x01\x00\x00")
+
+
+def test_diagnostics_query_and_restart_error_paths() -> None:
+    """Test error validation paths for query data and restart options."""
+    # DiagnosticsQueryDataPDU error paths
+    with pytest.raises(ValueError, match="even number of bytes"):
+        DiagnosticsQueryDataPDU(b"\x01")
+    q_pdu = DiagnosticsQueryDataPDU()
+    with pytest.raises(ValueError, match="even number of bytes"):
+        q_pdu.encode_response(b"\x01")
+    with pytest.raises(InvalidRequestError, match="too short"):
+        DiagnosticsQueryDataPDU.decode_request(b"\x08\x00")
+    with pytest.raises(InvalidRequestError, match="Invalid function/sub-function"):
+        DiagnosticsQueryDataPDU.decode_request(b"\x08\x00\x01\x00\x00")
+    with pytest.raises(InvalidRequestError, match="even number of bytes"):
+        DiagnosticsQueryDataPDU.decode_request(b"\x08\x00\x00\x01")
+    with pytest.raises(InvalidResponseError, match="too short"):
+        q_pdu.decode_response(b"\x08\x00")
+    with pytest.raises(FunctionCodeError, match="Invalid function/sub-function"):
+        q_pdu.decode_response(b"\x08\x00\x01\x00\x00")
+    with pytest.raises(InvalidResponseError, match="even number of bytes"):
+        q_pdu.decode_response(b"\x08\x00\x00\x01")
+
+    # DiagnosticsRestartCommunicationsOptionPDU error paths
+    r_pdu = DiagnosticsRestartCommunicationsOptionPDU()
+    with pytest.raises(InvalidRequestError, match="Request length"):
+        DiagnosticsRestartCommunicationsOptionPDU.decode_request(b"\x08\x00\x01")
+    with pytest.raises(InvalidRequestError, match="Invalid function/sub-function"):
+        DiagnosticsRestartCommunicationsOptionPDU.decode_request(b"\x08\x00\x02\x00\x00")
+    with pytest.raises(InvalidRequestError, match="Invalid restart option data"):
+        DiagnosticsRestartCommunicationsOptionPDU.decode_request(b"\x08\x00\x01\x12\x34")
+    with pytest.raises(InvalidResponseError, match="Response length"):
+        r_pdu.decode_response(b"\x08\x00\x01")
+    with pytest.raises(FunctionCodeError, match="Invalid function/sub-function"):
+        r_pdu.decode_response(b"\x08\x00\x02\x00\x00")
+    with pytest.raises(InvalidResponseError, match="Invalid restart option response data"):
+        r_pdu.decode_response(b"\x08\x00\x01\x12\x34")
+
+
+def test_diagnostics_register_counter_error_paths() -> None:
+    """Test error validation paths for diagnostic register, delimiter, and counters."""
+    # DiagnosticsDiagnosticRegisterPDU error paths
+    d_pdu = DiagnosticsDiagnosticRegisterPDU()
+    with pytest.raises(InvalidRequestError, match="Request length"):
+        DiagnosticsDiagnosticRegisterPDU.decode_request(b"\x08\x00\x02")
+    with pytest.raises(InvalidRequestError, match="Invalid function/sub-function"):
+        DiagnosticsDiagnosticRegisterPDU.decode_request(b"\x08\x00\x01\x00\x00")
+    with pytest.raises(ValueError, match="out of range"):
+        d_pdu.encode_response(0x10000)
+    with pytest.raises(InvalidResponseError, match="Response length"):
+        d_pdu.decode_response(b"\x08\x00\x02")
+    with pytest.raises(FunctionCodeError, match="Invalid function/sub-function"):
+        d_pdu.decode_response(b"\x08\x00\x01\x00\x00")
+
+    # DiagnosticsChangeAsciiInputDelimiterPDU error paths
+    with pytest.raises(ValueError, match="out of range"):
+        DiagnosticsChangeAsciiInputDelimiterPDU(256)
+    c_pdu = DiagnosticsChangeAsciiInputDelimiterPDU()
+    with pytest.raises(ValueError, match="out of range"):
+        c_pdu.encode_response(256)
+    with pytest.raises(InvalidRequestError, match="Request length"):
+        DiagnosticsChangeAsciiInputDelimiterPDU.decode_request(b"\x08\x00\x03")
+    with pytest.raises(InvalidRequestError, match="Invalid function/sub-function"):
+        DiagnosticsChangeAsciiInputDelimiterPDU.decode_request(b"\x08\x00\x01\x00\x00")
+    with pytest.raises(InvalidResponseError, match="Response length"):
+        c_pdu.decode_response(b"\x08\x00\x03")
+    with pytest.raises(FunctionCodeError, match="Invalid function/sub-function"):
+        c_pdu.decode_response(b"\x08\x00\x01\x00\x00")
+
+    # DiagnosticsForceListenOnlyModePDU & DiagnosticsClearCountersAndRegisterPDU & ClearOverrun error paths
+    for pdu_cls in (
+        DiagnosticsClearCountersAndRegisterPDU,
+        DiagnosticsClearOverrunCounterAndFlagPDU,
+    ):
+        inst = pdu_cls()
+        with pytest.raises(InvalidRequestError, match="Request length"):
+            pdu_cls.decode_request(b"\x08\x00")
+        with pytest.raises(InvalidRequestError, match="Invalid function/sub-function"):
+            pdu_cls.decode_request(b"\x08\xff\xff\x00\x00")
+        with pytest.raises(InvalidResponseError, match="Response length"):
+            inst.decode_response(b"\x08\x00")
+        with pytest.raises(FunctionCodeError, match="Invalid function/sub-function"):
+            inst.decode_response(b"\x08\xff\xff\x00\x00")
+
+    # BaseDiagnosticsCounterPDU error paths
+    cnt_pdu = DiagnosticsBusMessageCountPDU()
+    with pytest.raises(InvalidRequestError, match="Request length"):
+        DiagnosticsBusMessageCountPDU.decode_request(b"\x08\x00\x0b")
+    with pytest.raises(InvalidRequestError, match="Invalid function/sub-function"):
+        DiagnosticsBusMessageCountPDU.decode_request(b"\x08\x00\x01\x00\x00")
+    with pytest.raises(ValueError, match=r"Counter value .* out of range"):
+        cnt_pdu.encode_response(0x10000)
+    with pytest.raises(InvalidResponseError, match="Response length"):
+        cnt_pdu.decode_response(b"\x08\x00\x0b")
+    with pytest.raises(FunctionCodeError, match="Invalid function/sub-function"):
+        cnt_pdu.decode_response(b"\x08\x00\x01\x00\x00")
+
+
+# --- GetCommEventCounterPDU (FC0B) Tests ---
+
+
+def test_get_comm_event_counter_encode_decode() -> None:
+    """Test GetCommEventCounterPDU encoding and decoding."""
+    pdu = GetCommEventCounterPDU()
+    assert pdu.encode_request() == b"\x0b"
+
+    decoded_req = GetCommEventCounterPDU.decode_request(b"\x0b")
+    assert isinstance(decoded_req, GetCommEventCounterPDU)
+
+    with pytest.raises(InvalidRequestError, match="Expected request with only function code"):
+        GetCommEventCounterPDU.decode_request(b"\x0b\x00")
+
+    with pytest.raises(InvalidRequestError, match="Invalid function code"):
+        GetCommEventCounterPDU.decode_request(b"\x0c")
+
+    resp_val = CommEventCounterResponse(status=0xFFFF, event_count=264)
+    encoded_resp = pdu.encode_response(resp_val)
+    assert encoded_resp == b"\x0b\xff\xff\x01\x08"
+
+    decoded_resp = pdu.decode_response(encoded_resp)
+    assert decoded_resp == resp_val
+
+    with pytest.raises(InvalidResponseError, match="does not match expected 5"):
+        pdu.decode_response(b"\x0b\xff\xff\x01")
+
+    with pytest.raises(FunctionCodeError, match="Invalid function code"):
+        pdu.decode_response(b"\x8b\xff\xff\x01\x08")
+
+
+# --- GetCommEventLogPDU (FC0C) Tests ---
+
+
+def test_get_comm_event_log_encode_decode() -> None:
+    """Test GetCommEventLogPDU encoding and decoding."""
+    pdu = GetCommEventLogPDU()
+    assert pdu.encode_request() == b"\x0c"
+
+    decoded_req = GetCommEventLogPDU.decode_request(b"\x0c")
+    assert isinstance(decoded_req, GetCommEventLogPDU)
+
+    with pytest.raises(InvalidRequestError, match="Expected request with only function code"):
+        GetCommEventLogPDU.decode_request(b"\x0c\x00")
+
+    with pytest.raises(InvalidRequestError, match="Invalid function code"):
+        GetCommEventLogPDU.decode_request(b"\x0d")
+
+    resp_val = CommEventLogResponse(status=0x0000, event_count=264, message_count=289, events=b"\x20\x00")
+    encoded_resp = pdu.encode_response(resp_val)
+    assert encoded_resp == b"\x0c\x08\x00\x00\x01\x08\x01\x21\x20\x00"
+
+    decoded_resp = pdu.decode_response(encoded_resp)
+    assert decoded_resp == resp_val
+
+    # Response too short
+    with pytest.raises(InvalidResponseError, match="too short"):
+        pdu.decode_response(b"\x0c\x08\x00\x00\x01")
+
+    # Mismatched length
+    with pytest.raises(InvalidResponseError, match="does not match expected"):
+        pdu.decode_response(b"\x0c\x08\x00\x00\x01\x08\x01\x21\x20")
+
+    # Invalid function code
+    with pytest.raises(FunctionCodeError, match="Invalid function code"):
+        pdu.decode_response(b"\x8c\x08\x00\x00\x01\x08\x01\x21\x20\x00")

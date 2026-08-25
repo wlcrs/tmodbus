@@ -42,8 +42,13 @@ from tmodbus.exceptions import (
     UnknownModbusResponseError,
 )
 from tmodbus.pdu import (
+    CommEventCounterResponse,
+    CommEventLogResponse,
+    DiagnosticsQueryDataPDU,
     FileRecord,
     FileRecordRequest,
+    GetCommEventCounterPDU,
+    GetCommEventLogPDU,
     MaskWriteRegisterPDU,
     ReadCoilsPDU,
     ReadDeviceIdentificationPDU,
@@ -54,6 +59,8 @@ from tmodbus.pdu import (
     ReadHoldingRegistersPDU,
     ReadInputRegistersPDU,
     ReadWriteMultipleRegistersPDU,
+    ReportServerIdPDU,
+    ServerIdResponse,
     WriteFileRecordPDU,
     WriteMultipleCoilsPDU,
     WriteMultipleRegistersPDU,
@@ -170,6 +177,26 @@ def test_read_device_identification_request() -> None:
     assert ReadDeviceIdentificationPDU(read_device_id_code=0x01, object_id=0x00).encode_request() == _hex("2B 0E 01 00")
 
 
+def test_fc08_request() -> None:
+    """0x08 Diagnostics, Return Query Data sub-function with 0xA537 data."""
+    assert DiagnosticsQueryDataPDU(_hex("A5 37")).encode_request() == _hex("08 0000 A537")
+
+
+def test_get_comm_event_counter_request() -> None:
+    """0x0B Get Comm Event Counter has no payload."""
+    assert GetCommEventCounterPDU().encode_request() == _hex("0B")
+
+
+def test_get_comm_event_log_request() -> None:
+    """0x0C Get Comm Event Log has no payload."""
+    assert GetCommEventLogPDU().encode_request() == _hex("0C")
+
+
+def test_report_server_id_request() -> None:
+    """0x11 Report Server ID has no payload."""
+    assert ReportServerIdPDU().encode_request() == _hex("11")
+
+
 # --- Response decoding (client side) ----------------------------------------
 
 
@@ -271,6 +298,34 @@ def test_read_device_identification_response() -> None:
     assert decoded.objects == {0x00: b"ABC", 0x01: b"XY", 0x02: b"1.0"}
 
 
+def test_fc08_response() -> None:
+    """0x08 Diagnostics, Return Query Data sub-function response."""
+    decoded = DiagnosticsQueryDataPDU(_hex("A5 37")).decode_response(_hex("08 0000 A537"))
+    assert decoded == _hex("A5 37")
+
+
+def test_get_comm_event_counter_response() -> None:
+    """0x0B response in the format of specification section 6.9."""
+    decoded = GetCommEventCounterPDU().decode_response(_hex("0B FF FF 01 08"))
+    assert decoded == CommEventCounterResponse(status=0xFFFF, event_count=264)
+
+
+def test_get_comm_event_log_response() -> None:
+    """0x0C response in the format of specification section 6.10."""
+    decoded = GetCommEventLogPDU().decode_response(_hex("0C 08 00 00 01 08 01 21 20 00"))
+    assert decoded == CommEventLogResponse(status=0x0000, event_count=264, message_count=289, events=_hex("20 00"))
+
+
+def test_report_server_id_response() -> None:
+    """0x11 response in the format of specification section 6.13.
+
+    The server ID and additional data are device specific, so a representative
+    response is used.
+    """
+    decoded = ReportServerIdPDU().decode_response(_hex("11 02 A5 FF"))
+    assert decoded == ServerIdResponse(server_id=b"\xa5", run_indicator_status=True, additional_data=b"")
+
+
 # --- RTU response framing length --------------------------------------------
 #
 # The transport calls get_expected_response_data_length with everything after
@@ -286,8 +341,12 @@ _FRAMING_VECTORS: list[tuple[str, type[BaseClientPDU[Any]], bytes]] = [
     ("0x04 Read Input Registers", ReadInputRegistersPDU, _hex("04 02 000A")),
     ("0x05 Write Single Coil", WriteSingleCoilPDU, _hex("05 00AC FF00")),
     ("0x06 Write Single Register", WriteSingleRegisterPDU, _hex("06 0001 0003")),
+    ("0x08 Diagnostics", DiagnosticsQueryDataPDU, _hex("08 0000 A537")),
+    ("0x0B Get Comm Event Counter", GetCommEventCounterPDU, _hex("0B FF FF 01 08")),
+    ("0x0C Get Comm Event Log", GetCommEventLogPDU, _hex("0C 08 00 00 01 08 01 21 20 00")),
     ("0x0F Write Multiple Coils", WriteMultipleCoilsPDU, _hex("0F 0013 000A")),
     ("0x10 Write Multiple Registers", WriteMultipleRegistersPDU, _hex("10 0001 0002")),
+    ("0x11 Report Server ID", ReportServerIdPDU, _hex("11 02 A5 FF")),
     ("0x16 Mask Write Register", MaskWriteRegisterPDU, _hex("16 0004 00F2 0025")),
     ("0x17 Read/Write Multiple Registers", ReadWriteMultipleRegistersPDU, _hex("17 0C 00FE 0ACD 0001 0003 000D 00FF")),
     ("0x14 Read File Record", ReadFileRecordPDU, _hex("14 0C 05 06 0DFE 0020 05 06 33CD 0040")),
@@ -320,8 +379,12 @@ _REQUEST_ROUND_TRIPS: list[tuple[str, BasePDU[Any]]] = [
     ("0x04 Read Input Registers", ReadInputRegistersPDU(0x0008, 0x0001)),
     ("0x05 Write Single Coil", WriteSingleCoilPDU(0x00AC, value=True)),
     ("0x06 Write Single Register", WriteSingleRegisterPDU(0x0001, 0x0003)),
+    ("0x08 Diagnostics", DiagnosticsQueryDataPDU(_hex("A5 37"))),
+    ("0x0B Get Comm Event Counter", GetCommEventCounterPDU()),
+    ("0x0C Get Comm Event Log", GetCommEventLogPDU()),
     ("0x0F Write Multiple Coils", WriteMultipleCoilsPDU(0x0013, _bits(_hex("CD 01"), 10))),
     ("0x10 Write Multiple Registers", WriteMultipleRegistersPDU(0x0001, [0x000A, 0x0102])),
+    ("0x11 Report Server ID", ReportServerIdPDU()),
     ("0x16 Mask Write Register", MaskWriteRegisterPDU(0x0004, 0x00F2, 0x0025)),
     ("0x18 Read FIFO Queue", ReadFifoQueuePDU(0x04DE)),
     (
@@ -350,8 +413,16 @@ _RESPONSE_ROUND_TRIPS: list[tuple[str, BasePDU[Any], Any]] = [
     ("0x04 Read Input Registers", ReadInputRegistersPDU(0x0008, 0x0001), [0x000A]),
     ("0x05 Write Single Coil", WriteSingleCoilPDU(0x00AC, value=True), True),
     ("0x06 Write Single Register", WriteSingleRegisterPDU(0x0001, 0x0003), 0x0003),
+    ("0x08 Diagnostics", DiagnosticsQueryDataPDU(_hex("A5 37")), _hex("A5 37")),
+    ("0x0B Get Comm Event Counter", GetCommEventCounterPDU(), CommEventCounterResponse(0xFFFF, 264)),
+    ("0x0C Get Comm Event Log", GetCommEventLogPDU(), CommEventLogResponse(0x0000, 264, 289, _hex("20 00"))),
     ("0x0F Write Multiple Coils", WriteMultipleCoilsPDU(0x0013, _bits(_hex("CD 01"), 10)), 10),
     ("0x10 Write Multiple Registers", WriteMultipleRegistersPDU(0x0001, [0x000A, 0x0102]), 2),
+    (
+        "0x11 Report Server ID",
+        ReportServerIdPDU(),
+        ServerIdResponse(server_id=b"\xa5", run_indicator_status=True, additional_data=b""),
+    ),
     ("0x16 Mask Write Register", MaskWriteRegisterPDU(0x0004, 0x00F2, 0x0025), (0x00F2, 0x0025)),
     (
         "0x17 Read/Write Multiple Registers",

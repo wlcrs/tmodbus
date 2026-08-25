@@ -110,10 +110,10 @@ class AsyncTcpTransport(AsyncBaseTransport):
 
             logger.info("Async TCP connection established: %s:%d", self.host, self.port)
         except TimeoutError:
-            logger.warning("Async TCP connection timeout: %s:%d", self.host, self.port, exc_info=True)
+            logger.debug("Async TCP connection timeout: %s:%d", self.host, self.port, exc_info=True)
             raise
         except Exception as e:
-            logger.exception("Async TCP connection error: %s:%d", self.host, self.port)
+            logger.debug("Async TCP connection error: %s:%d", self.host, self.port, exc_info=True)
             raise ModbusConnectionError from e
 
     async def close(self) -> None:

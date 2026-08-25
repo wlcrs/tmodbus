@@ -108,7 +108,7 @@ async def test_open_other_exception(monkeypatch: pytest.MonkeyPatch) -> None:
     with patch("tmodbus.transport.async_udp.logger") as log:
         with pytest.raises(ModbusConnectionError):
             await t.open()
-        log.exception.assert_called()
+        log.debug.assert_called()
 
 
 async def test_close_during_send_and_receive() -> None:

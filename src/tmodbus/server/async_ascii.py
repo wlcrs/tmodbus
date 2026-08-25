@@ -213,7 +213,7 @@ class AsyncAsciiServer(AsyncBaseServer):
         else:
             response_pdu_bytes = await handle_modbus_request(unit_id, request_pdu, self.handler)
 
-        if unit_id != BROADCAST_UNIT_ID:
+        if response_pdu_bytes and (is_error or (unit_id != BROADCAST_UNIT_ID and request_pdu.expects_response)):
             out_bin = bytearray([unit_id]) + response_pdu_bytes
             lrc = calculate_lrc(bytes(out_bin))
             out_bin.append(lrc)
@@ -229,7 +229,7 @@ class AsyncAsciiServer(AsyncBaseServer):
                 log_raw_traffic("sent", out_frame, is_error=True)
         else:
             logger.debug(
-                "Response ignored for broadcast request. Not sending response bytes: %s",
+                "Response ignored for broadcast or no-response request. Not sending response bytes: %s",
                 format_bytes(response_pdu_bytes),
             )
         return "error" if is_error else "success"

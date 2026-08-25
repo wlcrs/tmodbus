@@ -7,6 +7,7 @@ from typing import cast
 from unittest.mock import patch
 
 import pytest
+from tmodbus.exceptions import SuppressResponseError
 from tmodbus.pdu import ReadHoldingRegistersPDU, WriteMultipleCoilsPDU, WriteMultipleRegistersPDU
 from tmodbus.server import AsyncRtuServer, ModbusRequestRouter
 from tmodbus.utils.crc import calculate_crc16
@@ -445,3 +446,27 @@ def test_rtu_server_parse_frame_length_expected_data_len_none(
     )
     buffer = bytearray(b"\x01\x03\x00")
     assert server._parse_frame_length(buffer) is None
+
+
+async def test_rtu_server_suppress_response_error() -> None:
+    """Test that RTU server omits sending a response when SuppressResponseError is raised by handler."""
+    router = ModbusRequestRouter()
+
+    @router.register(ReadHoldingRegistersPDU)
+    async def handle_read(_unit_id: int, _request: ReadHoldingRegistersPDU) -> list[int]:
+        raise SuppressResponseError
+
+    server = AsyncRtuServer(port="/dev/ttyUSB0", handler=router)
+    await server.start()
+
+    mock_serial_inst = cast("MockSerial", server._reader)
+    assert mock_serial_inst is not None
+
+    pdu = b"\x01\x03\x00\x00\x00\x01"
+    crc = calculate_crc16(pdu)
+    await mock_serial_inst.read_queue.put(pdu + crc)
+    await asyncio.sleep(0.05)
+
+    assert len(mock_serial_inst.write_calls) == 0
+
+    await server.stop()

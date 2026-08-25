@@ -457,15 +457,51 @@ async def test_mask_write_register(dummy_client: AsyncModbusClient) -> None:
 
 
 async def test_mask_request_server_id(dummy_client: AsyncModbusClient) -> None:
-    """Test mask_write_register method."""
+    """Test read_server_id method."""
     assert isinstance(dummy_client.transport, DummyAsyncTransport)
 
-    # Test successful mask write
+    # Test successful read server id
     result = await dummy_client.read_server_id()
     assert result == DUMMY_RESPONSE
 
     # Verify that send_and_receive was called with the correct PDU type
     assert ["send_and_receive", 1, "ReportServerIdPDU"] in dummy_client.transport.performed_actions
+
+
+async def test_diag_read_query_data(dummy_client: AsyncModbusClient) -> None:
+    """Test diag_read_query_data method."""
+    assert isinstance(dummy_client.transport, DummyAsyncTransport)
+
+    result = await dummy_client.diag_read_query_data(b"\xa5\x37")
+    assert result == DUMMY_RESPONSE
+    assert ["send_and_receive", 1, "DiagnosticsQueryDataPDU"] in dummy_client.transport.performed_actions
+
+
+async def test_diag_read_bus_message_count(dummy_client: AsyncModbusClient) -> None:
+    """Test diag_read_bus_message_count method."""
+    assert isinstance(dummy_client.transport, DummyAsyncTransport)
+
+    result = await dummy_client.diag_read_bus_message_count()
+    assert result == DUMMY_RESPONSE
+    assert ["send_and_receive", 1, "DiagnosticsBusMessageCountPDU"] in dummy_client.transport.performed_actions
+
+
+async def test_get_comm_event_counter(dummy_client: AsyncModbusClient) -> None:
+    """Test get_comm_event_counter method."""
+    assert isinstance(dummy_client.transport, DummyAsyncTransport)
+
+    result = await dummy_client.get_comm_event_counter()
+    assert result == DUMMY_RESPONSE
+    assert ["send_and_receive", 1, "GetCommEventCounterPDU"] in dummy_client.transport.performed_actions
+
+
+async def test_get_comm_event_log(dummy_client: AsyncModbusClient) -> None:
+    """Test get_comm_event_log method."""
+    assert isinstance(dummy_client.transport, DummyAsyncTransport)
+
+    result = await dummy_client.get_comm_event_log()
+    assert result == DUMMY_RESPONSE
+    assert ["send_and_receive", 1, "GetCommEventLogPDU"] in dummy_client.transport.performed_actions
 
 
 async def test_read_write_multiple_registers(dummy_client: AsyncModbusClient) -> None:
@@ -582,3 +618,26 @@ async def test_write_file_record(
     assert file_records[0].file_number == 1
     assert file_records[0].record_number == 0
     assert file_records[0].data == b"\x12\x34"
+
+
+async def test_diag_methods(dummy_client: AsyncModbusClient) -> None:
+    """Test all diagnostic helper methods on AsyncModbusClient."""
+    assert isinstance(dummy_client.transport, DummyAsyncTransport)
+
+    await dummy_client.diag_read_query_data(b"\x12\x34")
+    await dummy_client.diag_restart_communications_option(clear_event_log=True)
+    await dummy_client.diag_read_diagnostic_register()
+    await dummy_client.diag_change_ascii_input_delimiter(0x0A)
+    await dummy_client.diag_force_listen_only_mode()
+    await dummy_client.diag_clear_counters_and_register()
+    await dummy_client.diag_read_bus_message_count()
+    await dummy_client.diag_read_bus_communication_error_count()
+    await dummy_client.diag_read_bus_exception_error_count()
+    await dummy_client.diag_read_server_message_count()
+    await dummy_client.diag_read_server_no_response_count()
+    await dummy_client.diag_read_server_nak_count()
+    await dummy_client.diag_read_server_busy_count()
+    await dummy_client.diag_read_bus_character_overrun_count()
+    await dummy_client.diag_clear_overrun_counter_and_flag()
+
+    assert len(dummy_client.transport.performed_actions) == 15
