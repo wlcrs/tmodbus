@@ -20,6 +20,30 @@ module to see how they are implemented. For example, you can look at the
 :class:`tmodbus.pdu.device.ReadDeviceIdentificationPDU` class, which implements the
 standard Modbus function code 0x2B with sub-function code 0x0E.
 
+*********************************
+ Unsupported diagnostics requests
+*********************************
+
+Diagnostics (function code 0x08) is a common case of a function that devices extend
+with their own sub-functions. :class:`tmodbus.pdu.GenericDiagnosticsPDU` sends any
+sub-function code without writing a PDU class first, as long as the device follows the
+standard layout of a two-byte sub-function code and a single two-byte data word:
+
+.. code-block:: python
+
+    from tmodbus import create_async_tcp_client
+    from tmodbus.pdu import GenericDiagnosticsPDU
+
+
+    async def main():
+        async with create_async_tcp_client(host="localhost", port=502, unit_id=1) as client:
+            value = await client.execute(GenericDiagnosticsPDU(0x0042, data=0x0001))
+
+It is a client-side escape hatch. A server resolves incoming requests by sub-function
+code, so it cannot route a request whose sub-function code is only known per instance.
+Write a dedicated PDU class and register it, as shown below, when you need server
+support or a different data layout.
+
 ************************
  Example implementation
 ************************

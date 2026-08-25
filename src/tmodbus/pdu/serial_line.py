@@ -8,7 +8,7 @@ from typing import Self
 from tmodbus.const import FunctionCode
 from tmodbus.exceptions import FunctionCodeError, InvalidRequestError, InvalidResponseError
 
-from .base import BasePDU, BaseSubFunctionPDU
+from .base import BasePDU, BaseSubFunctionClientPDU, BaseSubFunctionPDU
 
 
 class DiagnosticSubFunction(IntEnum):
@@ -762,3 +762,73 @@ class ReportServerIdPDU(BasePDU[ServerIdResponse]):
         byte_count = len(value.server_id) + 1 + len(value.additional_data)  # +1 for run indicator status
         run_indicator_status = ID_ON if value.run_indicator_status else ID_OFF
         return bytes([self.function_code, byte_count, *value.server_id, run_indicator_status, *value.additional_data])
+
+
+class GenericDiagnosticsPDU(BaseSubFunctionClientPDU[int]):
+    """Diagnostics (Function Code 0x08) with a caller-supplied sub-function code.
+
+    Escape hatch for sub-functions that tModbus does not implement, including
+    vendor-specific ones. It assumes the standard diagnostics layout of a two-byte
+    sub-function code followed by a single two-byte data word, which is what every
+    fixed-length sub-function in this module uses.
+
+    Client-side only: a server resolves incoming requests by sub-function code, so
+    it cannot route a request whose sub-function code is only known per instance.
+
+    Examples:
+        .. code-block:: python
+
+            # Return Bus Message Count, without a dedicated PDU class
+            count = await client.execute(GenericDiagnosticsPDU(0x000B))
+
+    """
+
+    function_code = FunctionCode.DIAGNOSTICS
+    sub_function_code_length = 2
+    rtu_response_data_length = 4  # sub-function (2) + data (2)
+
+    def __init__(self, sub_function_code: int, data: int = 0) -> None:
+        """Initialize GenericDiagnosticsPDU.
+
+        Args:
+            sub_function_code: Sub-function code to send.
+            data: Data word to send with the request.
+
+        """
+        if not (0 <= sub_function_code <= 0xFFFF):
+            msg = f"Sub-function code {sub_function_code} out of range (0-65535)"
+            raise ValueError(msg)
+        if not (0 <= data <= 0xFFFF):
+            msg = f"Data value {data} out of range (0-65535)"
+            raise ValueError(msg)
+        self.sub_function_code = sub_function_code
+        self.data = data
+
+    @classmethod
+    def get_expected_response_data_length(cls, data: bytes) -> int | None:
+        """Get expected response data length.
+
+        Overridden because the inherited implementation compares the received
+        sub-function code against a class attribute, which this PDU only has per
+        instance. ``decode_response`` checks it instead.
+        """
+        if len(data) < cls.sub_function_code_length:
+            return None
+        return cls.rtu_response_data_length
+
+    def encode_request(self) -> bytes:
+        """Encode request PDU."""
+        return struct.pack(">BHH", self.function_code, self.sub_function_code, self.data)
+
+    def decode_response(self, response: bytes) -> int:
+        """Decode response PDU."""
+        if len(response) != 5:
+            msg = f"Response length {len(response)} does not match expected 5"
+            raise InvalidResponseError(msg, response_bytes=response)
+
+        fc, sub_func, value = struct.unpack(">BHH", response)
+        if fc != self.function_code or sub_func != self.sub_function_code:
+            msg = f"Invalid function/sub-function: expected {self.function_code:#04x}/{self.sub_function_code:#06x}"
+            raise FunctionCodeError(msg, response_bytes=response)
+
+        return int(value)

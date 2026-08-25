@@ -19,6 +19,7 @@ from tmodbus.exceptions import (
     RTUFrameError,
 )
 from tmodbus.pdu.base import BaseClientPDU
+from tmodbus.pdu.serial_line import GenericDiagnosticsPDU
 from tmodbus.transport.async_rtu import (
     MAX_RTU_FRAME_SIZE,
     AsyncRtuTransport,
@@ -2245,3 +2246,20 @@ def test_rtu_protocol_fc08_partial_buffer(mock_transport: MagicMock) -> None:
     assert protocol._determine_expected_frame_length() is None
     protocol._buffer = bytearray(b"\x01\x08\x00\x00\x00\x00\x00")
     assert protocol._determine_expected_frame_length() == 9
+
+
+async def test_generic_diagnostics_unregistered_subfunction_frames(
+    mock_transport: MagicMock,
+) -> None:
+    """An unregistered FC08 sub-function must still frame at the standard length.
+
+    The sub-function registry cannot resolve a class for it, so the transport falls
+    back to the pending PDU's own length logic.
+    """
+    protocol = ModbusRtuProtocol(on_connection_lost=lambda _: None)
+    protocol.connection_made(mock_transport)
+
+    pdu = GenericDiagnosticsPDU(0x0042)
+
+    protocol._buffer.extend(bytes.fromhex("01 08 00 42 12 34 4D 68"))
+    assert protocol._determine_expected_frame_length(pdu) == 8

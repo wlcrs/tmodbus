@@ -24,6 +24,7 @@ from tmodbus.pdu.serial_line import (
     DiagnosticsServerMessageCountPDU,
     DiagnosticsServerNakCountPDU,
     DiagnosticsServerNoResponseCountPDU,
+    GenericDiagnosticsPDU,
     GetCommEventCounterPDU,
     GetCommEventLogPDU,
     ReportServerIdPDU,
@@ -455,3 +456,35 @@ def test_get_comm_event_log_encode_decode() -> None:
     # Invalid function code
     with pytest.raises(FunctionCodeError, match="Invalid function code"):
         pdu.decode_response(b"\x8c\x08\x00\x00\x01\x08\x01\x21\x20\x00")
+
+
+def test_generic_diagnostics_encode_decode() -> None:
+    """Test GenericDiagnosticsPDU round-trips an arbitrary sub-function code."""
+    pdu = GenericDiagnosticsPDU(0x0042, 0x1234)
+    assert pdu.encode_request() == b"\x08\x00\x42\x12\x34"
+    assert pdu.decode_response(b"\x08\x00\x42\xab\xcd") == 0xABCD
+
+    # Defaults to a zero data word.
+    assert GenericDiagnosticsPDU(0x000B).encode_request() == b"\x08\x00\x0b\x00\x00"
+
+
+def test_generic_diagnostics_validation() -> None:
+    """Test GenericDiagnosticsPDU rejects out-of-range values and bad responses."""
+    with pytest.raises(ValueError, match="Sub-function code"):
+        GenericDiagnosticsPDU(0x10000)
+    with pytest.raises(ValueError, match="Data value"):
+        GenericDiagnosticsPDU(0x0001, 0x10000)
+
+    pdu = GenericDiagnosticsPDU(0x0042)
+    with pytest.raises(InvalidResponseError):
+        pdu.decode_response(b"\x08\x00\x42\x12")
+    with pytest.raises(FunctionCodeError):
+        pdu.decode_response(b"\x08\x00\x43\x12\x34")
+
+
+def test_generic_diagnostics_expected_response_length() -> None:
+    """Test GenericDiagnosticsPDU reports a fixed length without a class sub-function code."""
+    assert GenericDiagnosticsPDU.get_expected_response_data_length(b"\x00") is None
+    assert GenericDiagnosticsPDU.get_expected_response_data_length(b"\x00\x42") == 4
+    # Unlike the inherited implementation, an unregistered sub-function must not raise.
+    assert GenericDiagnosticsPDU.get_expected_response_data_length(b"\xff\xff\x12\x34\xaa\xbb") == 4
