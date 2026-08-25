@@ -148,10 +148,11 @@ class OrderAwareStruct(struct.Struct):
         return lengths
 
     def _swap_word_order(self, data: "ReadableBuffer") -> bytes:
-        """Swap the word/byte order of each multi-register value based on the settings."""
-        if not self._value_lengths:
-            # ABCD byte order (standard), no need to swap
-            return bytes(data)
+        """Swap the word/byte order of each multi-register value based on the settings.
+
+        Callers only get here when reordering is configured (``_value_lengths`` is set).
+        """
+        assert self._value_lengths is not None  # callers guarantee this
 
         # Apply byte order transformation per value; single-register and sub-register
         # values are never reordered. The constructor guarantees every multi-byte value
@@ -218,10 +219,18 @@ class OrderAwareStruct(struct.Struct):
 
     def unpack(self, buffer: "ReadableBuffer") -> tuple[Any, ...]:
         """Unpack buffer with word order consideration."""
+        if not self._value_lengths:
+            # No reordering configured: skip the copy and use the C implementation directly.
+            return super().unpack(buffer)
         return super().unpack(self._swap_word_order(buffer))
 
     def unpack_from(self, buffer: "ReadableBuffer", offset: int = 0) -> tuple[Any, ...]:
         """Unpack from buffer with word order consideration."""
+        if not self._value_lengths:
+            # No reordering configured: the C implementation handles negative offsets
+            # itself, with the same error messages as the checks below.
+            return super().unpack_from(buffer, offset)
+
         # Handle negative offsets correctly
         if offset < 0:
             buf_len = len(memoryview(buffer))
@@ -255,10 +264,19 @@ class OrderAwareStruct(struct.Struct):
 
     def pack(self, *args: Any) -> bytes:
         """Pack values into bytes with word order consideration."""
+        if not self._value_lengths:
+            # No reordering configured: skip the copy and use the C implementation directly.
+            return super().pack(*args)
         return self._swap_word_order(super().pack(*args))
 
     def pack_into(self, buffer: "WriteableBuffer", offset: int, *args: Any) -> None:
         """Pack values into buffer with word order consideration."""
+        if not self._value_lengths:
+            # No reordering configured: the C implementation handles negative offsets and
+            # bounds checks itself, with the same error messages as the checks below.
+            super().pack_into(buffer, offset, *args)
+            return
+
         view = memoryview(buffer)
         # Mirror struct.Struct.pack_into: bounds-check instead of resizing the buffer,
         # and resolve negative offsets from the buffer end.

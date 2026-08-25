@@ -238,6 +238,30 @@ def test_unpack_from_negative_offset_out_of_range() -> None:
         s.unpack_from(data, offset=-5)
 
 
+def test_unpack_from_negative_offset_success_with_reordering() -> None:
+    """Test unpack_from resolves valid negative offsets when reordering is configured."""
+    s = OrderAwareStruct(">I", word_order="little")
+    data = b"\xaa\xbb" + s.pack(0x0A0B0C0D)
+    result = s.unpack_from(data, offset=-4)
+    assert result == (0x0A0B0C0D,)
+
+
+def test_unpack_from_negative_offset_not_enough_data_with_reordering() -> None:
+    """Test unpack_from raises on trailing partial value when reordering is configured."""
+    s = OrderAwareStruct(">I", word_order="little")
+    data = b"\x00\x01\x02\x03"
+    with pytest.raises(struct.error, match="not enough data to unpack 4 bytes at offset -2"):
+        s.unpack_from(data, offset=-2)
+
+
+def test_unpack_from_negative_offset_out_of_range_with_reordering() -> None:
+    """Test unpack_from raises on out-of-range negative offset when reordering is configured."""
+    s = OrderAwareStruct(">I", word_order="little")
+    data = b"\x00\x01\x02\x03"
+    with pytest.raises(struct.error, match="offset -5 out of range for 4-byte buffer"):
+        s.unpack_from(data, offset=-5)
+
+
 @pytest.mark.parametrize(
     ("word_order", "byte_order"),
     [("big", "big"), ("little", "big"), ("big", "little"), ("little", "little")],
@@ -261,6 +285,14 @@ def test_pack_into() -> None:
     buffer = bytearray(8)
     s.pack_into(buffer, 2, 0x0A0B0C0D)
     assert buffer == b"\x00\x00\x0c\x0d\x0a\x0b\x00\x00"
+
+
+def test_pack_into_no_reordering() -> None:
+    """Test pack_into delegates to the plain struct implementation when no reordering applies."""
+    s = OrderAwareStruct(">I", word_order="big")
+    buffer = bytearray(8)
+    s.pack_into(buffer, 2, 0x0A0B0C0D)
+    assert buffer == b"\x00\x00\x0a\x0b\x0c\x0d\x00\x00"
 
 
 def test_pack_into_too_small_buffer_raises() -> None:

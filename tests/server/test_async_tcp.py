@@ -7,7 +7,8 @@ from collections.abc import AsyncIterator
 from unittest.mock import patch
 
 import pytest
-from tmodbus.pdu import ReadHoldingRegistersPDU
+from tmodbus.exceptions import SuppressResponseError
+from tmodbus.pdu import DiagnosticsForceListenOnlyModePDU, ReadHoldingRegistersPDU
 from tmodbus.pdu.base import BaseClientPDU
 from tmodbus.server import AsyncTcpServer, ModbusRequestRouter
 
@@ -493,5 +494,67 @@ async def test_tcp_server_configurable_exception_code() -> None:
             writer.close()
             await writer.wait_closed()
 
+    finally:
+        await server.stop()
+
+
+async def test_tcp_server_suppress_response_error() -> None:
+    """Test that TCP server sends no bytes when SuppressResponseError is raised by handler."""
+    router = ModbusRequestRouter()
+
+    @router.register(ReadHoldingRegistersPDU)
+    async def handle_read(_unit_id: int, _request: ReadHoldingRegistersPDU) -> list[int]:
+        raise SuppressResponseError
+
+    server = AsyncTcpServer(host="127.0.0.1", port=0, handler=router)
+    await server.start()
+
+    try:
+        port = get_server_port(server)
+        reader, writer = await asyncio.open_connection("127.0.0.1", port)
+
+        try:
+            mbap = struct.pack(">HHHB", 1, 0, 6, 1)
+            pdu = b"\x03\x00\x00\x00\x02"
+            writer.write(mbap + pdu)
+            await writer.drain()
+
+            # No response frame at all: not even a bare MBAP header
+            with pytest.raises(asyncio.TimeoutError):
+                await asyncio.wait_for(reader.read(1), timeout=0.1)
+        finally:
+            writer.close()
+            await writer.wait_closed()
+    finally:
+        await server.stop()
+
+
+async def test_tcp_server_force_listen_only_no_response() -> None:
+    """Test that Force Listen Only Mode request gets no response frame on TCP."""
+    router = ModbusRequestRouter()
+
+    @router.register(DiagnosticsForceListenOnlyModePDU)
+    async def handle_force_listen_only(_unit_id: int, _request: DiagnosticsForceListenOnlyModePDU) -> None:
+        return
+
+    server = AsyncTcpServer(host="127.0.0.1", port=0, handler=router)
+    await server.start()
+
+    try:
+        port = get_server_port(server)
+        reader, writer = await asyncio.open_connection("127.0.0.1", port)
+
+        try:
+            # Diagnostics (0x08) sub-function 0x0004: Force Listen Only Mode
+            mbap = struct.pack(">HHHB", 1, 0, 6, 1)
+            pdu = b"\x08\x00\x04\x00\x00"
+            writer.write(mbap + pdu)
+            await writer.drain()
+
+            with pytest.raises(asyncio.TimeoutError):
+                await asyncio.wait_for(reader.read(1), timeout=0.1)
+        finally:
+            writer.close()
+            await writer.wait_closed()
     finally:
         await server.stop()

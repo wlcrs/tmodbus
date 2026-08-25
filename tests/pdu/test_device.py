@@ -593,3 +593,31 @@ class TestReadDeviceIdentificationPDUServer:
         )
         with pytest.raises(ValueError, match="Object 0x00 value length 256 exceeds the maximum of 255"):
             pdu.encode_response(response)
+
+    def test_encode_response_invalid_device_id_code(self) -> None:
+        """Test encode_response raises on an invalid device ID code."""
+        pdu = ReadDeviceIdentificationPDU(read_device_id_code=0x01, object_id=0x00)
+        response = ReadDeviceIdentificationResponse(
+            device_id_code=0x05,  # type: ignore[arg-type]
+            conformity_level=ConformityLevel.BASIC,
+            more=False,
+            next_object_id=0x00,
+            number_of_objects=1,
+            objects={0x00: b"Vendor"},
+        )
+        with pytest.raises(ValueError, match="Invalid device ID code: 0x05"):
+            pdu.encode_response(response)
+
+    def test_encode_response_invalid_conformity_level(self) -> None:
+        """Test encode_response raises on an invalid conformity level."""
+        pdu = ReadDeviceIdentificationPDU(read_device_id_code=0x01, object_id=0x00)
+        response = ReadDeviceIdentificationResponse(
+            device_id_code=0x01,
+            conformity_level=0x42,  # type: ignore[arg-type]
+            more=False,
+            next_object_id=0x00,
+            number_of_objects=1,
+            objects={0x00: b"Vendor"},
+        )
+        with pytest.raises(ValueError, match="Invalid conformity level: 0x42"):
+            pdu.encode_response(response)

@@ -71,6 +71,15 @@ class ReadFileRecordPDU(BasePDU[list[bytes]]):
             )
             raise ValueError(msg)
 
+        # Each requested record costs 2 header bytes plus 2 bytes per register in the response.
+        response_byte_count = sum(2 + 2 * request.record_length for request in requests)
+        if response_byte_count > MAX_READ_FILE_RECORD_BYTE_COUNT:
+            msg = (
+                f"Read File Record response byte count {response_byte_count} exceeds the "
+                f"maximum of {MAX_READ_FILE_RECORD_BYTE_COUNT}."
+            )
+            raise ValueError(msg)
+
         self.requests = requests
 
     def encode_request(self) -> bytes:
@@ -251,8 +260,10 @@ class ReadFileRecordPDU(BasePDU[list[bytes]]):
             raise InvalidRequestError(str(e), request_bytes=request) from e
 
     @classmethod
-    def get_expected_request_data_length(cls, data: bytes) -> int:
+    def get_expected_request_data_length(cls, data: bytes) -> int | None:
         """Get the expected number of bytes for the data part of the request PDU."""
+        if not data:
+            return None  # length byte not received yet
         return 1 + data[0]
 
 
@@ -511,6 +522,8 @@ class WriteFileRecordPDU(BasePDU[list[FileRecord]]):
             raise InvalidRequestError(str(e), request_bytes=request) from e
 
     @classmethod
-    def get_expected_request_data_length(cls, data: bytes) -> int:
+    def get_expected_request_data_length(cls, data: bytes) -> int | None:
         """Get the expected number of bytes for the data part of the request PDU."""
+        if not data:
+            return None  # length byte not received yet
         return 1 + data[0]

@@ -100,6 +100,11 @@ class SerialXOptions(TypedDict):
 
 MAX_RTU_FRAME_SIZE = 256  # Maximum RTU frame size in bytes
 
+# The buffer never legitimately holds more than a frame in progress plus a few
+# delayed responses, so cap it at a small multiple of the maximum frame size and
+# trim the oldest bytes beyond it (mirroring the ASCII transport's frame cap).
+MAX_RTU_BUFFER_SIZE = 8 * MAX_RTU_FRAME_SIZE
+
 MIN_RTU_RESPONSE_LENGTH = 4  # a minimal response is: address + function code + CRC
 
 BITS_PER_CHAR = 11  # start + 8 data + parity/stop
@@ -339,6 +344,9 @@ class ModbusRtuProtocol(asyncio.Protocol):
     _last_frame_ended_at: float
     _pending_request: _PendingRequest | None
     _timed_out_requests: dict[int, BaseClientPDU[Any]]
+    _find_cache: dict[bytes, int]
+    _resync_discarded_bytes: int
+    _resync_discard_steps: int
 
     def __init__(
         self,
@@ -359,6 +367,9 @@ class ModbusRtuProtocol(asyncio.Protocol):
         self._last_frame_ended_at = 0.0
         self._pending_request = None
         self._timed_out_requests = {}
+        self._find_cache = {}
+        self._resync_discarded_bytes = 0
+        self._resync_discard_steps = 0
 
         self.connection_made_event = asyncio.Event()
 
@@ -483,16 +494,38 @@ class ModbusRtuProtocol(asyncio.Protocol):
         return headers
 
     def _find_next_frame_start(self, start: int, headers: set[bytes]) -> int:
-        """Find the index of the next plausible frame start starting from `start`."""
-        positions = [pos for h in headers if (pos := self._buffer.find(h, start)) != -1]
+        """Find the index of the next plausible frame start starting from `start`.
+
+        Header positions are cached as distances from the buffer end, which survive
+        front discards, so within one data_received call each header is searched at
+        most once past any byte instead of rescanning after every discard.
+        The cache stays valid because the buffer only shrinks from the front between
+        cache resets, and successive searches never start earlier in the stream.
+        """
+        buffer_length = len(self._buffer)
+        positions = []
+        for h in headers:
+            cached = self._find_cache.get(h)
+            if cached is not None:
+                if cached == 0:
+                    continue  # known absent from the rest of the buffer
+                pos = buffer_length - cached
+                if pos >= start:
+                    positions.append(pos)
+                    continue
+                # The cached match was discarded; fall through and search again.
+            pos = self._buffer.find(h, start)
+            self._find_cache[h] = 0 if pos == -1 else buffer_length - pos
+            if pos != -1:
+                positions.append(pos)
         if positions:
             return min(positions)
 
         # Check if the very last byte could be the unit_id of a frame whose FC hasn't arrived
-        if len(self._buffer) > start and any(h[0] == self._buffer[-1] for h in headers):
-            return len(self._buffer) - 1
+        if buffer_length > start and any(h[0] == self._buffer[-1] for h in headers):
+            return buffer_length - 1
 
-        return len(self._buffer)
+        return buffer_length
 
     def _discard_garbage_data(self) -> None:
         """Discard garbage data from the buffer."""
@@ -510,11 +543,13 @@ class ModbusRtuProtocol(asyncio.Protocol):
         discard_count = self._find_next_frame_start(0, headers)
         if discard_count > 0:
             discarded = bytes(self._buffer[:discard_count])
-            logger.warning(
+            logger.debug(
                 "Discarding %d byte(s): %s",
                 discard_count,
                 discarded.hex(" ").upper(),
             )
+            self._resync_discarded_bytes += discard_count
+            self._resync_discard_steps += 1
             del self._buffer[:discard_count]
 
     def _resync_discard_length(self) -> int:
@@ -594,9 +629,11 @@ class ModbusRtuProtocol(asyncio.Protocol):
                     msg = f"Cannot frame response with unsupported function code {function_code:#04x}"
                     raise RTUFrameError(msg, response_bytes=bytes(self._buffer)) from e
 
-            # memoryview avoids an intermediate bytearray copy on every incoming chunk
+            # memoryview avoids an intermediate bytearray copy on every incoming chunk.
+            # A valid frame never exceeds MAX_RTU_FRAME_SIZE, so cap the slice to keep
+            # the copy O(frame size) instead of O(buffer size) per pass.
             expected_response_data_length = pdu_class.get_expected_response_data_length(
-                bytes(memoryview(self._buffer)[2:])
+                bytes(memoryview(self._buffer)[2:MAX_RTU_FRAME_SIZE])
             )
 
             if expected_response_data_length is None:
@@ -681,12 +718,14 @@ class ModbusRtuProtocol(asyncio.Protocol):
             return None
 
         discard_length = self._resync_discard_length()
-        logger.warning(
+        logger.debug(
             "CRC validation failed for candidate frame (%d bytes: %s). Discarding %d byte(s) to resynchronize.",
             len(candidate_frame),
             candidate_frame.hex(" ").upper(),
             discard_length,
         )
+        self._resync_discarded_bytes += discard_length
+        self._resync_discard_steps += 1
         del self._buffer[:discard_length]
         return CRCError(response_bytes=candidate_frame)
 
@@ -750,6 +789,36 @@ class ModbusRtuProtocol(asyncio.Protocol):
         # next request keeps the inter-frame delay from the end of a received frame.
         self._last_frame_ended_at = time.monotonic()
 
+        # Cached header positions are measured from the buffer end, so new data voids them.
+        self._find_cache.clear()
+
+        # Nothing else bounds the buffer while the frame length stays undetermined, and a
+        # buffer this size cannot start with a framable response anyway, so keep only the
+        # newest bytes. This also bounds the resynchronization work for one hostile chunk.
+        if len(self._buffer) > MAX_RTU_BUFFER_SIZE:
+            trim_count = len(self._buffer) - MAX_RTU_BUFFER_SIZE
+            logger.warning(
+                "Receive buffer exceeded %d bytes; discarding the %d oldest byte(s).",
+                MAX_RTU_BUFFER_SIZE,
+                trim_count,
+            )
+            del self._buffer[:trim_count]
+
+        self._resync_discarded_bytes = 0
+        self._resync_discard_steps = 0
+        try:
+            self._process_buffer()
+        finally:
+            if self._resync_discarded_bytes:
+                # One summary per chunk: per-step details are logged at debug level.
+                logger.warning(
+                    "Discarding %d byte(s) in %d step(s) to resynchronize.",
+                    self._resync_discarded_bytes,
+                    self._resync_discard_steps,
+                )
+
+    def _process_buffer(self) -> None:
+        """Frame and deliver as many complete responses as the buffer holds."""
         last_error: Exception | None = None
 
         # Try to process complete frames
@@ -779,12 +848,14 @@ class ModbusRtuProtocol(asyncio.Protocol):
                 expected_total_frame_length = self._determine_expected_frame_length(pending.pdu)
             except (RTUFrameError, FunctionCodeError) as e:
                 discard_length = self._resync_discard_length()
-                logger.warning(
+                logger.debug(
                     "Framing error for unit %d: %s. Discarding %d byte(s) to resynchronize.",
                     unit_id,
                     e,
                     discard_length,
                 )
+                self._resync_discarded_bytes += discard_length
+                self._resync_discard_steps += 1
                 last_error = e
                 del self._buffer[:discard_length]
                 continue
