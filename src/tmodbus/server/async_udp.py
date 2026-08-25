@@ -172,13 +172,28 @@ class ModbusUdpServerProtocol(asyncio.DatagramProtocol):
 
             log_raw_traffic("recv", data, is_error=is_error)
 
-            # Build MBAP header for response
-            resp_length = len(response_pdu_bytes) + 1
-            resp_mbap = struct.pack(">HHHB", transaction_id, protocol_id, resp_length, unit_id)
-
-            out_bytes = resp_mbap + response_pdu_bytes
-            if self.transport:
-                self.transport.sendto(out_bytes, addr)
-                log_raw_traffic("sent", out_bytes)
+            self._send_response(addr, transaction_id, protocol_id, unit_id, response_pdu_bytes)
         except Exception:
             logger.exception("Error processing UDP datagram from %s", addr)
+
+    def _send_response(
+        self,
+        addr: tuple[str, int],
+        transaction_id: int,
+        protocol_id: int,
+        unit_id: int,
+        response_pdu_bytes: bytes,
+    ) -> None:
+        """Send an MBAP-framed response datagram, or nothing when the response is suppressed."""
+        if not response_pdu_bytes:
+            logger.debug("Response suppressed. Not sending response bytes.")
+            return
+
+        # Build MBAP header for response
+        resp_length = len(response_pdu_bytes) + 1
+        resp_mbap = struct.pack(">HHHB", transaction_id, protocol_id, resp_length, unit_id)
+
+        out_bytes = resp_mbap + response_pdu_bytes
+        if self.transport:
+            self.transport.sendto(out_bytes, addr)
+            log_raw_traffic("sent", out_bytes)
