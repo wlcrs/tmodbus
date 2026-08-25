@@ -50,6 +50,19 @@ class TestReadCoilsPDU:
         with pytest.raises(ValueError, match=r"Quantity must be between 1 and 2000."):
             ReadCoilsPDU(start_address=1, quantity=2001)
 
+    def test_read_coils_address_overflow_validation(self) -> None:
+        """The requested range must stay within the 16-bit address space."""
+        pdu = ReadCoilsPDU(start_address=65535, quantity=1)
+        assert pdu.start_address == 65535
+
+        pdu = ReadCoilsPDU(start_address=63536, quantity=2000)
+        assert pdu.quantity == 2000
+
+        with pytest.raises(ValueError, match=r"Start address plus quantity must not exceed 65536\."):
+            ReadCoilsPDU(start_address=63537, quantity=2000)
+        with pytest.raises(ValueError, match=r"Start address plus quantity must not exceed 65536\."):
+            ReadCoilsPDU(start_address=65535, quantity=2)
+
     def test_read_coils_encode_request(self) -> None:
         """Test encoding of Read Coils PDU."""
         pdu = ReadCoilsPDU(start_address=1, quantity=10)
@@ -111,6 +124,15 @@ class TestReadCoilsPDU:
         """A server-side request with an invalid quantity raises InvalidRequestError."""
         request = struct.pack(">BHH", 0x01, 100, 0)
         with pytest.raises(InvalidRequestError, match=r"Quantity must be between 1 and 2000\."):
+            ReadCoilsPDU.decode_request(request)
+
+    def test_decode_request_address_overflow(self) -> None:
+        """A server-side request past the end of the address space raises InvalidRequestError."""
+        pdu = ReadCoilsPDU.decode_request(struct.pack(">BHH", 0x01, 63536, 2000))
+        assert pdu.start_address == 63536
+
+        request = struct.pack(">BHH", 0x01, 63537, 2000)
+        with pytest.raises(InvalidRequestError, match=r"Start address plus quantity must not exceed 65536\."):
             ReadCoilsPDU.decode_request(request)
 
     def test_encode_response_single_byte(self) -> None:
@@ -250,6 +272,14 @@ class TestWriteMultipleCoilsPDU:
         with pytest.raises(ValueError, match=r"Number of coils must be between 1 and 1968\."):
             WriteMultipleCoilsPDU(start_address=1, values=[True] * 1969)
 
+    def test_write_multiple_coils_address_overflow_validation(self) -> None:
+        """The written range must stay within the 16-bit address space."""
+        pdu = WriteMultipleCoilsPDU(start_address=65535, values=[True])
+        assert pdu.start_address == 65535
+
+        with pytest.raises(ValueError, match=r"Start address plus number of coils must not exceed 65536\."):
+            WriteMultipleCoilsPDU(start_address=65535, values=[True, True])
+
     @pytest.mark.parametrize(
         ("start_address", "values", "expected_bytes"),
         [
@@ -343,6 +373,15 @@ class TestWriteMultipleCoilsPDU:
         """Test decode_request with invalid byte count."""
         request = struct.pack(">BHHB", 0x0F, 100, 5, 2) + b"\x15\x00"  # Wrong byte count
         with pytest.raises(InvalidRequestError, match=r"Invalid byte count: expected 1, got 2"):
+            WriteMultipleCoilsPDU.decode_request(request)
+
+    def test_decode_request_address_overflow(self) -> None:
+        """A server-side request past the end of the address space raises InvalidRequestError."""
+        pdu = WriteMultipleCoilsPDU.decode_request(struct.pack(">BHHB", 0x0F, 65528, 8, 1) + b"\xff")
+        assert pdu.start_address == 65528
+
+        request = struct.pack(">BHHB", 0x0F, 65529, 8, 1) + b"\xff"
+        with pytest.raises(InvalidRequestError, match=r"Start address plus number of coils must not exceed 65536\."):
             WriteMultipleCoilsPDU.decode_request(request)
 
     def test_decode_request_value_error_is_converted(self, monkeypatch: pytest.MonkeyPatch) -> None:
