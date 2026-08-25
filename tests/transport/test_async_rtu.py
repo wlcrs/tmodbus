@@ -22,6 +22,7 @@ from tmodbus.exceptions import (
 from tmodbus.pdu.base import BaseClientPDU
 from tmodbus.pdu.serial_line import DiagnosticsQueryDataPDU
 from tmodbus.transport.async_rtu import (
+    MAX_RTU_BUFFER_SIZE,
     MAX_RTU_FRAME_SIZE,
     AsyncRtuTransport,
     ModbusRtuProtocol,
@@ -1459,6 +1460,76 @@ async def test_large_garbage_burst_resynchronizes(
 
     assert result == ("decoded", b"\x03\x05")
     assert len(protocol._buffer) == 0
+
+
+async def test_large_hostile_garbage_burst_is_bounded(
+    mock_transport: MagicMock,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """A 64 KiB burst of expected-header false starts must not stall the event loop."""
+    protocol = ModbusRtuProtocol(on_connection_lost=lambda _: None)
+    protocol.connection_made(mock_transport)
+
+    pdu = _DummyPDU()  # FC 0x03
+    unit_id = 1
+
+    class DummyPduClass:
+        @staticmethod
+        def get_expected_response_data_length(_begin_bytes: bytes) -> int:
+            return 1
+
+    monkeypatch.setattr("tmodbus.transport.async_rtu.get_pdu_class", lambda _: DummyPduClass)
+    protocol._last_frame_ended_at = time.monotonic() - 10
+
+    good_payload = bytes([unit_id, pdu.function_code, 0x05])
+    good_frame = good_payload + calculate_crc16(good_payload)
+
+    # False starts with the expected header (01 03) plus embedded exception headers
+    # (01 83), so every candidate frames but fails CRC.
+    garbage = (b"\x01\x03" * 100 + b"\x01\x83\x00\x00") * 320  # ~64 KiB
+
+    result_task = asyncio.create_task(protocol.send_and_receive(unit_id, pdu))
+    await asyncio.sleep(0.01)
+
+    started_at = time.monotonic()
+    protocol.data_received(garbage)
+    elapsed = time.monotonic() - started_at
+    # Generous ceiling: the quadratic resync took tens of seconds for this burst.
+    assert elapsed < 2.0
+
+    # A real response arriving after the burst must still be delivered.
+    protocol.data_received(good_frame)
+    result = await result_task
+    assert result == ("decoded", b"\x03\x05")
+
+
+async def test_receive_buffer_is_capped(
+    mock_transport: MagicMock,
+    monkeypatch: pytest.MonkeyPatch,
+    caplog: pytest.LogCaptureFixture,
+) -> None:
+    """The buffer must be trimmed to MAX_RTU_BUFFER_SIZE while the frame length stays undetermined."""
+    protocol = ModbusRtuProtocol(on_connection_lost=lambda _: None)
+    protocol.connection_made(mock_transport)
+
+    pdu = _DummyPDU()
+    unit_id = 1
+    fut: asyncio.Future[Any] = asyncio.get_event_loop().create_future()
+    protocol._pending_request = _PendingRequest(unit_id=unit_id, future=fut, pdu=pdu)
+
+    class UndecidedPduClass:
+        @staticmethod
+        def get_expected_response_data_length(_begin_bytes: bytes) -> None:
+            return None  # length never determinable: the buffer would otherwise grow forever
+
+    monkeypatch.setattr("tmodbus.transport.async_rtu.get_pdu_class", lambda _: UndecidedPduClass)
+
+    with caplog.at_level(logging.WARNING, logger="tmodbus.transport.async_rtu"):
+        protocol.data_received(bytes([unit_id, pdu.function_code]) * 1500)
+
+    assert len(protocol._buffer) == MAX_RTU_BUFFER_SIZE
+    assert any("Receive buffer exceeded" in record.message for record in caplog.records)
+    assert not fut.done()
 
 
 async def test_determine_expected_frame_length_subfunction_pdu(
