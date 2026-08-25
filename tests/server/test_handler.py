@@ -5,7 +5,13 @@ from typing import Any, cast
 
 import pytest
 from tmodbus.exceptions import IllegalDataAddressError, IllegalFunctionError, SuppressResponseError
-from tmodbus.pdu import BasePDU, ReadHoldingRegistersPDU, WriteSingleRegisterPDU
+from tmodbus.pdu import (
+    BasePDU,
+    DiagnosticsDiagnosticRegisterPDU,
+    DiagnosticsQueryDataPDU,
+    ReadHoldingRegistersPDU,
+    WriteSingleRegisterPDU,
+)
 from tmodbus.server import (
     AnyModbusHandler,
     ModbusHandler,
@@ -228,6 +234,59 @@ async def test_router_unit_id_routing() -> None:
     assert strict_router.supports_unit_id(2) is True
     assert strict_router.supports_unit_id(3) is False
     assert strict_router.supports_unit_id(0) is False
+
+
+async def test_router_sub_function_routing() -> None:
+    """Test that PDUs sharing a function code route per sub-function code."""
+    router = ModbusRequestRouter()
+
+    @router.register(DiagnosticsQueryDataPDU)
+    async def handle_query_data(_unit_id: int, request: DiagnosticsQueryDataPDU) -> bytes:
+        return request.data
+
+    # An unhandled sub-function under the same function code answers Illegal Function
+    with pytest.raises(IllegalFunctionError):
+        await router(1, DiagnosticsDiagnosticRegisterPDU())
+    response_bytes = await handle_modbus_request(1, DiagnosticsDiagnosticRegisterPDU(), router)
+    assert response_bytes == b"\x88\x01"
+
+    # A second sub-function under the same function code registers alongside the first
+    @router.register(DiagnosticsDiagnosticRegisterPDU)
+    async def handle_diagnostic_register(_unit_id: int, _request: DiagnosticsDiagnosticRegisterPDU) -> int:
+        return 0x1234
+
+    # Each handler receives only its own sub-function
+    assert await router(1, DiagnosticsQueryDataPDU(data=b"\xab\xcd")) == b"\xab\xcd"
+    assert await router(1, DiagnosticsDiagnosticRegisterPDU()) == 0x1234
+
+    # Duplicate registration of the same sub-function is still rejected
+    with pytest.raises(ValueError, match=r"sub-function code 2 .* already registered"):
+
+        @router.register(DiagnosticsDiagnosticRegisterPDU)
+        async def handle_duplicate(_unit_id: int, _request: DiagnosticsDiagnosticRegisterPDU) -> int:
+            return -1
+
+
+async def test_router_sub_function_unit_id_routing() -> None:
+    """Test sub-function routing combined with unit-scoped and wildcard handlers."""
+    router = ModbusRequestRouter()
+
+    @router.register(DiagnosticsQueryDataPDU, unit_id=1)
+    async def handle_unit_1(_unit_id: int, _request: DiagnosticsQueryDataPDU) -> bytes:
+        return b"\x11\x11"
+
+    @router.register(DiagnosticsQueryDataPDU)
+    async def handle_default(_unit_id: int, _request: DiagnosticsQueryDataPDU) -> bytes:
+        return b"\x99\x99"
+
+    req = DiagnosticsQueryDataPDU()
+    assert await router(1, req) == b"\x11\x11"
+    assert await router(2, req) == b"\x99\x99"
+
+    # A unit with registered handlers does not fall back to the wildcard
+    # for a sub-function it does not handle
+    with pytest.raises(IllegalFunctionError):
+        await router(1, DiagnosticsDiagnosticRegisterPDU())
 
 
 async def test_router_context_passing() -> None:
