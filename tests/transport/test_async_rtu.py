@@ -19,6 +19,7 @@ from tmodbus.exceptions import (
     RTUFrameError,
 )
 from tmodbus.pdu.base import BaseClientPDU
+from tmodbus.pdu.serial_line import DiagnosticsQueryDataPDU
 from tmodbus.transport.async_rtu import (
     MAX_RTU_FRAME_SIZE,
     AsyncRtuTransport,
@@ -1116,6 +1117,20 @@ async def test_determine_expected_frame_length__subfunction_pdu(
 
     protocol._buffer.extend(bytes.fromhex("01 2B 0E 01 01 00 "))
     assert protocol._determine_expected_frame_length() is None
+
+
+async def test_determine_expected_frame_length__diagnostics_query_data(
+    mock_transport: MagicMock,
+) -> None:
+    """A complete Return Query Data response must frame at its real length, CRC included."""
+    protocol = ModbusRtuProtocol(on_connection_lost=lambda _: None)
+    protocol.connection_made(mock_transport)
+
+    pdu = DiagnosticsQueryDataPDU(b"\xa5\x37")
+
+    # A complete frame: unit and function code, then sub-function, query data and CRC.
+    protocol._buffer.extend(bytes.fromhex("01 08 00 00 A5 37 DA 8D"))
+    assert protocol._determine_expected_frame_length(pdu) == 8
 
 
 async def test_data_received_insufficient_data(
@@ -2243,5 +2258,6 @@ def test_rtu_protocol_fc08_partial_buffer(mock_transport: MagicMock) -> None:
     # Test buffer >= 7 bytes for FC08 Diagnostics frame parsing
     protocol._buffer = bytearray(b"\x01\x08\x00\x00\x00")
     assert protocol._determine_expected_frame_length() is None
+    # address(1) + fc(1) + sub-function(2) + query data(2) + crc(2)
     protocol._buffer = bytearray(b"\x01\x08\x00\x00\x00\x00\x00")
-    assert protocol._determine_expected_frame_length() == 9
+    assert protocol._determine_expected_frame_length() == 8

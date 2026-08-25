@@ -230,11 +230,14 @@ def test_diagnostics_force_listen_only_mode() -> None:
 
 def test_all_diagnostic_classes_full_coverage() -> None:
     """Test encode_request, decode_request, encode_response, decode_response for all diagnostic classes."""
-    # Query data short length tests
-    assert DiagnosticsQueryDataPDU.get_expected_response_data_length(b"\x00") == 4
-    assert DiagnosticsQueryDataPDU.get_expected_request_data_length(b"\x00") == 4
+    # Fixed at sub-function (2) + query data (2), however much has been buffered.
+    assert DiagnosticsQueryDataPDU.get_expected_response_data_length(b"\x00") is None
+    assert DiagnosticsQueryDataPDU.get_expected_response_data_length(b"\x00\x00") == 4
+    assert DiagnosticsQueryDataPDU.get_expected_request_data_length(b"\x00\x00") == 4
     assert DiagnosticsQueryDataPDU.get_expected_response_data_length(b"\x00\x00\x12\x34") == 4
     assert DiagnosticsQueryDataPDU.get_expected_request_data_length(b"\x00\x00\x12\x34") == 4
+    assert DiagnosticsQueryDataPDU.get_expected_response_data_length(b"\x00\x00\xa5\x37\xda\x8d") == 4
+    assert DiagnosticsQueryDataPDU.get_expected_request_data_length(b"\x00\x00\xa5\x37\xda\x8d") == 4
 
     # Listen only mode response
     p_listen = DiagnosticsForceListenOnlyModePDU()
