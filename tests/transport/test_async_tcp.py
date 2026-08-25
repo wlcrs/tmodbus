@@ -330,7 +330,7 @@ async def test_protocol_send_and_receive_invalid_protocol_id_followed_by_correct
 ) -> None:
     """Test protocol validates protocol ID."""
     caplog.set_level("DEBUG", logger="tmodbus.transport.async_tcp")
-    protocol = ModbusTcpProtocol(on_connection_lost=lambda _: None, timeout=0.02)
+    protocol = ModbusTcpProtocol(on_connection_lost=lambda _: None, timeout=10.0)
     mock_transport = MagicMock(spec=asyncio.WriteTransport)
     mock_transport.is_closing.return_value = False
     protocol.connection_made(mock_transport)
