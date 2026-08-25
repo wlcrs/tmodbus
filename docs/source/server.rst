@@ -82,6 +82,18 @@ Here is a complete example of setting up a TCP server using `ModbusRequestRouter
     if __name__ == "__main__":
         asyncio.run(main())
 
+Handlers can also be registered for one or more specific unit IDs by passing the
+``unit_id`` parameter to ``register()``. Handlers registered without a ``unit_id`` act
+as a wildcard fallback for all unit IDs.
+
+.. note::
+
+   The wildcard fallback applies per unit ID, not per function code. As soon as any
+   handler is registered for a specific unit ID, wildcard handlers no longer apply to
+   that unit ID: requests to that unit for other function codes raise
+   :exc:`~tmodbus.exceptions.IllegalFunctionError` instead of falling back to a
+   wildcard handler.
+
 *************************************
  Implementing ModbusHandler Directly
 *************************************
@@ -372,8 +384,8 @@ Listen-Only mode:
             # 2. Handle Restart Communications Option (FC08 sub 1)
             if isinstance(request, DiagnosticsRestartCommunicationsOptionPDU):
                 self.listen_only_mode = False
-                # Echo data (0x0000 or 0xFF00) back to client
-                return cast(T, request.data)
+                # Echo the clear-event-log flag back to the client
+                return cast(T, request.clear_event_log)
 
             # 3. Delegate to standard request router
             response = await self.inner_router(unit_id, request)

@@ -77,7 +77,7 @@ async def run():
     ctx = ssl.SSLContext(ssl.PROTOCOL_TLS_CLIENT)
     ctx.load_verify_locations('examples/certs/ca.cert.pem')
     ctx.load_cert_chain('examples/certs/operator-client.cert.pem', 'examples/certs/operator-client.key.pem')
-    async with create_async_tcp_client('127.0.0.1', 8020, ssl=ctx) as client:
+    async with create_async_tcp_client('127.0.0.1', 8020, unit_id=1, ssl=ctx) as client:
         print('Registers:', await client.read_holding_registers(0, 2))
 
 asyncio.run(run())
@@ -93,7 +93,7 @@ async def run():
     ctx = ssl.SSLContext(ssl.PROTOCOL_TLS_CLIENT)
     ctx.load_verify_locations('examples/certs/ca.cert.pem')
     ctx.load_cert_chain('examples/certs/user-client.cert.pem', 'examples/certs/user-client.key.pem')
-    async with create_async_tcp_client('127.0.0.1', 8020, ssl=ctx) as client:
+    async with create_async_tcp_client('127.0.0.1', 8020, unit_id=1, ssl=ctx) as client:
         try:
             await client.read_holding_registers(0, 2)
         except ModbusResponseError as e:
