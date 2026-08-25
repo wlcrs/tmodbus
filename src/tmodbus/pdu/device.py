@@ -136,6 +136,14 @@ class ReadDeviceIdentificationPDU(BaseSubFunctionPDU[ReadDeviceIdentificationRes
             ValueError: If a field is out of range or the object count does not match
 
         """
+        if value.device_id_code not in (0x01, 0x02, 0x03, 0x04):
+            msg = f"Invalid device ID code: {value.device_id_code:#04x}"
+            raise ValueError(msg)
+
+        if value.conformity_level not in ConformityLevel:
+            msg = f"Invalid conformity level: {value.conformity_level:#04x}"
+            raise ValueError(msg)
+
         if not (0x00 <= value.next_object_id <= 0xFF):
             msg = "Next object ID must be between 0x00 and 0xFF."
             raise ValueError(msg)
