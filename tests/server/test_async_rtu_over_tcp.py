@@ -8,6 +8,7 @@ from unittest.mock import patch
 import pytest
 from tmodbus.pdu import ReadHoldingRegistersPDU, WriteMultipleRegistersPDU
 from tmodbus.pdu.base import BaseClientPDU
+from tmodbus.pdu.serial_line import DiagnosticsQueryDataPDU
 from tmodbus.server import AsyncRtuOverTcpServer, ModbusRequestRouter
 from tmodbus.utils.crc import calculate_crc16, validate_crc16
 
@@ -37,6 +38,45 @@ def get_server_port(server: AsyncRtuOverTcpServer) -> int:
     addr = sockets[0].getsockname()
     assert isinstance(addr, tuple)
     return int(addr[1])
+
+
+async def test_rtu_over_tcp_server_diagnostics_query_data() -> None:
+    """Regression: a Return Query Data request must be framed, answered, and not wedge the link.
+
+    The expected length used to be derived from the receive buffer, which includes the
+    CRC, so the server waited for two bytes that never came and silently swallowed every
+    later request on the connection.
+    """
+    router = ModbusRequestRouter()
+
+    @router.register(DiagnosticsQueryDataPDU)
+    async def handle_query_data(_unit_id: int, request: DiagnosticsQueryDataPDU) -> bytes:
+        return request.data
+
+    server = AsyncRtuOverTcpServer(host="127.0.0.1", port=0, handler=router)
+    await server.start()
+    try:
+        port = get_server_port(server)
+        reader, writer = await asyncio.open_connection("127.0.0.1", port)
+        try:
+            request = b"\x01\x08\x00\x00\xa5\x37"
+            writer.write(request + calculate_crc16(request))
+            await writer.drain()
+
+            resp = await asyncio.wait_for(reader.readexactly(8), timeout=5)
+            assert validate_crc16(resp)
+            assert resp == b"\x01\x08\x00\x00\xa5\x37" + calculate_crc16(b"\x01\x08\x00\x00\xa5\x37")
+
+            # The connection must still be usable afterwards.
+            writer.write(request + calculate_crc16(request))
+            await writer.drain()
+            assert await asyncio.wait_for(reader.readexactly(8), timeout=5) == resp
+        finally:
+            writer.close()
+            with contextlib.suppress(Exception):
+                await writer.wait_closed()
+    finally:
+        await server.stop()
 
 
 async def test_rtu_over_tcp_server_happy_path(rtu_over_tcp_server: AsyncRtuOverTcpServer) -> None:

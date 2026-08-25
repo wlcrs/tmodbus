@@ -42,12 +42,15 @@ class DiagnosticsQueryDataPDU(BaseDiagnosticsSubFunctionPDU[bytes]):
     """Diagnostics sub-function 0x0000: Return Query Data."""
 
     sub_function_code = DiagnosticSubFunction.RETURN_QUERY_DATA
+    rtu_request_data_length = 4  # sub-function (2) + query data (2)
+    rtu_response_data_length = 4
 
     def __init__(self, data: bytes = b"\x00\x00") -> None:
         """Initialize DiagnosticsQueryDataPDU.
 
         Args:
             data: Data bytes to loop back (must be an even number of bytes).
+                Payloads longer than 2 bytes cannot be framed over RTU.
 
         """
         if len(data) % 2 != 0:
@@ -58,20 +61,6 @@ class DiagnosticsQueryDataPDU(BaseDiagnosticsSubFunctionPDU[bytes]):
     def encode_request(self) -> bytes:
         """Encode request PDU."""
         return struct.pack(">BH", self.function_code, self.sub_function_code) + self.data
-
-    @classmethod
-    def get_expected_response_data_length(cls, data: bytes) -> int | None:
-        """Get expected response data length."""
-        if len(data) >= 2:
-            return len(data)
-        return 4
-
-    @classmethod
-    def get_expected_request_data_length(cls, data: bytes) -> int:
-        """Get expected request data length."""
-        if len(data) >= 2:
-            return len(data)
-        return 4
 
     @classmethod
     def decode_request(cls, request: bytes) -> Self:
