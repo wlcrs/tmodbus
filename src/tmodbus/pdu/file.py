@@ -1,6 +1,7 @@
 """PDU's for file record operations."""
 
 import struct
+from collections.abc import Sequence
 from dataclasses import dataclass
 from typing import Self
 
@@ -253,10 +254,13 @@ class WriteFileRecordPDU(BasePDU[list[FileRecord]]):
 
     function_code = 0x15
 
-    file_records: list[FileRecord]
+    file_records: Sequence[FileRecord]
 
     def __post_init__(self) -> None:
         """Validate file records after initialization."""
+        # Store an immutable copy so the frozen dataclass stays hashable.
+        object.__setattr__(self, "file_records", tuple(self.file_records))
+
         for record in self.file_records:
             if not (0 <= record.file_number <= 0xFFFF):
                 msg = "File number must be between 0 and 65535."
@@ -285,7 +289,7 @@ class WriteFileRecordPDU(BasePDU[list[FileRecord]]):
             raise ValueError(msg)
 
     @classmethod
-    def _encode(cls, file_records: list[FileRecord]) -> bytes:
+    def _encode(cls, file_records: Sequence[FileRecord]) -> bytes:
         """Encode the PDU into bytes.
 
         Returns:
@@ -399,7 +403,7 @@ class WriteFileRecordPDU(BasePDU[list[FileRecord]]):
 
     def get_broadcast_response(self) -> list[FileRecord]:
         """Return dummy response for a broadcast request."""
-        return self.file_records
+        return list(self.file_records)
 
     def encode_response(self, value: list[FileRecord]) -> bytes:
         """Encode the response PDU.

@@ -896,7 +896,25 @@ class TestReadWriteMultipleRegistersPDU:
         assert pdu.read_start_address == 100
         assert pdu.read_quantity == 10
         assert pdu.write_start_address == 200
-        assert pdu.write_values == [1, 2, 3, 4, 5]
+        assert pdu.write_values == (1, 2, 3, 4, 5)
+
+    def test_hashable(self) -> None:
+        """Test that write values are stored as a tuple, keeping the frozen PDU hashable."""
+        pdu = ReadWriteMultipleRegistersPDU(
+            read_start_address=100,
+            read_quantity=10,
+            write_start_address=200,
+            write_values=[1, 2, 3],
+        )
+        equal_pdu = ReadWriteMultipleRegistersPDU(
+            read_start_address=100,
+            read_quantity=10,
+            write_start_address=200,
+            write_values=(1, 2, 3),
+        )
+        assert pdu == equal_pdu
+        assert len({pdu, equal_pdu}) == 1
+        assert {pdu: "value"}[equal_pdu] == "value"
 
     @pytest.mark.parametrize(
         ("read_addr", "read_qty", "write_addr", "write_vals", "expected_error"),
@@ -1079,7 +1097,7 @@ class TestReadWriteMultipleRegistersPDU:
         assert pdu.read_start_address == 0x0003
         assert pdu.read_quantity == 6
         assert pdu.write_start_address == 0x000E
-        assert pdu.write_values == [0x00FF, 0x00FF, 0x00FF]
+        assert pdu.write_values == (0x00FF, 0x00FF, 0x00FF)
 
     def test_decode_request_single_write_value(self) -> None:
         """Test decoding request with single write value."""
@@ -1090,7 +1108,7 @@ class TestReadWriteMultipleRegistersPDU:
         assert pdu.read_start_address == 0
         assert pdu.read_quantity == 1
         assert pdu.write_start_address == 0
-        assert pdu.write_values == [0x1234]
+        assert pdu.write_values == (0x1234,)
 
     def test_decode_request_invalid_empty_write_values(self) -> None:
         """A server-side request with zero write registers raises InvalidRequestError."""
@@ -1299,7 +1317,7 @@ class TestReadWriteMultipleRegistersPDU:
         assert pdu.read_start_address == 0x0003
         assert pdu.read_quantity == 0x0006
         assert pdu.write_start_address == 0x000E
-        assert pdu.write_values == [0x00FF, 0x00FF, 0x00FF]
+        assert pdu.write_values == (0x00FF, 0x00FF, 0x00FF)
 
     def test_modbus_spec_example_decode_response(self) -> None:
         """Test decoding response using the exact example from Modbus specification.
