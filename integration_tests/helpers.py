@@ -7,7 +7,7 @@ import time
 from collections.abc import Generator
 from pathlib import Path
 
-from tmodbus.server import AsyncRtuOverTcpServer, AsyncTcpServer
+from tmodbus.server import AsyncRtuOverTcpServer, AsyncTcpServer, AsyncUdpServer
 
 
 @contextlib.contextmanager
@@ -49,8 +49,12 @@ def make_virtual_serial_ports(server_path: Path, client_path: Path) -> Generator
                 path.unlink()
 
 
-def get_server_port(server: AsyncTcpServer | AsyncRtuOverTcpServer) -> int:
-    """Get the dynamically allocated port from an active TCP server."""
+def get_server_port(server: AsyncTcpServer | AsyncRtuOverTcpServer | AsyncUdpServer) -> int:
+    """Get the dynamically allocated port from an active server."""
+    if isinstance(server, AsyncUdpServer):
+        assert server._transport is not None
+        sockname = server._transport.get_extra_info("sockname")
+        return int(sockname[1])
     assert server._server is not None
     sockets = server._server.sockets
     assert sockets is not None

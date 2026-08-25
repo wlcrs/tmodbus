@@ -1,14 +1,42 @@
 """Shared server implementation and device simulation for integration tests."""
 
+from typing import Any
+
 from tmodbus.pdu import (
+    BaseDiagnosticsSubFunctionPDU,
+    CommEventCounterResponse,
+    CommEventLogResponse,
+    DiagnosticsBusCharacterOverrunCountPDU,
+    DiagnosticsBusCommunicationErrorCountPDU,
+    DiagnosticsBusExceptionErrorCountPDU,
+    DiagnosticsBusMessageCountPDU,
+    DiagnosticsChangeAsciiInputDelimiterPDU,
+    DiagnosticsClearCountersAndRegisterPDU,
+    DiagnosticsClearOverrunCounterAndFlagPDU,
+    DiagnosticsDiagnosticRegisterPDU,
+    DiagnosticsQueryDataPDU,
+    DiagnosticsRestartCommunicationsOptionPDU,
+    DiagnosticsServerBusyCountPDU,
+    DiagnosticsServerMessageCountPDU,
+    DiagnosticsServerNakCountPDU,
+    DiagnosticsServerNoResponseCountPDU,
+    FileRecord,
+    GetCommEventCounterPDU,
+    GetCommEventLogPDU,
     MaskWriteRegisterPDU,
     ReadCoilsPDU,
     ReadDeviceIdentificationPDU,
     ReadDeviceIdentificationResponse,
     ReadDiscreteInputsPDU,
+    ReadExceptionStatusPDU,
+    ReadFifoQueuePDU,
+    ReadFileRecordPDU,
     ReadHoldingRegistersPDU,
     ReadInputRegistersPDU,
     ReadWriteMultipleRegistersPDU,
+    ReportServerIdPDU,
+    ServerIdResponse,
+    WriteFileRecordPDU,
     WriteMultipleCoilsPDU,
     WriteMultipleRegistersPDU,
     WriteSingleCoilPDU,
@@ -44,8 +72,48 @@ class ModbusDevice:
         self.input_registers[0] = 1234
         self.input_registers[1] = 5678
 
+        # Exception Status (FC 0x07)
+        self.exception_status = 0x55
 
-def setup_router(device: ModbusDevice) -> ModbusRequestRouter:  # noqa: C901
+        # Comm Events (FC 0x0B, FC 0x0C)
+        self.comm_status = 0x0000
+        self.comm_event_count = 42
+        self.comm_message_count = 100
+        self.comm_events = b"\x01\x02\x03\x04"
+
+        # Server ID (FC 0x11)
+        self.server_id = b"TMB-DEV"
+        self.run_indicator_status = True
+        self.additional_data = b"V1.0"
+
+        # File Records (FC 0x14, FC 0x15)
+        # Map: file_number -> {record_number: bytes}
+        self.files: dict[int, dict[int, bytes]] = {
+            4: {
+                0: b"\x12\x34\x56\x78",
+                1: b"\xaa\xbb\xcc\xdd",
+            }
+        }
+
+        # FIFO Queue (FC 0x18)
+        self.fifo_queues: dict[int, list[int]] = {
+            0: [100, 200, 300, 400],
+        }
+
+        # Diagnostics (FC 0x08)
+        self.diagnostic_register = 0x1234
+        self.ascii_input_delimiter = 0x0A
+        self.bus_message_count = 10
+        self.bus_comm_error_count = 0
+        self.bus_exception_error_count = 0
+        self.server_message_count = 10
+        self.server_no_response_count = 0
+        self.server_nak_count = 0
+        self.server_busy_count = 0
+        self.bus_character_overrun_count = 0
+
+
+def setup_router(device: ModbusDevice) -> ModbusRequestRouter:  # noqa: C901, PLR0915
     """Register all PDU handlers on a ModbusRequestRouter.
 
     To verify integration compatibility, a client should perform the following:
@@ -74,6 +142,24 @@ def setup_router(device: ModbusDevice) -> ModbusRequestRouter:  # noqa: C901
     4. Input Registers (FC 0x04)
        - Read 2 input registers starting at address 0.
        - Assert that the returned array is [1234, 5678].
+
+    5. Exception Status (FC 0x07)
+       - Read exception status byte.
+
+    6. Comm Events (FC 0x0B, FC 0x0C)
+       - Read comm event counter and comm event log.
+
+    7. Server ID (FC 0x11)
+       - Report Server ID response.
+
+    8. File Records (FC 0x14, FC 0x15)
+       - Read and write file records.
+
+    9. FIFO Queue (FC 0x18)
+       - Read FIFO queue registers.
+
+    10. Diagnostics (FC 0x08)
+        - Diagnostics loopback query data and counters.
     """
     router = ModbusRequestRouter()
 
@@ -134,6 +220,104 @@ def setup_router(device: ModbusDevice) -> ModbusRequestRouter:  # noqa: C901
         # Then read
         read_start = request.read_start_address
         return device.holding_registers[read_start : read_start + request.read_quantity]
+
+    @router.register(ReadExceptionStatusPDU)
+    async def handle_read_exception_status(_unit_id: int, _request: ReadExceptionStatusPDU) -> int:
+        return device.exception_status
+
+    @router.register(GetCommEventCounterPDU)
+    async def handle_get_comm_event_counter(
+        _unit_id: int, _request: GetCommEventCounterPDU
+    ) -> CommEventCounterResponse:
+        return CommEventCounterResponse(status=device.comm_status, event_count=device.comm_event_count)
+
+    @router.register(GetCommEventLogPDU)
+    async def handle_get_comm_event_log(_unit_id: int, _request: GetCommEventLogPDU) -> CommEventLogResponse:
+        return CommEventLogResponse(
+            status=device.comm_status,
+            event_count=device.comm_event_count,
+            message_count=device.comm_message_count,
+            events=device.comm_events,
+        )
+
+    @router.register(ReportServerIdPDU)
+    async def handle_report_server_id(_unit_id: int, _request: ReportServerIdPDU) -> ServerIdResponse:
+        return ServerIdResponse(
+            server_id=device.server_id,
+            run_indicator_status=device.run_indicator_status,
+            additional_data=device.additional_data,
+        )
+
+    @router.register(ReadFileRecordPDU)
+    async def handle_read_file_record(_unit_id: int, request: ReadFileRecordPDU) -> list[bytes]:
+        results: list[bytes] = []
+        for req in request.requests:
+            file_data = device.files.get(req.file_number, {})
+            record_data = file_data.get(req.record_number, b"\x00" * (req.record_length * 2))
+            results.append(record_data[: req.record_length * 2])
+        return results
+
+    @router.register(WriteFileRecordPDU)
+    async def handle_write_file_record(_unit_id: int, request: WriteFileRecordPDU) -> list[FileRecord]:
+        echo_records: list[FileRecord] = []
+        for rec in request.file_records:
+            if rec.file_number not in device.files:
+                device.files[rec.file_number] = {}
+            device.files[rec.file_number][rec.record_number] = rec.data
+            echo_records.append(rec)
+        return echo_records
+
+    @router.register(ReadFifoQueuePDU)
+    async def handle_read_fifo_queue(_unit_id: int, request: ReadFifoQueuePDU) -> list[int]:
+        return device.fifo_queues.get(request.address, [])
+
+    @router.register(DiagnosticsQueryDataPDU)
+    async def handle_diagnostics(  # noqa: C901, PLR0911, PLR0912
+        _unit_id: int, request: BaseDiagnosticsSubFunctionPDU[Any]
+    ) -> Any:
+        if isinstance(request, DiagnosticsQueryDataPDU):
+            return request.data
+        if isinstance(request, DiagnosticsRestartCommunicationsOptionPDU):
+            if request.clear_event_log:
+                device.comm_events = b""
+                device.comm_event_count = 0
+            return request.clear_event_log
+        if isinstance(request, DiagnosticsDiagnosticRegisterPDU):
+            return device.diagnostic_register
+        if isinstance(request, DiagnosticsChangeAsciiInputDelimiterPDU):
+            device.ascii_input_delimiter = request.delimiter
+            return request.delimiter
+        if isinstance(request, DiagnosticsClearCountersAndRegisterPDU):
+            device.diagnostic_register = 0
+            device.bus_message_count = 0
+            device.bus_comm_error_count = 0
+            device.bus_exception_error_count = 0
+            device.server_message_count = 0
+            device.server_no_response_count = 0
+            device.server_nak_count = 0
+            device.server_busy_count = 0
+            device.bus_character_overrun_count = 0
+            return None
+        if isinstance(request, DiagnosticsBusMessageCountPDU):
+            return device.bus_message_count
+        if isinstance(request, DiagnosticsBusCommunicationErrorCountPDU):
+            return device.bus_comm_error_count
+        if isinstance(request, DiagnosticsBusExceptionErrorCountPDU):
+            return device.bus_exception_error_count
+        if isinstance(request, DiagnosticsServerMessageCountPDU):
+            return device.server_message_count
+        if isinstance(request, DiagnosticsServerNoResponseCountPDU):
+            return device.server_no_response_count
+        if isinstance(request, DiagnosticsServerNakCountPDU):
+            return device.server_nak_count
+        if isinstance(request, DiagnosticsServerBusyCountPDU):
+            return device.server_busy_count
+        if isinstance(request, DiagnosticsBusCharacterOverrunCountPDU):
+            return device.bus_character_overrun_count
+        if isinstance(request, DiagnosticsClearOverrunCounterAndFlagPDU):
+            device.bus_character_overrun_count = 0
+            return None
+        return None
 
     @router.register(ReadDeviceIdentificationPDU)
     async def handle_read_device_identification(

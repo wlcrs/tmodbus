@@ -87,6 +87,25 @@ async def test_client(transport: AsyncBaseTransport) -> None:
         2: b"1.0",
     }
 
+    # Struct / Typed helpers
+    await client.write_int16(0, -1234)
+    assert await client.read_int16(0) == -1234
+
+    await client.write_uint16(0, 65000)
+    assert await client.read_uint16(0) == 65000
+
+    await client.write_int32(0, -12345678)
+    assert await client.read_int32(0) == -12345678
+
+    await client.write_uint32(0, 3000000000)
+    assert await client.read_uint32(0) == 3000000000
+
+    await client.write_float(0, 3.141592)
+    assert pytest.approx(await client.read_float(0), rel=1e-5) == 3.141592
+
+    await client.write_string(0, "TMod", number_of_registers=2)
+    assert (await client.read_string(0, number_of_registers=2)).rstrip("\x00") == "TMod"
+
     await client.disconnect()
 
 
