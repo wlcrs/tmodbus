@@ -13,6 +13,7 @@ from tmodbus.exceptions import (
     UnknownModbusResponseError,
 )
 from tmodbus.pdu.base import BaseClientPDU
+from tmodbus.pdu.serial_line import DiagnosticsForceListenOnlyModePDU
 from tmodbus.transport.async_udp import AsyncUdpTransport, ModbusUdpProtocol
 
 
@@ -204,6 +205,26 @@ async def test_protocol_send_and_receive_timeout() -> None:
     pdu = _DummyPDU()
     with pytest.raises(TimeoutError, match=r"Response timeout after .*"):
         await protocol.send_and_receive(unit_id=1, pdu=pdu)
+
+
+async def test_protocol_send_and_receive_no_response_pdu() -> None:
+    """Test send_and_receive when PDU expects_response is False."""
+    protocol = ModbusUdpProtocol(on_connection_lost=lambda _: None, timeout=10.0)
+    mock_transport = MagicMock(spec=asyncio.DatagramTransport)
+    mock_transport.is_closing.return_value = False
+    protocol.connection_made(mock_transport)
+
+    pdu = DiagnosticsForceListenOnlyModePDU()
+
+    # Returns immediately without waiting for a response
+    result = await asyncio.wait_for(protocol.send_and_receive(unit_id=1, pdu=pdu), timeout=1.0)
+
+    assert result is None
+    # MBAP: tid=1, pid=0, len=6, uid=1 + PDU: fc=0x08, sub-func=0x0004, data=0x0000
+    expected_request = struct.pack(">HHHB", 1, 0, 6, 1) + b"\x08\x00\x04\x00\x00"
+    mock_transport.sendto.assert_called_once_with(expected_request)
+    # No pending future left behind
+    assert not protocol._pending_requests
 
 
 async def test_protocol_datagram_received_invalid_length() -> None:

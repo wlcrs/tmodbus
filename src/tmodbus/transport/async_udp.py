@@ -9,7 +9,7 @@ import struct
 from collections.abc import Callable
 from dataclasses import dataclass
 from functools import partial
-from typing import Any, TypeVar
+from typing import Any, TypeVar, cast
 
 from tmodbus.const import EXCEPTION_RESPONSE_BIT, FUNCTION_CODE_MASK
 from tmodbus.exceptions import (
@@ -235,6 +235,12 @@ class ModbusUdpProtocol(asyncio.DatagramProtocol):
         )
 
         request_frame = mbap_header + request_pdu_bytes
+
+        if not pdu.expects_response:
+            # No response expected from server, so send and return immediately
+            self.transport.sendto(request_frame)
+            log_raw_traffic("sent", request_frame)
+            return cast("RT", None)
 
         read_future: asyncio.Future[_ModbusMessage] = asyncio.get_running_loop().create_future()
         self._pending_requests[current_transaction_id] = read_future
