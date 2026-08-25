@@ -316,3 +316,88 @@ async def test_rtu_over_tcp_server_broadcast_response_suppressed() -> None:
     assert status is True
     assert len(executed) == 1
     assert len(mock_writer.written) == 0
+
+
+def _build_broadcast_decode_error_pdu() -> bytes:
+    """Return PDU bytes that fail decoding: ReadHoldingRegisters (FC 0x03) with quantity 0."""
+    return bytes([0x03, 0x00, 0x00, 0x00, 0x00])
+
+
+def _make_router() -> ModbusRequestRouter:
+    """Return a router that supports all unit IDs."""
+    router = ModbusRequestRouter()
+
+    @router.register(ReadHoldingRegistersPDU)
+    async def handle_read(_unit_id: int, request: ReadHoldingRegistersPDU) -> list[int]:
+        return [0] * request.quantity
+
+    return router
+
+
+@pytest.mark.asyncio
+async def test_rtu_server_broadcast_decode_error_suppressed() -> None:
+    """Test AsyncRtuServer does not send an exception response for a malformed broadcast frame."""
+    server = AsyncRtuServer(port="dummy", handler=_make_router())
+    server._inter_frame_silence = 0.0
+
+    frame = bytearray([0x00]) + _build_broadcast_decode_error_pdu()
+    frame.extend(calculate_crc16(bytes(frame)))
+
+    mock_writer = MockWriteTransport()
+    server._writer = mock_writer  # type: ignore[assignment]
+
+    status = await server._handle_frame(bytes(frame))
+    assert status == "error"
+    assert len(mock_writer.written) == 0
+
+
+@pytest.mark.asyncio
+async def test_ascii_server_broadcast_decode_error_suppressed() -> None:
+    """Test AsyncAsciiServer does not send an exception response for a malformed broadcast frame."""
+    server = AsyncAsciiServer(port="dummy", handler=_make_router())
+
+    bin_data = bytes([0x00]) + _build_broadcast_decode_error_pdu()
+    ascii_hex = (bin_data + bytes([calculate_lrc(bin_data)])).hex().upper().encode("ascii")
+    ascii_frame = b":" + ascii_hex + b"\r\n"
+
+    mock_writer = MockWriteTransport()
+    server._writer = mock_writer  # type: ignore[assignment]
+
+    status = await server._process_next_frame(ascii_frame)
+    assert status == "error"
+    assert len(mock_writer.written) == 0
+
+
+@pytest.mark.asyncio
+async def test_rtu_over_tcp_server_broadcast_decode_error_suppressed() -> None:
+    """Test AsyncRtuOverTcpServer does not send an exception response for a malformed broadcast frame."""
+    server = AsyncRtuOverTcpServer(host="localhost", port=502, handler=_make_router())
+
+    frame = bytearray([0x00]) + _build_broadcast_decode_error_pdu()
+    frame.extend(calculate_crc16(bytes(frame)))
+
+    mock_writer = MockStreamWriter()
+    status = await server._handle_frame(bytes(frame), ("127.0.0.1", 12345), mock_writer)  # type: ignore[arg-type]
+    assert status is False
+    assert len(mock_writer.written) == 0
+
+
+@pytest.mark.asyncio
+async def test_rtu_over_tcp_server_broadcast_unregistered_unit_suppressed() -> None:
+    """Test AsyncRtuOverTcpServer does not answer a broadcast frame when unit ID 0 is not registered."""
+    router = ModbusRequestRouter()
+
+    @router.register(WriteSingleRegisterPDU, unit_id=5)
+    async def handle_write(_unit_id: int, request: WriteSingleRegisterPDU) -> int:
+        return request.value
+
+    server = AsyncRtuOverTcpServer(host="localhost", port=502, handler=router)
+
+    pdu_bytes = bytes([0x06, 0x00, 0x01, 0x00, 0x02])
+    frame = bytearray([0x00]) + pdu_bytes
+    frame.extend(calculate_crc16(bytes(frame)))
+
+    mock_writer = MockStreamWriter()
+    status = await server._handle_frame(bytes(frame), ("127.0.0.1", 12345), mock_writer)  # type: ignore[arg-type]
+    assert status is False
+    assert len(mock_writer.written) == 0
