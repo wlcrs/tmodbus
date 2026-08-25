@@ -2,6 +2,7 @@
 
 import asyncio
 import struct
+import time
 from unittest.mock import AsyncMock, MagicMock, patch
 
 import pytest
@@ -217,6 +218,34 @@ async def test_protocol_data_received_out_of_range_length_resyncs() -> None:
     assert future.result().pdu_bytes == b"\x03\x99"
 
 
+async def test_protocol_data_received_zeros_flood_is_bounded() -> None:
+    """A 64 KiB flood of zero bytes must be discarded in one pass, not one byte per pass.
+
+    Every offset in an all-zeros buffer looks like a candidate protocol id, but its
+    length field (zero) can never be valid, so the resync must skip past the whole
+    run instead of re-parsing it one byte at a time.
+    """
+    protocol = ModbusTcpProtocol(on_connection_lost=lambda _: None, timeout=10.0)
+    protocol.connection_made(MagicMock(spec=asyncio.WriteTransport))
+
+    future: asyncio.Future[_ModbusMessage] = asyncio.get_event_loop().create_future()
+    protocol._pending_requests[1] = future
+
+    started_at = time.monotonic()
+    protocol.data_received(b"\x00" * (64 * 1024))
+    elapsed = time.monotonic() - started_at
+    assert elapsed < 2.0  # generous ceiling to catch quadratic regressions
+    assert len(protocol._buffer) < 7  # the flood is discarded, not retained
+
+    # A real response after the flood (preceded by line noise that flushes the
+    # leftover zero bytes) must still be parsed.
+    protocol.data_received(b"\xff" * 7 + struct.pack(">HHHB", 1, 0x0000, 3, 1) + b"\x03\x99")
+    await asyncio.sleep(0.01)
+
+    assert future.done()
+    assert future.result().pdu_bytes == b"\x03\x99"
+
+
 async def test_protocol_data_received_unexpected_transaction_id() -> None:
     """Test protocol handles unexpected transaction ID gracefully."""
     protocol = ModbusTcpProtocol(on_connection_lost=lambda _: None, timeout=10.0)
@@ -330,7 +359,7 @@ async def test_protocol_send_and_receive_invalid_protocol_id_followed_by_correct
 ) -> None:
     """Test protocol validates protocol ID."""
     caplog.set_level("DEBUG", logger="tmodbus.transport.async_tcp")
-    protocol = ModbusTcpProtocol(on_connection_lost=lambda _: None, timeout=0.02)
+    protocol = ModbusTcpProtocol(on_connection_lost=lambda _: None, timeout=10.0)
     mock_transport = MagicMock(spec=asyncio.WriteTransport)
     mock_transport.is_closing.return_value = False
     protocol.connection_made(mock_transport)

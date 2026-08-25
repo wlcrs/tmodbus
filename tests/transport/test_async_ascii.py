@@ -545,7 +545,10 @@ async def test_protocol_interframe_gap(mock_transport: MagicMock) -> None:
     protocol.data_received(response_frame)
     await task1
 
-    # Send second request - should wait for gap
+    # Send second request - should wait for gap.
+    # Re-prime the gap timer so the remaining-gap assertion below does not
+    # depend on real elapsed time since the response above.
+    protocol._last_frame_ended_at = time.monotonic()
     orig_sleep = asyncio.sleep
     with patch("asyncio.sleep", wraps=asyncio.sleep) as mock_sleep:
         asyncio.create_task(protocol.send_and_receive(1, pdu))  # noqa: RUF006
@@ -618,7 +621,7 @@ async def test_protocol_invalid_frame(mock_transport: MagicMock) -> None:
     """Test handling invalid frame (bad LRC) for pending request."""
     protocol = ModbusAsciiProtocol(
         on_connection_lost=lambda _exc: None,
-        timeout=0.1,
+        timeout=10.0,
     )
     protocol.connection_made(mock_transport)
 
@@ -799,18 +802,23 @@ async def test_protocol_multiple_frames(mock_transport: MagicMock) -> None:
 
     assert protocol._timed_out_requests[unit_id] is pdu1
 
+    # The tight timeout was only needed to make request 1 time out; request 2
+    # must not race the wall clock, so give it a generous timeout.
+    protocol.timeout = 10.0
+
     # Build delayed response for request 1 and valid response for request 2
     frame1 = build_ascii_frame(unit_id, b"\x03\x02\xaa\xbb")
     frame2 = build_ascii_frame(unit_id, b"\x06\x00\x01\x11\x22")
 
-    async def deliver_both_frames() -> None:
-        await asyncio.sleep(0.01)
-        # Send both frames at once in single data_received call
-        protocol.data_received(frame1 + frame2)
+    req2_task = asyncio.create_task(protocol.send_and_receive(unit_id, pdu2))
+    while protocol._pending_request is None:
+        assert not req2_task.done()
+        await asyncio.sleep(0)
 
-    deliv_task = asyncio.create_task(deliver_both_frames())
-    res2 = await protocol.send_and_receive(unit_id, pdu2)
-    await deliv_task
+    # Send both frames at once in single data_received call
+    protocol.data_received(frame1 + frame2)
+
+    res2 = await req2_task
 
     assert res2 == ("decoded", b"\x06\x00\x01\x11\x22")
     assert len(protocol._buffer) == 0
@@ -1274,27 +1282,29 @@ async def test_delayed_response_during_active_request_same_unit(
     assert protocol._timed_out_requests[unit_id] is pdu1
 
     # Step 2: Request 2 (FC 0x06) is sent and active
+    # The tight timeout was only needed to make request 1 time out; request 2
+    # must not race the wall clock, so give it a generous timeout.
+    protocol.timeout = 10.0
+
     delayed_frame_1 = build_ascii_frame(unit_id, b"\x03\x02\xaa\xbb")
     real_frame_2 = build_ascii_frame(unit_id, b"\x06\x00\x01\x11\x22")
 
-    async def deliver_delayed_then_real() -> None:
-        await asyncio.sleep(0.01)
-        # Deliver late response for request 1
-        protocol.data_received(delayed_frame_1)
-        # Active request should still be pending and not failed
-        assert protocol._pending_request is not None
-        assert not protocol._pending_request.future.done()
-        assert unit_id not in protocol._timed_out_requests
-
-        # Deliver real response for request 2
-        await asyncio.sleep(0.01)
-        protocol.data_received(real_frame_2)
-
     req2_task = asyncio.create_task(protocol.send_and_receive(unit_id, pdu2))
-    deliv_task = asyncio.create_task(deliver_delayed_then_real())
+    while protocol._pending_request is None:
+        assert not req2_task.done()
+        await asyncio.sleep(0)
+
+    # Deliver late response for request 1
+    protocol.data_received(delayed_frame_1)
+    # Active request should still be pending and not failed
+    assert protocol._pending_request is not None
+    assert not protocol._pending_request.future.done()
+    assert unit_id not in protocol._timed_out_requests
+
+    # Deliver real response for request 2
+    protocol.data_received(real_frame_2)
 
     result = await req2_task
-    await deliv_task
 
     assert result == ("decoded", b"\x06\x00\x01\x11\x22")
     assert len(protocol._buffer) == 0
@@ -1371,17 +1381,20 @@ async def test_active_request_succeeds_and_clears_stale_timed_out_request(
     assert protocol._timed_out_requests[unit_id] is pdu1
 
     # Request 2 is sent and succeeds
+    # The tight timeout was only needed to make request 1 time out; request 2
+    # must not race the wall clock, so give it a generous timeout.
+    protocol.timeout = 10.0
+
     response = build_ascii_frame(unit_id, b"\x03\x02\x00\x55")
 
-    async def deliver_response() -> None:
-        await asyncio.sleep(0.01)
-        protocol.data_received(response)
-
     req2_task = asyncio.create_task(protocol.send_and_receive(unit_id, pdu2))
-    deliv_task = asyncio.create_task(deliver_response())
+    while protocol._pending_request is None:
+        assert not req2_task.done()
+        await asyncio.sleep(0)
+
+    protocol.data_received(response)
 
     result = await req2_task
-    await deliv_task
 
     assert result == ("decoded", b"\x03\x02\x00\x55")
     assert unit_id not in protocol._timed_out_requests
@@ -1527,32 +1540,34 @@ async def test_corrupt_delayed_frame_during_active_request_keeps_tracking(
     assert protocol._timed_out_requests[unit_id] is pdu1
 
     # Step 2: Request 2 (FC 0x06) is sent and active
+    # The tight timeout was only needed to make request 1 time out; request 2
+    # must not race the wall clock, so give it a generous timeout.
+    protocol.timeout = 10.0
+
     good_delayed_1 = build_ascii_frame(unit_id, b"\x03\x02\xaa\xbb")
     corrupt_delayed_1 = good_delayed_1.replace(b"AABB", b"AABC")  # data changed, LRC now invalid
     real_frame_2 = build_ascii_frame(unit_id, b"\x06\x00\x01\x11\x22")
 
-    async def deliver_frames() -> None:
-        await asyncio.sleep(0.01)
-        # Corrupt delayed frame: discarded, tracking retained, active request unaffected
-        protocol.data_received(corrupt_delayed_1)
-        assert protocol._pending_request is not None
-        assert not protocol._pending_request.future.done()
-        assert protocol._timed_out_requests[unit_id] is pdu1
-
-        # Real delayed frame clears the tracking
-        protocol.data_received(good_delayed_1)
-        assert unit_id not in protocol._timed_out_requests
-        assert not protocol._pending_request.future.done()
-
-        # Deliver real response for request 2
-        await asyncio.sleep(0.01)
-        protocol.data_received(real_frame_2)
-
     req2_task = asyncio.create_task(protocol.send_and_receive(unit_id, pdu2))
-    deliv_task = asyncio.create_task(deliver_frames())
+    while protocol._pending_request is None:
+        assert not req2_task.done()
+        await asyncio.sleep(0)
+
+    # Corrupt delayed frame: discarded, tracking retained, active request unaffected
+    protocol.data_received(corrupt_delayed_1)
+    assert protocol._pending_request is not None
+    assert not protocol._pending_request.future.done()
+    assert protocol._timed_out_requests[unit_id] is pdu1
+
+    # Real delayed frame clears the tracking
+    protocol.data_received(good_delayed_1)
+    assert unit_id not in protocol._timed_out_requests
+    assert not protocol._pending_request.future.done()
+
+    # Deliver real response for request 2
+    protocol.data_received(real_frame_2)
 
     result = await req2_task
-    await deliv_task
 
     assert result == ("decoded", b"\x06\x00\x01\x11\x22")
     assert len(protocol._buffer) == 0

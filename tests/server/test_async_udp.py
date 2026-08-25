@@ -6,6 +6,7 @@ from collections.abc import AsyncIterator
 from unittest.mock import MagicMock, patch
 
 import pytest
+from tmodbus.exceptions import SuppressResponseError
 from tmodbus.pdu import ReadHoldingRegistersPDU
 from tmodbus.server import AsyncUdpServer, ModbusRequestRouter
 from tmodbus.server.async_udp import ModbusUdpServerProtocol
@@ -338,3 +339,33 @@ async def test_server_protocol_process_datagram_exception() -> None:
 
         # Verify exception log was called
         mock_logger.exception.assert_called_with("Error processing UDP datagram from %s", ("127.0.0.1", 1234))
+
+
+async def test_udp_server_suppress_response_error() -> None:
+    """Test that UDP server sends no datagram when SuppressResponseError is raised by handler."""
+    router = ModbusRequestRouter()
+
+    @router.register(ReadHoldingRegistersPDU)
+    async def handle_read(_unit_id: int, _request: ReadHoldingRegistersPDU) -> list[int]:
+        raise SuppressResponseError
+
+    server = AsyncUdpServer(host="127.0.0.1", port=0, handler=router)
+    await server.start()
+
+    try:
+        port = get_server_port(server)
+        loop = asyncio.get_running_loop()
+        transport, protocol = await loop.create_datagram_endpoint(UdpClientProtocol, remote_addr=("127.0.0.1", port))
+
+        try:
+            mbap = struct.pack(">HHHB", 1, 0, 6, 1)
+            pdu = b"\x03\x00\x00\x00\x02"
+            transport.sendto(mbap + pdu)
+
+            # No response datagram at all: not even a bare MBAP header
+            with pytest.raises(asyncio.TimeoutError):
+                await asyncio.wait_for(protocol.future, timeout=0.1)
+        finally:
+            transport.close()
+    finally:
+        await server.stop()

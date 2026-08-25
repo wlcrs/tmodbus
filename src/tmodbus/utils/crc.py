@@ -66,11 +66,11 @@ def validate_crc16(frame_with_crc: bytes) -> bool:
     if len(frame_with_crc) < 3:  #  At least 1 byte data + 2 bytes CRC required
         return False
 
-    #  Separate data and CRC
-    data, received_crc = frame_with_crc[:-2], frame_with_crc[-2:]
+    # Folding the frame's own little-endian CRC into the running CRC yields 0,
+    # so the whole frame can be checked in one pass without slicing.
+    crc = 0xFFFF
 
-    # Calculate expected CRC
-    expected_crc = calculate_crc16(data)
+    for byte in frame_with_crc:
+        crc = (crc >> 8) ^ _CRC16_TABLE[(crc ^ byte) & 0xFF]
 
-    # Compare CRC
-    return received_crc == expected_crc
+    return crc == 0

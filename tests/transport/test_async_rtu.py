@@ -22,6 +22,7 @@ from tmodbus.exceptions import (
 from tmodbus.pdu.base import BaseClientPDU
 from tmodbus.pdu.serial_line import DiagnosticsQueryDataPDU
 from tmodbus.transport.async_rtu import (
+    MAX_RTU_BUFFER_SIZE,
     MAX_RTU_FRAME_SIZE,
     AsyncRtuTransport,
     ModbusRtuProtocol,
@@ -567,16 +568,21 @@ async def test_protocol_per_unit_request_tracking(
     assert protocol._timed_out_requests[unit_id_1] is pdu1
 
     # Request 2 succeeds -> stored in _timed_out_requests[unit_id_2] (if timed out), but unit 1 is kept
+    # The tight timeout was only needed to make request 1 time out; request 2
+    # must not race the wall clock, so give it a generous timeout.
+    protocol.timeout = 10.0
+
     resp2_payload = bytes([unit_id_2, pdu2.function_code, 0x05])
     resp2_frame = resp2_payload + calculate_crc16(resp2_payload)
 
-    async def deliver_resp2() -> None:
-        await asyncio.sleep(0.01)
-        protocol.data_received(resp2_frame)
+    req2_task = asyncio.create_task(protocol.send_and_receive(unit_id_2, pdu2))
+    while protocol._pending_request is None:
+        assert not req2_task.done()
+        await asyncio.sleep(0)
 
-    deliv_task = asyncio.create_task(deliver_resp2())
-    res2 = await protocol.send_and_receive(unit_id_2, pdu2)
-    await deliv_task
+    protocol.data_received(resp2_frame)
+
+    res2 = await req2_task
 
     assert res2[0] == "decoded"
     # Unit 1 timed-out request is still tracked safely!
@@ -918,7 +924,7 @@ async def test_frame_exceeds_max_size(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     """Test that frame size exceeding max raises RTUFrameError."""
-    protocol = ModbusRtuProtocol(on_connection_lost=lambda _: None, timeout=0.02)
+    protocol = ModbusRtuProtocol(on_connection_lost=lambda _: None, timeout=10.0)
     protocol.connection_made(mock_transport)
 
     pdu = _DummyPDU()
@@ -1456,6 +1462,76 @@ async def test_large_garbage_burst_resynchronizes(
     assert len(protocol._buffer) == 0
 
 
+async def test_large_hostile_garbage_burst_is_bounded(
+    mock_transport: MagicMock,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """A 64 KiB burst of expected-header false starts must not stall the event loop."""
+    protocol = ModbusRtuProtocol(on_connection_lost=lambda _: None)
+    protocol.connection_made(mock_transport)
+
+    pdu = _DummyPDU()  # FC 0x03
+    unit_id = 1
+
+    class DummyPduClass:
+        @staticmethod
+        def get_expected_response_data_length(_begin_bytes: bytes) -> int:
+            return 1
+
+    monkeypatch.setattr("tmodbus.transport.async_rtu.get_pdu_class", lambda _: DummyPduClass)
+    protocol._last_frame_ended_at = time.monotonic() - 10
+
+    good_payload = bytes([unit_id, pdu.function_code, 0x05])
+    good_frame = good_payload + calculate_crc16(good_payload)
+
+    # False starts with the expected header (01 03) plus embedded exception headers
+    # (01 83), so every candidate frames but fails CRC.
+    garbage = (b"\x01\x03" * 100 + b"\x01\x83\x00\x00") * 320  # ~64 KiB
+
+    result_task = asyncio.create_task(protocol.send_and_receive(unit_id, pdu))
+    await asyncio.sleep(0.01)
+
+    started_at = time.monotonic()
+    protocol.data_received(garbage)
+    elapsed = time.monotonic() - started_at
+    # Generous ceiling: the quadratic resync took tens of seconds for this burst.
+    assert elapsed < 2.0
+
+    # A real response arriving after the burst must still be delivered.
+    protocol.data_received(good_frame)
+    result = await result_task
+    assert result == ("decoded", b"\x03\x05")
+
+
+async def test_receive_buffer_is_capped(
+    mock_transport: MagicMock,
+    monkeypatch: pytest.MonkeyPatch,
+    caplog: pytest.LogCaptureFixture,
+) -> None:
+    """The buffer must be trimmed to MAX_RTU_BUFFER_SIZE while the frame length stays undetermined."""
+    protocol = ModbusRtuProtocol(on_connection_lost=lambda _: None)
+    protocol.connection_made(mock_transport)
+
+    pdu = _DummyPDU()
+    unit_id = 1
+    fut: asyncio.Future[Any] = asyncio.get_event_loop().create_future()
+    protocol._pending_request = _PendingRequest(unit_id=unit_id, future=fut, pdu=pdu)
+
+    class UndecidedPduClass:
+        @staticmethod
+        def get_expected_response_data_length(_begin_bytes: bytes) -> None:
+            return None  # length never determinable: the buffer would otherwise grow forever
+
+    monkeypatch.setattr("tmodbus.transport.async_rtu.get_pdu_class", lambda _: UndecidedPduClass)
+
+    with caplog.at_level(logging.WARNING, logger="tmodbus.transport.async_rtu"):
+        protocol.data_received(bytes([unit_id, pdu.function_code]) * 1500)
+
+    assert len(protocol._buffer) == MAX_RTU_BUFFER_SIZE
+    assert any("Receive buffer exceeded" in record.message for record in caplog.records)
+    assert not fut.done()
+
+
 async def test_determine_expected_frame_length_subfunction_pdu(
     mock_transport: MagicMock,
     monkeypatch: pytest.MonkeyPatch,
@@ -1597,19 +1673,22 @@ async def test_delayed_response_after_timeout_is_cleanly_discarded_using_old_pdu
     assert unit_id not in protocol._timed_out_requests
 
     # Step 3: Subsequent request should work cleanly without any stale interference
+    # The tight timeout was only needed to make request 1 time out; request 2
+    # must not race the wall clock, so give it a generous timeout.
+    protocol.timeout = 10.0
+
     pdu2 = _DummyPDU()
     new_payload = bytes([unit_id, pdu2.function_code, 0x09])
     new_response = new_payload + calculate_crc16(new_payload)
 
-    async def simulate_new_response() -> None:
-        await asyncio.sleep(0.01)
-        protocol.data_received(new_response)
-
     task = asyncio.create_task(protocol.send_and_receive(unit_id, pdu2))
-    resp_task = asyncio.create_task(simulate_new_response())
+    while protocol._pending_request is None:
+        assert not task.done()
+        await asyncio.sleep(0)
+
+    protocol.data_received(new_response)
 
     result = await task
-    await resp_task
 
     assert result == ("decoded", b"\x03\x09")
 
@@ -1726,30 +1805,32 @@ async def test_delayed_response_arriving_during_active_request_different_fc(
     assert protocol._timed_out_requests[unit_id] is pdu1
 
     # Step 2: Request 2 is dispatched (FC 0x06) and is active
+    # The tight timeout was only needed to make request 1 time out; request 2
+    # must not race the wall clock, so give it a generous timeout.
+    protocol.timeout = 10.0
+
     delayed_payload_1 = bytes([unit_id, 0x03, 0xAA])
     delayed_response_1 = delayed_payload_1 + calculate_crc16(delayed_payload_1)
 
     resp_payload_2 = bytes([unit_id, 0x06, 0x11, 0x22])
     response_2 = resp_payload_2 + calculate_crc16(resp_payload_2)
 
-    async def deliver_delayed_then_real_response() -> None:
-        await asyncio.sleep(0.01)
-        # Deliver late response for request 1 first
-        protocol.data_received(delayed_response_1)
-        # Active request should still be pending and not failed
-        assert protocol._pending_request is not None
-        assert not protocol._pending_request.future.done()
-        assert unit_id not in protocol._timed_out_requests
-
-        # Now deliver real response for request 2
-        await asyncio.sleep(0.01)
-        protocol.data_received(response_2)
-
     req2_task = asyncio.create_task(protocol.send_and_receive(unit_id, pdu2))
-    deliv_task = asyncio.create_task(deliver_delayed_then_real_response())
+    while protocol._pending_request is None:
+        assert not req2_task.done()
+        await asyncio.sleep(0)
+
+    # Deliver late response for request 1 first
+    protocol.data_received(delayed_response_1)
+    # Active request should still be pending and not failed
+    assert protocol._pending_request is not None
+    assert not protocol._pending_request.future.done()
+    assert unit_id not in protocol._timed_out_requests
+
+    # Now deliver real response for request 2
+    protocol.data_received(response_2)
 
     result = await req2_task
-    await deliv_task
 
     assert result == ("decoded", b"\x06\x11\x22")
     assert len(protocol._buffer) == 0
@@ -1782,18 +1863,21 @@ async def test_active_request_succeeds_and_clears_stale_timed_out_request(
     assert protocol._timed_out_requests[unit_id] is pdu1
 
     # Request 2 is sent, and its response arrives directly
+    # The tight timeout was only needed to make request 1 time out; request 2
+    # must not race the wall clock, so give it a generous timeout.
+    protocol.timeout = 10.0
+
     resp_payload = bytes([unit_id, pdu2.function_code, 0x55])
     response = resp_payload + calculate_crc16(resp_payload)
 
-    async def deliver_response() -> None:
-        await asyncio.sleep(0.01)
-        protocol.data_received(response)
-
     req2_task = asyncio.create_task(protocol.send_and_receive(unit_id, pdu2))
-    deliv_task = asyncio.create_task(deliver_response())
+    while protocol._pending_request is None:
+        assert not req2_task.done()
+        await asyncio.sleep(0)
+
+    protocol.data_received(response)
 
     result = await req2_task
-    await deliv_task
 
     assert result == ("decoded", b"\x03\x55")
     # Verify stale timed-out request tracking was cleared upon successful delivery
@@ -1831,6 +1915,10 @@ async def test_delayed_exception_response_arriving_during_active_request(
     assert protocol._timed_out_requests[unit_id] is pdu1
 
     # Step 2: Request 2 (FC 0x06) is sent and active
+    # The tight timeout was only needed to make request 1 time out; request 2
+    # must not race the wall clock, so give it a generous timeout.
+    protocol.timeout = 10.0
+
     # Late response for Request 1 is an Exception Response (FC 0x83, Exception Code 0x02)
     delayed_exc_payload = bytes([unit_id, 0x83, 0x02])
     delayed_exc_response = delayed_exc_payload + calculate_crc16(delayed_exc_payload)
@@ -1838,24 +1926,22 @@ async def test_delayed_exception_response_arriving_during_active_request(
     resp_payload_2 = bytes([unit_id, 0x06, 0x11, 0x22])
     response_2 = resp_payload_2 + calculate_crc16(resp_payload_2)
 
-    async def deliver_delayed_exc_then_real_response() -> None:
-        await asyncio.sleep(0.01)
-        # Deliver late exception response for request 1
-        protocol.data_received(delayed_exc_response)
-        # Active request should still be pending (not failed by the delayed exception!)
-        assert protocol._pending_request is not None
-        assert not protocol._pending_request.future.done()
-        assert unit_id not in protocol._timed_out_requests
-
-        # Now deliver real response for request 2
-        await asyncio.sleep(0.01)
-        protocol.data_received(response_2)
-
     req2_task = asyncio.create_task(protocol.send_and_receive(unit_id, pdu2))
-    deliv_task = asyncio.create_task(deliver_delayed_exc_then_real_response())
+    while protocol._pending_request is None:
+        assert not req2_task.done()
+        await asyncio.sleep(0)
+
+    # Deliver late exception response for request 1
+    protocol.data_received(delayed_exc_response)
+    # Active request should still be pending (not failed by the delayed exception!)
+    assert protocol._pending_request is not None
+    assert not protocol._pending_request.future.done()
+    assert unit_id not in protocol._timed_out_requests
+
+    # Now deliver real response for request 2
+    protocol.data_received(response_2)
 
     result = await req2_task
-    await deliv_task
 
     assert result == ("decoded", b"\x06\x11\x22")
     assert len(protocol._buffer) == 0
@@ -1905,39 +1991,41 @@ async def test_delayed_response_in_chunks_during_active_request(
     assert protocol._timed_out_requests[unit_id] is pdu1
 
     # Step 2: Request 2 (FC 0x06) is sent and active
+    # The tight timeout was only needed to make request 1 time out; request 2
+    # must not race the wall clock, so give it a generous timeout.
+    protocol.timeout = 10.0
+
     delayed_payload_1 = bytes([unit_id, 0x03, 0xAA, 0xBB])
     delayed_response_1 = delayed_payload_1 + calculate_crc16(delayed_payload_1)  # 6 bytes
 
     resp_payload_2 = bytes([unit_id, 0x06, 0x11, 0x22])
     response_2 = resp_payload_2 + calculate_crc16(resp_payload_2)
 
-    async def deliver_chunks_then_real_response() -> None:
-        await asyncio.sleep(0.01)
-        # Deliver chunk 1 of late response (first 4 bytes of 6-byte frame)
-        protocol.data_received(delayed_response_1[:4])
-        # Buffer has 4 bytes (>= MIN_RTU_RESPONSE_LENGTH), protocol determines frame length is 6 and waits
-        assert len(protocol._buffer) == 4
-        assert protocol._pending_request is not None
-        assert not protocol._pending_request.future.done()
-        assert unit_id in protocol._timed_out_requests
-
-        # Deliver chunk 2 of late response (remaining 2 bytes)
-        protocol.data_received(delayed_response_1[4:])
-        # Now late response is complete and drained
-        assert len(protocol._buffer) == 0
-        assert protocol._pending_request is not None
-        assert not protocol._pending_request.future.done()
-        assert unit_id not in protocol._timed_out_requests
-
-        # Now deliver real response for request 2
-        await asyncio.sleep(0.01)
-        protocol.data_received(response_2)
-
     req2_task = asyncio.create_task(protocol.send_and_receive(unit_id, pdu2))
-    deliv_task = asyncio.create_task(deliver_chunks_then_real_response())
+    while protocol._pending_request is None:
+        assert not req2_task.done()
+        await asyncio.sleep(0)
+
+    # Deliver chunk 1 of late response (first 4 bytes of 6-byte frame)
+    protocol.data_received(delayed_response_1[:4])
+    # Buffer has 4 bytes (>= MIN_RTU_RESPONSE_LENGTH), protocol determines frame length is 6 and waits
+    assert len(protocol._buffer) == 4
+    assert protocol._pending_request is not None
+    assert not protocol._pending_request.future.done()
+    assert unit_id in protocol._timed_out_requests
+
+    # Deliver chunk 2 of late response (remaining 2 bytes)
+    protocol.data_received(delayed_response_1[4:])
+    # Now late response is complete and drained
+    assert len(protocol._buffer) == 0
+    assert protocol._pending_request is not None
+    assert not protocol._pending_request.future.done()
+    assert unit_id not in protocol._timed_out_requests
+
+    # Now deliver real response for request 2
+    protocol.data_received(response_2)
 
     result = await req2_task
-    await deliv_task
 
     assert result == ("decoded", b"\x06\x11\x22")
     assert len(protocol._buffer) == 0

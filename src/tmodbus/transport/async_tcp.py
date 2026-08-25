@@ -294,6 +294,32 @@ class ModbusTcpProtocol(asyncio.Protocol):
 
         return pdu.decode_response(response.pdu_bytes)
 
+    def _resync_discard_count(self) -> int:
+        """Get the number of leading bytes to discard to resynchronize on a bad MBAP header.
+
+        Looks for the next occurrence of 0x0000 (a candidate protocol id) whose length
+        field is also in range, starting past the current position so a bogus length
+        cannot loop on the same bytes. Checking the length here skips an unmatchable
+        run in one step instead of one byte per pass through the receive loop.
+        """
+        search_start = 3
+        while (next_protocol_id_pos := self._buffer.find(b"\x00\x00", search_start)) != -1:
+            if next_protocol_id_pos + 4 > len(self._buffer):
+                # The candidate's length field is not buffered yet: discard up to the
+                # potential start of the next message (the 2 transaction ID bytes
+                # before the found occurrence) and wait for more data.
+                break
+            (length,) = struct.unpack_from(">H", self._buffer, next_protocol_id_pos + 2)
+            if 1 <= length <= MODBUS_TCP_MAX_LENGTH:
+                break
+            search_start = next_protocol_id_pos + 1
+
+        if next_protocol_id_pos == -1:
+            # No occurrence found: discard everything except the last byte (in case it's part of a valid header)
+            return len(self._buffer) - 1
+
+        return next_protocol_id_pos - 2
+
     def data_received(self, data: bytes) -> None:
         """Handle data received event."""
         self._buffer.extend(data)
@@ -314,19 +340,9 @@ class ModbusTcpProtocol(asyncio.Protocol):
             # a bad protocol id, and trusting it would stall the parser forever waiting for
             # bytes that never come, so resync in that case too.
             if protocol_id != 0x0000 or not (1 <= length <= MODBUS_TCP_MAX_LENGTH):
-                # Look for the next occurrence of 0x0000 (a candidate protocol id), starting
-                # past the current position so a bogus length cannot loop on the same bytes.
-                next_protocol_id_pos = self._buffer.find(b"\x00\x00", 3)
-                if next_protocol_id_pos == -1:
-                    # No occurrence found: discard everything except the last byte (in case it's part of a valid header)
-                    logger.debug("Discarding garbage bytes: %s", self._buffer[:-1].hex(" ").upper())
-                    del self._buffer[:-1]
-                    return  # buffer is exhausted, wait for more data
-
-                # Discard bytes up to the potential start of the next message,
-                # keeping the 2 bytes before the found occurrence as the transaction ID.
-                logger.debug("Discarding garbage bytes: %s", self._buffer[: next_protocol_id_pos - 2].hex(" ").upper())
-                del self._buffer[: next_protocol_id_pos - 2]
+                discard_count = self._resync_discard_count()
+                logger.debug("Discarding garbage bytes: %s", self._buffer[:discard_count].hex(" ").upper())
+                del self._buffer[:discard_count]
                 continue  # Re-evaluate the buffer from the start
 
             # we have a valid protocol ID, now check if we have the full message

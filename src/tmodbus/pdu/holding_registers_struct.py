@@ -1,5 +1,6 @@
 """Holding Registers utilities."""
 
+from functools import lru_cache
 from struct import Struct
 from typing import Any, Literal, Protocol, TypeVar, cast
 
@@ -9,6 +10,16 @@ from .base import BasePDU
 from .holding_registers import RawReadHoldingRegistersPDU, RawReadInputRegistersPDU, RawWriteMultipleRegistersPDU
 
 RT = TypeVar("RT")
+
+
+@lru_cache(maxsize=128)
+def _get_order_aware_struct(
+    fmt: str,
+    word_order: Literal["big", "little"],
+    byte_order: Literal["big", "little"],
+) -> OrderAwareStruct:
+    """Build (or reuse) an OrderAwareStruct: construction parses the format, a cache hit is ~100x cheaper."""
+    return OrderAwareStruct(fmt, word_order=word_order, byte_order=byte_order)
 
 
 class SupportsExecuteAsync(Protocol):
@@ -76,11 +87,9 @@ class HoldingRegisterReadMixin(SupportsExecuteAsync):
         # This way, it is possible for the user to override the word_order and/or byte_order
         # for this specific request, deviating from the instance defaults.
         if isinstance(format_struct, Struct) and not isinstance(format_struct, OrderAwareStruct):
-            format_struct = OrderAwareStruct(
-                format_struct.format, word_order=self.word_order, byte_order=self.byte_order
-            )
+            format_struct = _get_order_aware_struct(format_struct.format, self.word_order, self.byte_order)
         if isinstance(format_struct, str):
-            format_struct = OrderAwareStruct(format_struct, word_order=self.word_order, byte_order=self.byte_order)
+            format_struct = _get_order_aware_struct(format_struct, self.word_order, self.byte_order)
 
         response_bytes = await self.execute(
             pdu_class(
@@ -355,9 +364,7 @@ class HoldingRegisterReadMixin(SupportsExecuteAsync):
             Decoded string value.
 
         """
-        format_struct = OrderAwareStruct(
-            f">{number_of_registers * 2}s", word_order=self.word_order, byte_order=self.byte_order
-        )
+        format_struct = _get_order_aware_struct(f">{number_of_registers * 2}s", self.word_order, self.byte_order)
         string_bytes = cast(
             "bytes",
             await self.read_simple_struct_format(
@@ -422,11 +429,9 @@ class HoldingRegisterWriteMixin(SupportsExecuteAsync):
         """
         # Keep a user-provided OrderAwareStruct as-is: it already carries its own orders.
         if isinstance(format_struct, Struct) and not isinstance(format_struct, OrderAwareStruct):
-            format_struct = OrderAwareStruct(
-                format_struct.format, word_order=self.word_order, byte_order=self.byte_order
-            )
+            format_struct = _get_order_aware_struct(format_struct.format, self.word_order, self.byte_order)
         if isinstance(format_struct, str):
-            format_struct = OrderAwareStruct(format_struct, word_order=self.word_order, byte_order=self.byte_order)
+            format_struct = _get_order_aware_struct(format_struct, self.word_order, self.byte_order)
 
         return await self.execute(
             RawWriteMultipleRegistersPDU(
@@ -693,9 +698,7 @@ class HoldingRegisterWriteMixin(SupportsExecuteAsync):
             msg = f"String length exceeds maximum size of {max_length} bytes."
             raise ValueError(msg)
 
-        format_struct = OrderAwareStruct(
-            f">{number_of_registers * 2}s", word_order=self.word_order, byte_order=self.byte_order
-        )
+        format_struct = _get_order_aware_struct(f">{number_of_registers * 2}s", self.word_order, self.byte_order)
         # Pad with null bytes if necessary
         value_bytes = value_bytes.ljust(format_struct.size, b"\x00")
 

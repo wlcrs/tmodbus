@@ -1,5 +1,7 @@
 """Tests for tmodbus/pdu/holding_registers.py ."""
 
+import struct
+
 import pytest
 from tmodbus.exceptions import InvalidRequestError, InvalidResponseError
 from tmodbus.pdu import ReadHoldingRegistersPDU, WriteMultipleRegistersPDU, WriteSingleRegisterPDU
@@ -355,6 +357,12 @@ class TestReadInputRegistersPDU:
         with pytest.raises(ValueError, match=r"Invalid read value 65536 on index 1: must be between 0 and 65535"):
             pdu.encode_response([100, 65536])
 
+    def test_encode_response_non_integer_value(self) -> None:
+        """Test encode_response raises struct.error on a non-integer value, like struct.pack."""
+        pdu = ReadInputRegistersPDU(start_address=100, quantity=2)
+        with pytest.raises(struct.error):
+            pdu.encode_response([100, 1.5])  # type: ignore[list-item]
+
 
 # ============================================================================
 # WriteSingleRegisterPDU Additional Tests
@@ -672,6 +680,16 @@ class TestWriteMultipleRegistersPDU:
 
         with pytest.raises(ValueError, match=r"Value must be between 0 and 65535: 70000"):
             WriteMultipleRegistersPDU(start_address=1, values=[70000])
+
+    def test_write_multiple_registers_invalid_value_after_valid_value(self) -> None:
+        """Test the out-of-range error reports the offending value, not an earlier valid one."""
+        with pytest.raises(ValueError, match=r"Value must be between 0 and 65535: 70000"):
+            WriteMultipleRegistersPDU(start_address=1, values=[123, 70000])
+
+    def test_write_multiple_registers_non_integer_value(self) -> None:
+        """Test a non-integer value raises struct.error, like struct.pack."""
+        with pytest.raises(struct.error):
+            WriteMultipleRegistersPDU(start_address=1, values=[1.5])  # type: ignore[list-item]
 
     def test_write_multiple_registers_address_overflow_validation(self) -> None:
         """The written range must stay within the 16-bit address space."""
@@ -1025,6 +1043,26 @@ class TestReadWriteMultipleRegistersPDU:
                 write_values=write_vals,
             )
 
+    def test_initialization_invalid_write_value_after_valid_value(self) -> None:
+        """Test the out-of-range error reports the offending index, not an earlier valid one."""
+        with pytest.raises(ValueError, match=r"Invalid write value 65536 on index 1: must be between 0 and 65535"):
+            ReadWriteMultipleRegistersPDU(
+                read_start_address=100,
+                read_quantity=10,
+                write_start_address=100,
+                write_values=[1, 65536],
+            )
+
+    def test_initialization_non_integer_write_value(self) -> None:
+        """Test a non-integer write value raises struct.error, like struct.pack."""
+        with pytest.raises(struct.error):
+            ReadWriteMultipleRegistersPDU(
+                read_start_address=100,
+                read_quantity=10,
+                write_start_address=100,
+                write_values=[1.5],  # type: ignore[list-item]
+            )
+
     def test_encode_request(self) -> None:
         """Test encoding request PDU."""
         pdu = ReadWriteMultipleRegistersPDU(
@@ -1338,6 +1376,18 @@ class TestReadWriteMultipleRegistersPDU:
 
         with pytest.raises(ValueError, match=r"Invalid read value -1 on index 0: must be between 0 and 65535"):
             pdu.encode_response([-1, 100])
+
+    def test_encode_response_non_integer_value(self) -> None:
+        """Test encode_response raises struct.error on a non-integer value, like struct.pack."""
+        pdu = ReadWriteMultipleRegistersPDU(
+            read_start_address=0,
+            read_quantity=2,
+            write_start_address=10,
+            write_values=[1, 2],
+        )
+
+        with pytest.raises(struct.error):
+            pdu.encode_response([100, 1.5])  # type: ignore[list-item]
 
     def test_round_trip_encode_decode(self) -> None:
         """Test that encoding and decoding produces the same values."""

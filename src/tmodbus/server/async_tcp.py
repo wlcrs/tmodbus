@@ -233,6 +233,22 @@ class AsyncTcpServer(AsyncBaseServer):
 
         log_raw_traffic("recv", mbap_header + pdu_bytes, is_error=is_error)
 
+        await self._send_response(writer, transaction_id, protocol_id, unit_id, response_pdu_bytes)
+        return True
+
+    @staticmethod
+    async def _send_response(
+        writer: asyncio.StreamWriter,
+        transaction_id: int,
+        protocol_id: int,
+        unit_id: int,
+        response_pdu_bytes: bytes,
+    ) -> None:
+        """Send an MBAP-framed response, or nothing when the response is suppressed."""
+        if not response_pdu_bytes:
+            logger.debug("Response suppressed. Not sending response bytes.")
+            return
+
         # Build MBAP header for response
         resp_length = len(response_pdu_bytes) + 1
         resp_mbap = struct.pack(">HHHB", transaction_id, protocol_id, resp_length, unit_id)
@@ -241,7 +257,6 @@ class AsyncTcpServer(AsyncBaseServer):
         writer.write(out_bytes)
         log_raw_traffic("sent", out_bytes)
         await writer.drain()
-        return True
 
     async def handle_client(self, reader: asyncio.StreamReader, writer: asyncio.StreamWriter) -> None:
         """Handle a single client connection."""

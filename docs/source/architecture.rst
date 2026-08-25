@@ -11,7 +11,7 @@ The library consists of the following layers:
   communication. Users can act as a **client** using convenience interfaces to read and
   write data, or run a **server** to listen for and process incoming requests.
 - **Transport layer**: This layer handles communication over underlying protocols (e.g.,
-  TCP, RTU, ASCII) for both clients and servers, abstracting the stream/packet
+  TCP, UDP, RTU, ASCII) for both clients and servers, abstracting the stream/packet
   transmission.
 - **PDU layer**: This layer is responsible for constructing, parsing, encoding, and
   decoding Modbus Protocol Data Units (PDUs), ensuring conformity to the Modbus
@@ -78,6 +78,7 @@ interface for transport implementations.
 The specific transport protocols are implemented in the following classes:
 
 - :class:`tmodbus.transport.AsyncTcpTransport`: Implements Modbus over TCP.
+- :class:`tmodbus.transport.AsyncUdpTransport`: Implements Modbus over UDP.
 - :class:`tmodbus.transport.AsyncRtuTransport`: Implements Modbus over RTU.
 - :class:`tmodbus.transport.AsyncAsciiTransport`: Implements Modbus over ASCII.
 - :class:`tmodbus.transport.AsyncRtuOverTcpTransport`: Implements Modbus RTU over TCP.

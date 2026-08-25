@@ -24,6 +24,7 @@ class TestReadFileRecordPDU:
     def test_get_expected_request_data_length(self) -> None:
         """Test get_expected_request_data_length."""
         assert ReadFileRecordPDU.get_expected_request_data_length(b"\x0a") == 11
+        assert ReadFileRecordPDU.get_expected_request_data_length(b"") is None
 
     def test_encode_request_single_record(self) -> None:
         """Test encoding a single file record request."""
@@ -125,6 +126,27 @@ class TestReadFileRecordPDU:
         with pytest.raises(ValueError, match="exceeds the maximum"):
             ReadFileRecordPDU(requests)
         ReadFileRecordPDU(requests[:35])  # the maximum is accepted
+
+    def test_validation_response_too_large(self) -> None:
+        """Requests whose implied response exceeds the one-byte byte count are rejected."""
+        # A single record of 122 registers implies a 2 + 244 = 246 byte response, over the 0xF5 (245) maximum.
+        with pytest.raises(ValueError, match="Read File Record response byte count 246 exceeds the maximum of 245"):
+            ReadFileRecordPDU([FileRecordRequest(file_number=1, record_number=0, record_length=122)])
+        with pytest.raises(ValueError, match="response byte count"):
+            ReadFileRecordPDU([FileRecordRequest(file_number=1, record_number=0, record_length=0x7FFF)])
+        # 121 registers (244 response bytes) is the single-record maximum.
+        ReadFileRecordPDU([FileRecordRequest(file_number=1, record_number=0, record_length=121)])
+        # The cap applies to the records combined: two records of 61 registers imply 2 * (2 + 122) = 248 bytes.
+        requests = [FileRecordRequest(file_number=1, record_number=0, record_length=61)] * 2
+        with pytest.raises(ValueError, match="Read File Record response byte count 248 exceeds the maximum of 245"):
+            ReadFileRecordPDU(requests)
+
+    def test_decode_request_response_too_large(self) -> None:
+        """A request whose implied response is too large is rejected with InvalidRequestError."""
+        # Server-side request: a single record of 0x7FFF registers cannot fit in any legal response.
+        request = b"\x14\x07\x06\x00\x01\x00\x00\x7f\xff"
+        with pytest.raises(InvalidRequestError, match="response byte count"):
+            ReadFileRecordPDU.decode_request(request)
 
     def test_decode_request_invalid_record_number(self) -> None:
         """A malformed request is rejected with InvalidRequestError, even when constructor validation fails."""
@@ -295,10 +317,11 @@ class TestReadFileRecordPDU:
 
     def test_encode_response_byte_count_too_high(self) -> None:
         """Test encode_response raises when the byte count exceeds the maximum."""
-        requests = [FileRecordRequest(file_number=4, record_number=1, record_length=122)]
+        requests = [FileRecordRequest(file_number=4, record_number=1, record_length=121)]
         pdu = ReadFileRecordPDU(requests)
 
-        record = b"\x00" * 244  # byte count = 2 + 244 = 246, above the 245 maximum
+        # A handler can return more data than requested: byte count = 2 + 244 = 246, above the 245 maximum.
+        record = b"\x00" * 244
         with pytest.raises(ValueError, match="Read File Record response byte count 246 exceeds the maximum of 245"):
             pdu.encode_response([record])
 
@@ -439,6 +462,7 @@ class TestWriteFileRecordPDU:
     def test_get_expected_request_data_length(self) -> None:
         """Test get_expected_request_data_length."""
         assert WriteFileRecordPDU.get_expected_request_data_length(b"\x0b") == 12
+        assert WriteFileRecordPDU.get_expected_request_data_length(b"") is None
 
     def test_encode_request_single_record(self) -> None:
         """Test encoding a single file record write request."""

@@ -213,7 +213,9 @@ class AsyncAsciiServer(AsyncBaseServer):
         else:
             response_pdu_bytes = await handle_modbus_request(unit_id, request_pdu, self.handler)
 
-        if response_pdu_bytes and (is_error or (unit_id != BROADCAST_UNIT_ID and request_pdu.expects_response)):
+        # Broadcast requests must never be answered: on a shared bus every
+        # listening server would transmit at once and collide.
+        if response_pdu_bytes and unit_id != BROADCAST_UNIT_ID and (is_error or request_pdu.expects_response):
             out_bin = bytearray([unit_id]) + response_pdu_bytes
             lrc = calculate_lrc(bytes(out_bin))
             out_bin.append(lrc)

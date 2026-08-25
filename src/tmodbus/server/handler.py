@@ -193,9 +193,9 @@ class ModbusRequestRouter(ModbusHandler):
         """Check if the handler supports the given unit ID."""
         return None in self._handlers or unit_id in self._handlers
 
-    def register[T, PDU: BasePDU[Any]](
+    def register[T](
         self,
-        pdu_class: type[PDU],
+        pdu_class: type[BasePDU[T]],
         *,
         unit_id: int | Iterable[int] | None = None,
     ) -> Callable[[Callable[..., Awaitable[T]]], Callable[..., Awaitable[T]]]:

@@ -223,12 +223,16 @@ class ReadHoldingRegistersPDU(BasePDU[list[int]]):
             msg = f"Invalid number of read values: expected {self.quantity}, got {len(value)}"
             raise ValueError(msg)
 
-        for idx, val in enumerate(value):
-            if not (0 <= val < 65536):
-                msg = f"Invalid read value {val} on index {idx}: must be between 0 and 65535"
-                raise ValueError(msg)
+        try:
+            # 'H' rejects values outside 0..65535, so packing doubles as range validation.
+            data = struct.pack(f">{len(value)}H", *value)
+        except struct.error:
+            for idx, val in enumerate(value):
+                if not (0 <= val < 65536):
+                    msg = f"Invalid read value {val} on index {idx}: must be between 0 and 65535"
+                    raise ValueError(msg) from None
+            raise  # non-integer value: propagate struct.error as before
 
-        data = struct.pack(f">{len(value)}H", *value)
         return struct.pack(">BB", self.function_code, len(data)) + data
 
 
@@ -558,14 +562,28 @@ class WriteMultipleRegistersPDU(BasePDU[int]):
             msg = "Number of registers must be between 1 and 123."
             raise ValueError(msg)
 
-        for value in values:
-            if not (0 <= value < 65536):
-                msg = f"Value must be between 0 and 65535: {value}"
-                raise ValueError(msg)
+        try:
+            # 'H' rejects values outside 0..65535, so packing doubles as range validation.
+            content = struct.pack(f">{len(values)}H", *values)
+        except struct.error:
+            for value in values:
+                if not (0 <= value < 65536):
+                    msg = f"Value must be between 0 and 65535: {value}"
+                    raise ValueError(msg) from None
+            raise  # non-integer value: propagate struct.error as before
+
+        if start_address + len(values) > 65536:
+            msg = "Start address plus number of registers must not exceed 65536."
+            raise ValueError(msg)
 
         self.values = values
 
-        self.raw_pdu = RawWriteMultipleRegistersPDU(start_address, struct.pack(f">{len(values)}H", *values))
+        # Everything is validated above; skip RawWriteMultipleRegistersPDU.__init__
+        # so the same checks do not run a second time.
+        raw_pdu = RawWriteMultipleRegistersPDU.__new__(RawWriteMultipleRegistersPDU)
+        raw_pdu.start_address = start_address
+        raw_pdu.content = content
+        self.raw_pdu = raw_pdu
 
     def encode_request(self) -> bytes:
         """Convert PDU to bytes.
@@ -822,10 +840,15 @@ class ReadWriteMultipleRegistersPDU(BasePDU[list[int]]):
             msg = "Write starting address plus number of registers to write must not exceed 65536."
             raise ValueError(msg)
 
-        for idx, value in enumerate(self.write_values):
-            if not (0 <= value < 65536):
-                msg = f"Invalid write value {value} on index {idx}: must be between 0 and 65535"
-                raise ValueError(msg)
+        try:
+            # 'H' rejects values outside 0..65535, so packing doubles as range validation.
+            struct.pack(f">{len(self.write_values)}H", *self.write_values)
+        except struct.error:
+            for idx, value in enumerate(self.write_values):
+                if not (0 <= value < 65536):
+                    msg = f"Invalid write value {value} on index {idx}: must be between 0 and 65535"
+                    raise ValueError(msg) from None
+            raise  # non-integer value: propagate struct.error as before
 
     def encode_request(self) -> bytes:
         """Convert PDU to bytes.
@@ -951,9 +974,12 @@ class ReadWriteMultipleRegistersPDU(BasePDU[list[int]]):
             msg = f"Invalid number of read values: expected {self.read_quantity}, got {len(value)}"
             raise ValueError(msg)
 
-        for idx, val in enumerate(value):
-            if not (0 <= val < 65536):
-                msg = f"Invalid read value {val} on index {idx}: must be between 0 and 65535"
-                raise ValueError(msg)
-
-        return struct.pack(f">BB{len(value)}H", self.function_code, len(value) * 2, *value)
+        try:
+            # 'H' rejects values outside 0..65535, so packing doubles as range validation.
+            return struct.pack(f">BB{len(value)}H", self.function_code, len(value) * 2, *value)
+        except struct.error:
+            for idx, val in enumerate(value):
+                if not (0 <= val < 65536):
+                    msg = f"Invalid read value {val} on index {idx}: must be between 0 and 65535"
+                    raise ValueError(msg) from None
+            raise  # non-integer value: propagate struct.error as before
