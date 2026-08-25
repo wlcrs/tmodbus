@@ -22,10 +22,12 @@ The recommended way to structure your server's request handling is using the
 :class:`~tmodbus.server.ModbusRequestRouter` class.
 
 `ModbusRequestRouter` maps incoming Modbus function codes/PDU types to specific handler
-functions. The key advantage of the router is **full static type safety**: Python type
+functions. The key advantage of the router is **static return type safety**: Python type
 checkers (like mypy and pyright) will check and enforce that each registered handler
 returns the correct response payload type for its specific request PDU (e.g. returning a
-list of integers `list[int]` for a `ReadHoldingRegistersPDU`).
+list of integers `list[int]` for a `ReadHoldingRegistersPDU`). Handler parameter types
+are not checked statically; the router inspects them at runtime to detect context-aware
+handlers.
 
 Here is a complete example of setting up a TCP server using `ModbusRequestRouter`:
 
