@@ -14,6 +14,7 @@ from tmodbus.exceptions import (
     CRCError,
     FunctionCodeError,
     IllegalFunctionError,
+    InvalidRequestError,
     InvalidResponseError,
     ModbusConnectionError,
     RTUFrameError,
@@ -26,6 +27,7 @@ from tmodbus.transport.async_rtu import (
     ModbusRtuProtocol,
     _ModbusRtuMessage,
     _PendingRequest,
+    _validate_rtu_request_length,
     compute_interframe_delay,
     compute_max_continuous_transmission_delay,
 )
@@ -2261,3 +2263,51 @@ def test_rtu_protocol_fc08_partial_buffer(mock_transport: MagicMock) -> None:
     # address(1) + fc(1) + sub-function(2) + query data(2) + crc(2)
     protocol._buffer = bytearray(b"\x01\x08\x00\x00\x00\x00\x00")
     assert protocol._determine_expected_frame_length() == 8
+
+
+class _FixedLengthPDU(BaseClientPDU[bytes]):
+    """PDU declaring a fixed RTU request length, with a caller-controlled payload."""
+
+    function_code = 0x08
+    rtu_request_data_length = 4
+
+    def __init__(self, payload: bytes) -> None:
+        self.payload = payload
+
+    def encode_request(self) -> bytes:
+        return bytes([self.function_code]) + self.payload
+
+    def decode_response(self, response: bytes) -> bytes:
+        return response
+
+
+def test_validate_rtu_request_length__no_declared_length() -> None:
+    """A PDU without a fixed request length is left alone."""
+    pdu = _DummyPDU()
+    assert pdu.rtu_request_data_length is None
+    _validate_rtu_request_length(pdu, pdu.encode_request())
+
+
+def test_validate_rtu_request_length__matching() -> None:
+    """A request encoding to its declared length is accepted."""
+    pdu = _FixedLengthPDU(b"\x00\x00\xa5\x37")
+    _validate_rtu_request_length(pdu, pdu.encode_request())
+
+
+def test_validate_rtu_request_length__mismatch() -> None:
+    """A request that cannot be framed is rejected, naming both lengths."""
+    pdu = _FixedLengthPDU(b"\x00\x00\xa5\x37\x11\x22")
+    with pytest.raises(InvalidRequestError, match="encodes 6 data bytes but declares 4"):
+        _validate_rtu_request_length(pdu, pdu.encode_request())
+
+
+async def test_send_and_receive_rejects_unframable_request(mock_transport: MagicMock) -> None:
+    """An un-framable request is refused before anything reaches the wire."""
+    protocol = ModbusRtuProtocol(on_connection_lost=lambda _: None)
+    protocol.connection_made(mock_transport)
+    mock_transport.write.reset_mock()
+
+    with pytest.raises(InvalidRequestError, match="cannot be framed over RTU"):
+        await protocol.send_and_receive(1, _FixedLengthPDU(b"\x00\x00\xa5\x37\x11\x22"))
+
+    mock_transport.write.assert_not_called()
