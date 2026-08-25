@@ -159,6 +159,18 @@ class TestReadCoilsPDU:
         # Expected: function code + byte count (2) + data (0xFF 0x03 = 0b11111111 0b00000011)
         assert response == b"\x01\x02\xff\x03"
 
+    def test_encode_response_boundary_quantity(self) -> None:
+        """Test encoding response with the maximum quantity of coils."""
+        pdu = ReadCoilsPDU(start_address=0, quantity=2000)
+        response = pdu.encode_response([True] * 2000)
+        assert response == b"\x01\xfa" + b"\xff" * 250
+
+    def test_encode_response_wrong_count(self) -> None:
+        """Test encode_response raises on wrong number of values."""
+        pdu = ReadCoilsPDU(start_address=0, quantity=5)
+        with pytest.raises(ValueError, match=r"Invalid number of coil values: expected 5, got 4"):
+            pdu.encode_response([True, False, True, False])
+
 
 class TestWriteSingleCoilPDU:
     """Test class for WriteSingleCoilPDU decode_request and encode_response methods."""
@@ -402,3 +414,15 @@ class TestWriteMultipleCoilsPDU:
         pdu = WriteMultipleCoilsPDU(start_address=100, values=[True] * 10)
         response = pdu.encode_response(10)
         assert response == struct.pack(">BHH", 0x0F, 100, 10)
+
+    def test_encode_response_boundary_quantity(self) -> None:
+        """Test encoding response with the maximum number of coils."""
+        pdu = WriteMultipleCoilsPDU(start_address=100, values=[True] * 1968)
+        response = pdu.encode_response(1968)
+        assert response == struct.pack(">BHH", 0x0F, 100, 1968)
+
+    def test_encode_response_invalid_quantity(self) -> None:
+        """Test encode_response raises on out-of-range number of coils."""
+        pdu = WriteMultipleCoilsPDU(start_address=100, values=[True] * 10)
+        with pytest.raises(ValueError, match=r"Number of coils must be between 1 and 1968\."):
+            pdu.encode_response(1969)

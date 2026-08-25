@@ -98,13 +98,30 @@ class ReadFileRecordPDU(BasePDU[list[bytes]]):
         Returns:
             Encoded bytes of the PDU.
 
+        Raises:
+            ValueError: If the number of records, a record length, or the byte count is invalid.
+
         """
+        if len(file_records) != len(self.requests):
+            msg = f"Invalid number of file records: expected {len(self.requests)}, got {len(file_records)}"
+            raise ValueError(msg)
+
         records_bytes = b""
         for record in file_records:
+            if len(record) % 2 != 0:
+                msg = "Record data length cannot be odd; each register is 2 bytes."
+                raise ValueError(msg)
             record_length = len(record) + 1
             records_bytes += struct.pack(">BB", record_length, FILE_RECORD_REFERENCE_TYPE) + record
 
         byte_count = len(records_bytes)
+        if byte_count > MAX_READ_FILE_RECORD_BYTE_COUNT:
+            msg = (
+                f"Read File Record response byte count {byte_count} exceeds the "
+                f"maximum of {MAX_READ_FILE_RECORD_BYTE_COUNT}."
+            )
+            raise ValueError(msg)
+
         return struct.pack(">BB", self.function_code, byte_count) + records_bytes
 
     def decode_response(self, response: bytes) -> list[bytes]:
@@ -299,6 +316,12 @@ class WriteFileRecordPDU(BasePDU[list[FileRecord]]):
         records_bytes = b""
         for record in file_records:
             record_data = record.data
+            if not (0 <= record.file_number <= 0xFFFF):
+                msg = "File number must be between 0 and 65535."
+                raise ValueError(msg)
+            if not (0 <= record.record_number <= 9999):
+                msg = "Record number must be between 0 and 9999."
+                raise ValueError(msg)
             if len(record_data) % 2 != 0:
                 msg = "Record data length cannot be odd; each register is 2 bytes."
                 raise ValueError(msg)
@@ -312,6 +335,12 @@ class WriteFileRecordPDU(BasePDU[list[FileRecord]]):
             records_bytes += record_data
 
         byte_count = len(records_bytes)
+        if byte_count > MAX_WRITE_FILE_RECORD_BYTE_COUNT:
+            msg = (
+                f"Write File Record byte count {byte_count} exceeds the maximum of {MAX_WRITE_FILE_RECORD_BYTE_COUNT}."
+            )
+            raise ValueError(msg)
+
         return struct.pack(">BB", cls.function_code, byte_count) + records_bytes
 
     @classmethod

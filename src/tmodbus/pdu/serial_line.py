@@ -758,7 +758,13 @@ class ReportServerIdPDU(BasePDU[ServerIdResponse]):
         Returns:
             Encoded bytes of the response PDU.
 
+        Raises:
+            ValueError: If the byte count is out of range.
+
         """
         byte_count = len(value.server_id) + 1 + len(value.additional_data)  # +1 for run indicator status
+        if byte_count > 0xFF:
+            msg = f"Server ID response byte count {byte_count} exceeds the maximum of 255."
+            raise ValueError(msg)
         run_indicator_status = ID_ON if value.run_indicator_status else ID_OFF
         return bytes([self.function_code, byte_count, *value.server_id, run_indicator_status, *value.additional_data])

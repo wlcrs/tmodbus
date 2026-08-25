@@ -158,9 +158,24 @@ def test_encode_response() -> None:
     assert encoded == expected
 
 
+def test_encode_response_boundary_byte_count() -> None:
+    """Test encode_response accepts the maximum byte count of 255."""
+    pdu = ReportServerIdPDU()
+    value = ServerIdResponse(server_id=b"\x01" * 254, run_indicator_status=True, additional_data=b"")
+    encoded = pdu.encode_response(value)
+    assert encoded[1] == 255
+    assert len(encoded) == 257
+
+
+def test_encode_response_byte_count_too_high() -> None:
+    """Test encode_response raises when the byte count exceeds 255."""
+    pdu = ReportServerIdPDU()
+    value = ServerIdResponse(server_id=b"\x01" * 255, run_indicator_status=True, additional_data=b"")
+    with pytest.raises(ValueError, match="Server ID response byte count 256 exceeds the maximum of 255"):
+        pdu.encode_response(value)
+
+
 # --- Diagnostics Sub-Function PDU Tests ---
-
-
 def test_diagnostics_query_data_encode_decode() -> None:
     """Test DiagnosticsQueryDataPDU encoding and decoding."""
     pdu = DiagnosticsQueryDataPDU(b"\xa5\x37")

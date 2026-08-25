@@ -268,6 +268,40 @@ class TestReadFileRecordPDU:
         # \x14 + \x06 + \x02 + \x06 + \x0d\xfe\x00\x20
         assert encoded == b"\x14\x06\x05\x06\x0d\xfe\x00\x20"
 
+    def test_encode_response_boundary_byte_count(self) -> None:
+        """Test encode_response accepts a record at the maximum byte count."""
+        requests = [FileRecordRequest(file_number=4, record_number=1, record_length=121)]
+        pdu = ReadFileRecordPDU(requests)
+
+        record = b"\x00" * 242  # byte count = 2 + 242 = 244, below the 245 maximum
+        encoded = pdu.encode_response([record])
+        assert encoded == b"\x14\xf4\xf3\x06" + record
+
+    def test_encode_response_wrong_count(self) -> None:
+        """Test encode_response raises on wrong number of records."""
+        requests = [FileRecordRequest(file_number=4, record_number=1, record_length=2)]
+        pdu = ReadFileRecordPDU(requests)
+
+        with pytest.raises(ValueError, match="Invalid number of file records: expected 1, got 2"):
+            pdu.encode_response([b"\x00\x01", b"\x02\x03"])
+
+    def test_encode_response_odd_length_record_rejected(self) -> None:
+        """Test encode_response raises on odd-length record data."""
+        requests = [FileRecordRequest(file_number=4, record_number=1, record_length=2)]
+        pdu = ReadFileRecordPDU(requests)
+
+        with pytest.raises(ValueError, match="Record data length cannot be odd"):
+            pdu.encode_response([b"\x00\x01\x02"])
+
+    def test_encode_response_byte_count_too_high(self) -> None:
+        """Test encode_response raises when the byte count exceeds the maximum."""
+        requests = [FileRecordRequest(file_number=4, record_number=1, record_length=122)]
+        pdu = ReadFileRecordPDU(requests)
+
+        record = b"\x00" * 244  # byte count = 2 + 244 = 246, above the 245 maximum
+        with pytest.raises(ValueError, match="Read File Record response byte count 246 exceeds the maximum of 245"):
+            pdu.encode_response([record])
+
     def test_decode_request_valid_single_request(self) -> None:
         """Test decode_request with a valid single request."""
         # Function code + byte count + reference type + file + record + length
@@ -630,6 +664,46 @@ class TestWriteFileRecordPDU:
         odd_records = [FileRecord(file_number=1, record_number=0, data=b"\x00\x01\x02")]
         with pytest.raises(ValueError, match="Record data length cannot be odd"):
             pdu.encode_response(odd_records)
+
+    def test_encode_response_boundary_numbers(self) -> None:
+        """Test encode_response accepts boundary file and record numbers."""
+        records = [FileRecord(file_number=4, record_number=7, data=b"\x06\xaf\x04\xbe")]
+        pdu = WriteFileRecordPDU(file_records=records)
+
+        boundary_records = [FileRecord(file_number=0xFFFF, record_number=9999, data=b"\x06\xaf")]
+        encoded = pdu.encode_response(boundary_records)
+        assert encoded == b"\x15\x09\x06\xff\xff\x27\x0f\x00\x01\x06\xaf"
+
+    def test_encode_response_invalid_file_number(self) -> None:
+        """Test encode_response raises on out-of-range file number."""
+        records = [FileRecord(file_number=4, record_number=7, data=b"\x06\xaf\x04\xbe")]
+        pdu = WriteFileRecordPDU(file_records=records)
+
+        bad_records = [FileRecord(file_number=0x10000, record_number=7, data=b"\x06\xaf")]
+        with pytest.raises(ValueError, match="File number must be between 0 and 65535"):
+            pdu.encode_response(bad_records)
+
+    def test_encode_response_invalid_record_number(self) -> None:
+        """Test encode_response raises on out-of-range record number."""
+        records = [FileRecord(file_number=4, record_number=7, data=b"\x06\xaf\x04\xbe")]
+        pdu = WriteFileRecordPDU(file_records=records)
+
+        bad_records = [FileRecord(file_number=4, record_number=10000, data=b"\x06\xaf")]
+        with pytest.raises(ValueError, match="Record number must be between 0 and 9999"):
+            pdu.encode_response(bad_records)
+
+    def test_encode_response_byte_count_too_high(self) -> None:
+        """Test encode_response raises when the byte count exceeds the maximum."""
+        records = [FileRecord(file_number=4, record_number=7, data=b"\x06\xaf\x04\xbe")]
+        pdu = WriteFileRecordPDU(file_records=records)
+
+        # Two records of 7-byte header + 120 bytes each: byte count = 254, above the 251 maximum
+        big_records = [
+            FileRecord(file_number=4, record_number=7, data=b"\x00" * 120),
+            FileRecord(file_number=4, record_number=8, data=b"\x00" * 120),
+        ]
+        with pytest.raises(ValueError, match="Write File Record byte count 254 exceeds the maximum of 251"):
+            pdu.encode_response(big_records)
 
     def test_decode_request_valid(self) -> None:
         """Test decode_request with valid request data."""

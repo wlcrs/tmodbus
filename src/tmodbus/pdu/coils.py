@@ -130,7 +130,14 @@ class ReadCoilsPDU(BasePDU[list[bool]]):
         Returns:
             Bytes representation of the Read Coils Response PDU
 
+        Raises:
+            ValueError: If the number of values does not match the requested quantity
+
         """
+        if len(value) != self.quantity:
+            msg = f"Invalid number of coil values: expected {self.quantity}, got {len(value)}"
+            raise ValueError(msg)
+
         byte_count = (len(value) + 7) // 8
         data = bytearray(byte_count)
         for i, v in enumerate(value):
@@ -392,7 +399,14 @@ class WriteMultipleCoilsPDU(BasePDU[int]):
         Returns:
             Bytes representation of the Write Multiple Coils response PDU.
 
+        Raises:
+            ValueError: If the number of coils is out of range
+
         """
+        if not (1 <= value <= 0x07B0):
+            msg = "Number of coils must be between 1 and 1968."
+            raise ValueError(msg)
+
         return struct.pack(
             ">BHH",
             self.function_code,

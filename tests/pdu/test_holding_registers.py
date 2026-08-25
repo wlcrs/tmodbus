@@ -245,6 +245,18 @@ class TestRawReadHoldingRegistersPDU:
         encoded = pdu.encode_response(value)
         assert encoded == b"\x03\x06\x12\x34\x56\x78\x9a\xbc"
 
+    def test_encode_response_boundary_quantity(self) -> None:
+        """Test encoding response with the maximum quantity of registers."""
+        pdu = RawReadHoldingRegistersPDU(start_address=100, quantity=125)
+        encoded = pdu.encode_response(b"\x00" * 250)
+        assert encoded == b"\x03\xfa" + b"\x00" * 250
+
+    def test_encode_response_wrong_length(self) -> None:
+        """Test encode_response raises on wrong data length."""
+        pdu = RawReadHoldingRegistersPDU(start_address=100, quantity=3)
+        with pytest.raises(ValueError, match=r"Invalid data length: expected 6, got 4"):
+            pdu.encode_response(b"\x12\x34\x56\x78")
+
 
 # ============================================================================
 # RawReadInputRegistersPDU Tests
@@ -325,6 +337,24 @@ class TestReadInputRegistersPDU:
         encoded = pdu.encode_response(values)
         assert encoded == b"\x04\x06\x12\x34\x56\x78\x9a\xbc"
 
+    def test_encode_response_boundary_values(self) -> None:
+        """Test encoding response with boundary register values."""
+        pdu = ReadInputRegistersPDU(start_address=100, quantity=2)
+        encoded = pdu.encode_response([0x0000, 0xFFFF])
+        assert encoded == b"\x04\x04\x00\x00\xff\xff"
+
+    def test_encode_response_wrong_count(self) -> None:
+        """Test encode_response raises on wrong number of values."""
+        pdu = ReadInputRegistersPDU(start_address=100, quantity=3)
+        with pytest.raises(ValueError, match=r"Invalid number of read values: expected 3, got 2"):
+            pdu.encode_response([0x1234, 0x5678])
+
+    def test_encode_response_invalid_value_too_high(self) -> None:
+        """Test encode_response raises on value too high."""
+        pdu = ReadInputRegistersPDU(start_address=100, quantity=2)
+        with pytest.raises(ValueError, match=r"Invalid read value 65536 on index 1: must be between 0 and 65535"):
+            pdu.encode_response([100, 65536])
+
 
 # ============================================================================
 # WriteSingleRegisterPDU Additional Tests
@@ -380,6 +410,18 @@ class TestWriteSingleRegisterPDU:
             InvalidRequestError, match="Expected request to start with function code, address, and value"
         ):
             WriteSingleRegisterPDU.decode_request(request)
+
+    def test_encode_response_boundary_value(self) -> None:
+        """Test encoding response with the maximum register value."""
+        pdu = WriteSingleRegisterPDU(address=0x1234, value=0x5678)
+        encoded = pdu.encode_response(0xFFFF)
+        assert encoded == b"\x06\x12\x34\xff\xff"
+
+    def test_encode_response_invalid_value(self) -> None:
+        """Test encode_response raises on out-of-range value."""
+        pdu = WriteSingleRegisterPDU(address=0x1234, value=0x5678)
+        with pytest.raises(ValueError, match=r"Value must be between 0 and 65535\."):
+            pdu.encode_response(65536)
 
     def test_encode_response(self) -> None:
         """Test encoding response."""
@@ -552,6 +594,18 @@ class TestRawWriteMultipleRegistersPDU:
         pdu = RawWriteMultipleRegistersPDU(start_address=0x1000, content=content)
         encoded = pdu.encode_response(2)
         assert encoded == b"\x10\x10\x00\x00\x02"
+
+    def test_encode_response_boundary_quantity(self) -> None:
+        """Test encoding response with the maximum number of registers."""
+        pdu = RawWriteMultipleRegistersPDU(start_address=0x1000, content=b"\x00" * 246)
+        encoded = pdu.encode_response(123)
+        assert encoded == b"\x10\x10\x00\x00\x7b"
+
+    def test_encode_response_invalid_quantity(self) -> None:
+        """Test encode_response raises on out-of-range number of registers."""
+        pdu = RawWriteMultipleRegistersPDU(start_address=0x1000, content=b"\x12\x34\x56\x78")
+        with pytest.raises(ValueError, match=r"Number of registers must be between 1 and 123\."):
+            pdu.encode_response(124)
 
     def test_rtu_response_data_length(self) -> None:
         """Test RTU response data length constant."""
@@ -872,6 +926,24 @@ class TestMaskWriteRegisterPDU:
         response = pdu.encode_response((0xF2F2, 0x2525))
         expected = b"\x16\x00\x04\xf2\xf2\x25\x25"
         assert response == expected
+
+    def test_encode_response_boundary_masks(self) -> None:
+        """Test encoding response with boundary mask values."""
+        pdu = MaskWriteRegisterPDU(address=0x0004, and_mask=0xF2F2, or_mask=0x2525)
+        response = pdu.encode_response((0xFFFF, 0x0000))
+        assert response == b"\x16\x00\x04\xff\xff\x00\x00"
+
+    def test_encode_response_invalid_and_mask(self) -> None:
+        """Test encode_response raises on out-of-range AND mask."""
+        pdu = MaskWriteRegisterPDU(address=0x0004, and_mask=0xF2F2, or_mask=0x2525)
+        with pytest.raises(ValueError, match=r"AND mask must be between 0 and 65535\."):
+            pdu.encode_response((0x10000, 0x2525))
+
+    def test_encode_response_invalid_or_mask(self) -> None:
+        """Test encode_response raises on out-of-range OR mask."""
+        pdu = MaskWriteRegisterPDU(address=0x0004, and_mask=0xF2F2, or_mask=0x2525)
+        with pytest.raises(ValueError, match=r"OR mask must be between 0 and 65535\."):
+            pdu.encode_response((0xF2F2, -1))
 
 
 class TestReadWriteMultipleRegistersPDU:

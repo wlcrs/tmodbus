@@ -122,7 +122,14 @@ class RawReadHoldingRegistersPDU(BasePDU[bytes]):
         Returns:
             Bytes representation of the Read Holding Registers response PDU.
 
+        Raises:
+            ValueError: If the data length does not match the requested quantity
+
         """
+        if len(value) != self.quantity * 2:
+            msg = f"Invalid data length: expected {self.quantity * 2}, got {len(value)}"
+            raise ValueError(msg)
+
         return struct.pack(">BB", self.function_code, len(value)) + value
 
 
@@ -208,7 +215,19 @@ class ReadHoldingRegistersPDU(BasePDU[list[int]]):
         Returns:
             Bytes representation of the Read Holding Registers response PDU.
 
+        Raises:
+            ValueError: If the number of values does not match the requested quantity or a value is out of range
+
         """
+        if len(value) != self.quantity:
+            msg = f"Invalid number of read values: expected {self.quantity}, got {len(value)}"
+            raise ValueError(msg)
+
+        for idx, val in enumerate(value):
+            if not (0 <= val < 65536):
+                msg = f"Invalid read value {val} on index {idx}: must be between 0 and 65535"
+                raise ValueError(msg)
+
         data = struct.pack(f">{len(value)}H", *value)
         return struct.pack(">BB", self.function_code, len(data)) + data
 
@@ -340,7 +359,14 @@ class WriteSingleRegisterPDU(BasePDU[int]):
         Returns:
             Bytes representation of the Write Single Register response PDU (echo).
 
+        Raises:
+            ValueError: If value is out of range
+
         """
+        if not (0 <= value < 65536):
+            msg = "Value must be between 0 and 65535."
+            raise ValueError(msg)
+
         return struct.pack(">BHH", self.function_code, self.address, value)
 
 
@@ -482,7 +508,14 @@ class RawWriteMultipleRegistersPDU(BasePDU[int]):
         Returns:
             Bytes representation of the Write Multiple Registers response PDU.
 
+        Raises:
+            ValueError: If the number of registers is out of range
+
         """
+        if not (1 <= value <= 123):
+            msg = "Number of registers must be between 1 and 123."
+            raise ValueError(msg)
+
         return struct.pack(
             ">BHH",
             self.function_code,
@@ -721,7 +754,17 @@ class MaskWriteRegisterPDU(BasePDU[tuple[int, int]]):
         Returns:
             Bytes representation of the Mask Write Register response PDU.
 
+        Raises:
+            ValueError: If a mask is out of range
+
         """
+        if not (0 <= value[0] < 65536):
+            msg = "AND mask must be between 0 and 65535."
+            raise ValueError(msg)
+        if not (0 <= value[1] < 65536):
+            msg = "OR mask must be between 0 and 65535."
+            raise ValueError(msg)
+
         return struct.pack(">BHHH", self.function_code, self.address, value[0], value[1])
 
 
