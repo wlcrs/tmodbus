@@ -9,11 +9,12 @@ import struct
 from collections.abc import Callable
 from dataclasses import dataclass
 from functools import partial
-from typing import Any, TypeVar, cast
+from typing import Any, TypeVar
 
 from tmodbus.const import EXCEPTION_RESPONSE_BIT, FUNCTION_CODE_MASK
 from tmodbus.exceptions import (
     HeaderMismatchError,
+    InvalidRequestError,
     ModbusConnectionError,
     UnknownModbusResponseError,
     error_code_to_exception_map,
@@ -237,10 +238,10 @@ class ModbusUdpProtocol(asyncio.DatagramProtocol):
         request_frame = mbap_header + request_pdu_bytes
 
         if not pdu.expects_response:
-            # No response expected from server, so send and return immediately
-            self.transport.sendto(request_frame)
-            log_raw_traffic("sent", request_frame)
-            return cast("RT", None)
+            # PDUs without a response are a serial-line concept; there is no
+            # way to confirm delivery over Modbus UDP, so reject them.
+            msg = f"{type(pdu).__name__} does not expect a response and is only supported on serial transports."
+            raise InvalidRequestError(msg)
 
         read_future: asyncio.Future[_ModbusMessage] = asyncio.get_running_loop().create_future()
         self._pending_requests[current_transaction_id] = read_future

@@ -6,7 +6,7 @@ import time
 from unittest.mock import AsyncMock, MagicMock, patch
 
 import pytest
-from tmodbus.exceptions import InvalidResponseError, ModbusConnectionError, ModbusResponseError
+from tmodbus.exceptions import InvalidRequestError, InvalidResponseError, ModbusConnectionError, ModbusResponseError
 from tmodbus.pdu.base import BaseClientPDU
 from tmodbus.pdu.serial_line import DiagnosticsForceListenOnlyModePDU
 from tmodbus.transport.async_tcp import AsyncTcpTransport, ModbusTcpProtocol, _ModbusMessage
@@ -330,7 +330,7 @@ async def test_protocol_send_and_receive_timeout() -> None:
 
 
 async def test_protocol_send_and_receive_no_response_pdu() -> None:
-    """Test send_and_receive when PDU expects_response is False."""
+    """Test send_and_receive rejects a PDU that expects no response."""
     protocol = ModbusTcpProtocol(on_connection_lost=lambda _: None, timeout=10.0)
     mock_transport = MagicMock(spec=asyncio.WriteTransport)
     mock_transport.is_closing.return_value = False
@@ -338,14 +338,11 @@ async def test_protocol_send_and_receive_no_response_pdu() -> None:
 
     pdu = DiagnosticsForceListenOnlyModePDU()
 
-    # Returns immediately without waiting for a response
-    result = await asyncio.wait_for(protocol.send_and_receive(1, pdu), timeout=1.0)
+    with pytest.raises(InvalidRequestError, match="only supported on serial transports"):
+        await protocol.send_and_receive(1, pdu)
 
-    assert result is None
-    # MBAP: tid=1, pid=0, len=6, uid=1 + PDU: fc=0x08, sub-func=0x0004, data=0x0000
-    expected_request = struct.pack(">HHHB", 1, 0, 6, 1) + b"\x08\x00\x04\x00\x00"
-    mock_transport.write.assert_called_once_with(expected_request)
-    # No pending future left behind
+    # Nothing sent, no pending future left behind
+    mock_transport.write.assert_not_called()
     assert not protocol._pending_requests
 
 
