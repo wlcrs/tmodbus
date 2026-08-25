@@ -123,6 +123,10 @@ class DiagnosticsRestartCommunicationsOptionPDU(BaseDiagnosticsSubFunctionPDU[bo
         """
         self.clear_event_log = clear_event_log
 
+    def get_broadcast_response(self) -> bool:
+        """Return dummy response for a broadcast request."""
+        return self.clear_event_log
+
     def encode_request(self) -> bytes:
         """Encode request PDU."""
         data_val = 0xFF00 if self.clear_event_log else 0x0000

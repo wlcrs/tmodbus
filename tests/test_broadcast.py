@@ -9,6 +9,7 @@ from tmodbus.const import BROADCAST_UNIT_ID
 from tmodbus.exceptions import InvalidRequestError
 from tmodbus.pdu import (
     BaseClientPDU,
+    DiagnosticsRestartCommunicationsOptionPDU,
     FileRecord,
     FileRecordRequest,
     MaskWriteRegisterPDU,
@@ -130,6 +131,15 @@ def test_pdu_write_file_record_broadcast() -> None:
     assert pdu.get_broadcast_response() == records
 
 
+def test_pdu_restart_communications_option_broadcast() -> None:
+    """Test get_broadcast_response for DiagnosticsRestartCommunicationsOptionPDU."""
+    pdu = DiagnosticsRestartCommunicationsOptionPDU()
+    assert pdu.get_broadcast_response() is False
+
+    pdu_clear = DiagnosticsRestartCommunicationsOptionPDU(clear_event_log=True)
+    assert pdu_clear.get_broadcast_response() is True
+
+
 def test_non_broadcastable_pdus_raise_error() -> None:
     """Test that all non-broadcastable PDUs raise InvalidRequestError."""
     read_pdus: list[BaseClientPDU[Any]] = [
@@ -189,6 +199,41 @@ async def test_ascii_client_broadcast() -> None:
 
 
 @pytest.mark.asyncio
+async def test_rtu_client_broadcast_restart_communications() -> None:
+    """Test broadcasting Restart Communications Option over RTU writes correct bytes without reading."""
+    protocol = ModbusRtuProtocol(on_connection_lost=lambda _: None)
+    mock_transport = MockWriteTransport()
+    protocol.connection_made(mock_transport)
+
+    pdu = DiagnosticsRestartCommunicationsOptionPDU()
+    res = await protocol.send_and_receive(BROADCAST_UNIT_ID, pdu)
+    assert res is False
+    frame_prefix = bytes([0x00, 0x08, 0x00, 0x01, 0x00, 0x00])
+    assert mock_transport.written == [frame_prefix + calculate_crc16(frame_prefix)]
+
+    pdu_clear = DiagnosticsRestartCommunicationsOptionPDU(clear_event_log=True)
+    res_clear = await protocol.send_and_receive(BROADCAST_UNIT_ID, pdu_clear)
+    assert res_clear is True
+    frame_prefix_clear = bytes([0x00, 0x08, 0x00, 0x01, 0xFF, 0x00])
+    assert mock_transport.written[1] == frame_prefix_clear + calculate_crc16(frame_prefix_clear)
+
+
+@pytest.mark.asyncio
+async def test_ascii_client_broadcast_restart_communications() -> None:
+    """Test broadcasting Restart Communications Option over ASCII writes correct bytes without reading."""
+    protocol = ModbusAsciiProtocol(on_connection_lost=lambda _: None)
+    mock_transport = MockWriteTransport()
+    protocol.connection_made(mock_transport)
+
+    pdu = DiagnosticsRestartCommunicationsOptionPDU(clear_event_log=True)
+    res = await protocol.send_and_receive(BROADCAST_UNIT_ID, pdu)
+    assert res is True
+    bin_data = bytes([0x00, 0x08, 0x00, 0x01, 0xFF, 0x00])
+    expected_frame = b":" + (bin_data + bytes([calculate_lrc(bin_data)])).hex().upper().encode("ascii") + b"\r\n"
+    assert mock_transport.written == [expected_frame]
+
+
+@pytest.mark.asyncio
 async def test_async_client_broadcast_execution() -> None:
     """Test AsyncModbusClient executing broadcast requests over serial RTU transport."""
     protocol = ModbusRtuProtocol(on_connection_lost=lambda _: None)
@@ -205,6 +250,9 @@ async def test_async_client_broadcast_execution() -> None:
     client = AsyncModbusClient(FakeAsyncTransport(), unit_id=BROADCAST_UNIT_ID)  # type: ignore[arg-type]
     res = await client.write_single_coil(0, False)  # noqa: FBT003
     assert res is False
+
+    res_restart = await client.diag_restart_communications_option(clear_event_log=True)
+    assert res_restart is True
 
 
 # ============================================================================
