@@ -28,6 +28,7 @@ from tenacity import (
 
 from tmodbus.exceptions import (
     ModbusConnectionError,
+    ModbusResponseError,
     RequestRetryFailedError,
     ServerDeviceBusyError,
     ServerDeviceFailureError,
@@ -40,6 +41,9 @@ if TYPE_CHECKING:
     from tenacity.retry import RetryBaseT
 
 logger = logging.getLogger(__name__)
+
+TRANSPORT_FAILURES = (TimeoutError, ModbusConnectionError, ConnectionError)
+_RECONNECT_BACKOFF_MAX = 60.0
 
 
 RT = TypeVar("RT")
@@ -99,6 +103,8 @@ class AsyncSmartTransport(AsyncBaseTransport):
     _communication_lock: asyncio.Lock
     _should_be_connected: bool
     _must_reconnect: bool
+    _recovery_failure_count: int
+    _next_reconnect_earliest: float
 
     auto_reconnect: AsyncRetrying | None = None
     response_retry_strategy: AsyncRetrying
@@ -151,6 +157,8 @@ class AsyncSmartTransport(AsyncBaseTransport):
         self._communication_lock = asyncio.Lock()
         self._should_be_connected = False
         self._must_reconnect = False
+        self._recovery_failure_count = 0
+        self._next_reconnect_earliest = 0.0
 
         if wait_between_requests < 0:
             msg = "wait_between_requests must be a positive value"
@@ -262,6 +270,37 @@ class AsyncSmartTransport(AsyncBaseTransport):
                 await self.base_transport.close()
             finally:
                 self._should_be_connected = False
+                self._must_reconnect = False
+                self._reset_recovery_state()
+
+    def _reset_recovery_state(self) -> None:
+        """Reset the recovery state after application success or public close."""
+        self._recovery_failure_count = 0
+        self._next_reconnect_earliest = 0.0
+
+    async def _handle_transport_failure(self, *, is_recovery_attempt: bool) -> None:
+        """Handle a transport failure and update recovery backoff state."""
+        self._must_reconnect = True
+        if not is_recovery_attempt:
+            # Initial failure during normal operation: immediate first recovery attempt (wait = 0s)
+            self._recovery_failure_count = 0
+            self._next_reconnect_earliest = 0.0
+            logger.info("Communication failure during normal operation. Entering recovery.")
+        else:
+            # Subsequent recovery failure: advance counter and calculate exponential backoff
+            self._recovery_failure_count += 1
+            backoff_delay = min(2.0 ** (self._recovery_failure_count - 1), _RECONNECT_BACKOFF_MAX)
+            self._next_reconnect_earliest = time.monotonic() + backoff_delay
+            logger.warning(
+                "Recovery attempt failed (failure %d). Next reconnect backoff: %.2fs",
+                self._recovery_failure_count,
+                backoff_delay,
+            )
+
+        try:
+            await self.base_transport.close()
+        except Exception:  # noqa: BLE001
+            logger.debug("Error while closing base transport during transport failure handling", exc_info=True)
 
     def is_open(self) -> bool:
         """Check Connection Status.
@@ -301,28 +340,49 @@ class AsyncSmartTransport(AsyncBaseTransport):
 
     async def _reconnect_send_and_receive(self, unit_id: int, pdu: BaseClientPDU[RT]) -> RT:
         """Reconnect if necessary, then try to Send PDU and Receive Response."""
-        # If auto_reconnect is enabled and the connection is not open, try to reconnect
-        if self.auto_reconnect:
-            if self._must_reconnect:
-                self._must_reconnect = False
-                logger.info("Forcing reconnection due to previous connection error.")
-                await self._do_auto_reconnect()
-            if not self.base_transport.is_open():
-                logger.info("Connection lost. Attempting to reconnect...")
-                await self._do_auto_reconnect()
+        is_recovery_attempt = (
+            self._must_reconnect or not self.base_transport.is_open() or self._recovery_failure_count > 0
+        )
 
-        # If a wait time between requests is configured, enforce it
-        if self.wait_between_requests > 0 and self._last_request_finished_at is not None:
-            wait_needed = self.wait_between_requests - (time.monotonic() - self._last_request_finished_at)
-            if wait_needed > 0:
-                logger.debug(
-                    "Waiting %.2fs before sending next request to respect %.2fs wait between requests",
-                    wait_needed,
-                    self.wait_between_requests,
-                )
-                await asyncio.sleep(wait_needed)
+        try:
+            # If auto_reconnect is enabled and reconnection is needed, check backoff and reconnect
+            if self.auto_reconnect and (self._must_reconnect or not self.base_transport.is_open()):
+                wait_time = self._next_reconnect_earliest - time.monotonic()
+                if wait_time > 0:
+                    logger.debug("Reconnection backoff active: waiting %.2fs before reconnecting", wait_time)
+                    await asyncio.sleep(wait_time)
 
-        return await self.base_transport.send_and_receive(unit_id, pdu)
+                if self._must_reconnect:
+                    self._must_reconnect = False
+                    logger.info("Forcing reconnection due to previous connection error.")
+                    await self._do_auto_reconnect()
+                elif not self.base_transport.is_open():
+                    logger.info("Connection lost. Attempting to reconnect...")
+                    await self._do_auto_reconnect()
+
+            # If a wait time between requests is configured, enforce it
+            if self.wait_between_requests > 0 and self._last_request_finished_at is not None:
+                wait_needed = self.wait_between_requests - (time.monotonic() - self._last_request_finished_at)
+                if wait_needed > 0:
+                    logger.debug(
+                        "Waiting %.2fs before sending next request to respect %.2fs wait between requests",
+                        wait_needed,
+                        self.wait_between_requests,
+                    )
+                    await asyncio.sleep(wait_needed)
+
+            response = await self.base_transport.send_and_receive(unit_id, pdu)
+        except ModbusResponseError:
+            self._reset_recovery_state()
+            self._must_reconnect = False
+            raise
+        except TRANSPORT_FAILURES:
+            await self._handle_transport_failure(is_recovery_attempt=is_recovery_attempt)
+            raise
+        else:
+            self._reset_recovery_state()
+            self._must_reconnect = False
+            return response
 
     async def send_and_receive(self, unit_id: int, pdu: BaseClientPDU[RT]) -> RT:
         """Send PDU and Receive Response."""
@@ -358,7 +418,7 @@ class AsyncSmartTransport(AsyncBaseTransport):
         """Retry with a new connection if the connection was lost."""
         if retry_state.outcome and retry_state.outcome.failed:
             exception = retry_state.outcome.exception()
-            if isinstance(exception, ModbusConnectionError):
+            if isinstance(exception, TRANSPORT_FAILURES):
                 logger.debug(
                     "Retrying request with a new connection after %s",
                     f"{type(exception).__name__}: {exception}",
