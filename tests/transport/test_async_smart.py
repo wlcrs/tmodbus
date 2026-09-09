@@ -12,6 +12,8 @@ from tenacity import (
     retry_if_exception_type,
     stop_after_attempt,
     stop_never,
+    wait_exponential,
+    wait_fixed,
     wait_none,
 )
 from tmodbus.exceptions import (
@@ -663,14 +665,15 @@ async def test_timeout_at_transaction_boundary_marks_must_reconnect_and_closes_t
 
     assert t._must_reconnect is True
     base_transport_mock.close.assert_awaited()
-    assert t._recovery_failure_count == 0
+    assert t._reconnect_state is not None
+    assert t._reconnect_state.attempt_number == 1
     assert t._next_reconnect_earliest == 0.0
 
 
 async def test_persistent_backoff_progression_across_calls(
     base_transport_mock: MagicMock,
 ) -> None:
-    """Test persistent backoff progression across separate calls to send_and_receive."""
+    """Test persistent backoff progression across separate calls to send_and_receive using default strategy."""
     t = AsyncSmartTransport(
         base_transport_mock,
         response_retry_strategy=AsyncRetrying(stop=stop_after_attempt(1), reraise=True),
@@ -690,44 +693,175 @@ async def test_persistent_backoff_progression_across_calls(
         with pytest.raises(TimeoutError):
             await t.send_and_receive(1, DummyPDU())
         assert t._must_reconnect is True
-        assert t._recovery_failure_count == 0
+        assert t._reconnect_state is not None
+        assert t._reconnect_state.attempt_number == 1
         assert t._next_reconnect_earliest == 0.0
 
         # Call 2: First recovery attempt -> executes immediately (wait=0s)
         with pytest.raises(TimeoutError):
             await t.send_and_receive(1, DummyPDU())
         assert t._must_reconnect is True
-        assert t._recovery_failure_count == 1
+        assert t._reconnect_state is not None
+        assert t._reconnect_state.attempt_number == 2
         assert t._next_reconnect_earliest > 0.0
 
-        # Call 3: Second recovery attempt -> backoff 1s (2^(1-1) = 1s)
+        # Call 3: Second recovery attempt -> backoff 1s (DEFAULT_RECONNECT_RETRY_STRATEGY has wait_exponential min=0.1, max=10)
         with pytest.raises(TimeoutError):
             await t.send_and_receive(1, DummyPDU())
         assert t._must_reconnect is True
-        assert t._recovery_failure_count == 2
+        assert t._reconnect_state is not None
+        assert t._reconnect_state.attempt_number == 3
         # Verify that sleep was called with ~1.0s
         assert any(0.8 <= call <= 1.1 for call in sleep_calls)
 
-        # Call 4: Third recovery attempt -> backoff 2s (2^(2-1) = 2s)
+        # Call 4: Third recovery attempt -> backoff 2s
         sleep_calls.clear()
         with pytest.raises(TimeoutError):
             await t.send_and_receive(1, DummyPDU())
         assert t._must_reconnect is True
-        assert t._recovery_failure_count == 3
+        assert t._reconnect_state is not None
+        assert t._reconnect_state.attempt_number == 4
         # Verify that sleep was called with ~2.0s
         assert any(1.8 <= call <= 2.1 for call in sleep_calls)
+
+
+async def test_persistent_backoff_honors_user_wait_fixed(
+    base_transport_mock: MagicMock,
+) -> None:
+    """Test that custom constant backoff strategy (wait_fixed) is honored during recovery."""
+    t = AsyncSmartTransport(
+        base_transport_mock,
+        auto_reconnect=AsyncRetrying(wait=wait_fixed(5.0)),
+        response_retry_strategy=AsyncRetrying(stop=stop_after_attempt(1), reraise=True),
+    )
+
+    base_transport_mock.is_open = lambda: True
+    base_transport_mock.send_and_receive.side_effect = TimeoutError("stalled MCU")
+
+    sleep_calls: list[float] = []
+
+    async def fake_sleep(duration: float) -> None:
+        sleep_calls.append(duration)
+
+    with patch("asyncio.sleep", side_effect=fake_sleep):
+        # Call 1: Initial failure -> wait=0s
+        with pytest.raises(TimeoutError):
+            await t.send_and_receive(1, DummyPDU())
+        assert t._next_reconnect_earliest == 0.0
+
+        # Call 2: First recovery attempt executes immediately (wait=0s) and fails -> sets next backoff to 5.0s
+        with pytest.raises(TimeoutError):
+            await t.send_and_receive(1, DummyPDU())
+        assert t._next_reconnect_earliest > 0.0
+
+        # Call 3: Second recovery attempt -> sleeps ~5.0s before reconnecting
+        with pytest.raises(TimeoutError):
+            await t.send_and_receive(1, DummyPDU())
+        assert any(4.9 <= call <= 5.1 for call in sleep_calls)
+
+        # Call 4: Third recovery attempt -> sleeps another ~5.0s (constant, not exponential!)
+        sleep_calls.clear()
+        with pytest.raises(TimeoutError):
+            await t.send_and_receive(1, DummyPDU())
+        assert any(4.9 <= call <= 5.1 for call in sleep_calls)
+
+
+async def test_attempt_number_sequence_across_consecutive_failures(
+    base_transport_mock: MagicMock,
+) -> None:
+    """Test that attempt_number sequence is strictly 1, 2, 3, 4 without off-by-one errors."""
+    t = AsyncSmartTransport(
+        base_transport_mock,
+        response_retry_strategy=AsyncRetrying(stop=stop_after_attempt(1), reraise=True),
+    )
+    base_transport_mock.is_open = lambda: True
+    base_transport_mock.send_and_receive.side_effect = TimeoutError("stalled")
+
+    with patch("asyncio.sleep", AsyncMock()):
+        # Call 1: Normal operation fails -> state created at attempt 1
+        with pytest.raises(TimeoutError):
+            await t.send_and_receive(1, DummyPDU())
+        assert t._reconnect_state is not None
+        assert t._reconnect_state.attempt_number == 1
+
+        # Call 2: Recovery attempt fails -> prepared for attempt 2
+        with pytest.raises(TimeoutError):
+            await t.send_and_receive(1, DummyPDU())
+        assert t._reconnect_state is not None
+        assert t._reconnect_state.attempt_number == 2
+
+        # Call 3: Recovery attempt fails -> prepared for attempt 3
+        with pytest.raises(TimeoutError):
+            await t.send_and_receive(1, DummyPDU())
+        assert t._reconnect_state is not None
+        assert t._reconnect_state.attempt_number == 3
+
+        # Call 4: Recovery attempt fails -> prepared for attempt 4
+        with pytest.raises(TimeoutError):
+            await t.send_and_receive(1, DummyPDU())
+        assert t._reconnect_state is not None
+        assert t._reconnect_state.attempt_number == 4
+
+
+async def test_before_sleep_callback_invoked_sync_and_async(
+    base_transport_mock: MagicMock,
+) -> None:
+    """Test that both sync and async before_sleep callbacks are safely invoked with upcoming sleep duration."""
+    sync_called: list[float] = []
+    async_called: list[float] = []
+
+    def sync_before_sleep(rs: RetryCallState) -> None:
+        if rs.upcoming_sleep is not None:
+            sync_called.append(rs.upcoming_sleep)
+
+    async def async_before_sleep(rs: RetryCallState) -> None:
+        if rs.upcoming_sleep is not None:
+            async_called.append(rs.upcoming_sleep)
+
+    # 1. Test sync before_sleep
+    t_sync = AsyncSmartTransport(
+        base_transport_mock,
+        auto_reconnect=AsyncRetrying(wait=wait_fixed(3.0), before_sleep=sync_before_sleep),
+        response_retry_strategy=AsyncRetrying(stop=stop_after_attempt(1), reraise=True),
+    )
+    base_transport_mock.is_open = lambda: True
+    base_transport_mock.send_and_receive.side_effect = TimeoutError("fail")
+
+    with patch("asyncio.sleep", AsyncMock()):
+        with pytest.raises(TimeoutError):
+            await t_sync.send_and_receive(1, DummyPDU())  # Initial failure (wait=0s)
+        with pytest.raises(TimeoutError):
+            await t_sync.send_and_receive(1, DummyPDU())  # Recovery failure -> triggers before_sleep(3.0)
+
+    assert sync_called == [3.0]
+
+    # 2. Test async before_sleep
+    t_async = AsyncSmartTransport(
+        base_transport_mock,
+        auto_reconnect=AsyncRetrying(wait=wait_fixed(4.0), before_sleep=async_before_sleep),
+        response_retry_strategy=AsyncRetrying(stop=stop_after_attempt(1), reraise=True),
+    )
+    with patch("asyncio.sleep", AsyncMock()):
+        with pytest.raises(TimeoutError):
+            await t_async.send_and_receive(1, DummyPDU())  # Initial failure
+        with pytest.raises(TimeoutError):
+            await t_async.send_and_receive(1, DummyPDU())  # Recovery failure -> triggers async before_sleep(4.0)
+
+    assert async_called == [4.0]
 
 
 async def test_application_success_resets_recovery_state(
     base_transport_mock: MagicMock,
 ) -> None:
-    """Test that a successful response resets recovery failure count and deadline."""
+    """Test that a successful response resets recovery state and deadline."""
     t = AsyncSmartTransport(
         base_transport_mock,
         response_retry_strategy=AsyncRetrying(stop=stop_after_attempt(1), reraise=True),
     )
+    assert isinstance(t.auto_reconnect, AsyncRetrying)
     # Simulate an established failure state
-    t._recovery_failure_count = 3
+    t._reconnect_state = RetryCallState(t.auto_reconnect, fn=None, args=(), kwargs={})
+    t._reconnect_state.attempt_number = 3
     t._next_reconnect_earliest = time.monotonic() + 100.0
     t._must_reconnect = True
 
@@ -737,7 +871,7 @@ async def test_application_success_resets_recovery_state(
         resp = await t.send_and_receive(1, DummyPDU())
 
     assert resp == ("ok", b"")
-    assert t._recovery_failure_count == 0
+    assert t._reconnect_state is None
     assert t._next_reconnect_earliest == 0.0
     assert t._must_reconnect is False
 
@@ -751,8 +885,10 @@ async def test_modbus_response_error_resets_recovery_state(
         response_retry_strategy=AsyncRetrying(stop=stop_after_attempt(1), reraise=True),
         retry_on_device_busy=False,
     )
+    assert isinstance(t.auto_reconnect, AsyncRetrying)
     # Simulate an established failure state
-    t._recovery_failure_count = 2
+    t._reconnect_state = RetryCallState(t.auto_reconnect, fn=None, args=(), kwargs={})
+    t._reconnect_state.attempt_number = 2
     t._next_reconnect_earliest = time.monotonic() + 50.0
     t._must_reconnect = True
 
@@ -762,7 +898,7 @@ async def test_modbus_response_error_resets_recovery_state(
         await t.send_and_receive(1, DummyPDU())
 
     # Modbus exception response proves MCU is alive, so recovery state must be reset
-    assert t._recovery_failure_count == 0
+    assert t._reconnect_state is None
     assert t._next_reconnect_earliest == 0.0
     assert t._must_reconnect is False
 
@@ -770,7 +906,7 @@ async def test_modbus_response_error_resets_recovery_state(
 async def test_tcp_connect_failure_preserves_existing_auto_reconnect_behavior(
     base_transport_mock: MagicMock,
 ) -> None:
-    """Test that TCP connect failure preserves inner Tenacity retries and does not multiply-increment counter."""
+    """Test that TCP connect failure preserves inner Tenacity retries."""
     t = AsyncSmartTransport(
         base_transport_mock,
         auto_reconnect=AsyncRetrying(stop=stop_after_attempt(3), wait=wait_none()),
@@ -793,8 +929,7 @@ async def test_tcp_connect_failure_preserves_existing_auto_reconnect_behavior(
     resp = await t.send_and_receive(1, DummyPDU())
     assert resp == ("ok", b"")
     assert open_attempts == 3
-    # Recovery counter must be 0 after application success, not incremented by inner connect attempts
-    assert t._recovery_failure_count == 0
+    assert t._reconnect_state is None
 
 
 async def test_on_reconnected_called_at_canonical_point(
@@ -830,15 +965,17 @@ async def test_on_reconnected_called_at_canonical_point(
 async def test_public_close_resets_recovery_state(
     base_transport_mock: AsyncBaseTransport,
 ) -> None:
-    """Test that public close() resets recovery counter and earliest deadline."""
+    """Test that public close() resets recovery state and earliest deadline."""
     t = AsyncSmartTransport(base_transport_mock)
-    t._recovery_failure_count = 3
+    assert isinstance(t.auto_reconnect, AsyncRetrying)
+    t._reconnect_state = RetryCallState(t.auto_reconnect, fn=None, args=(), kwargs={})
+    t._reconnect_state.attempt_number = 3
     t._next_reconnect_earliest = time.monotonic() + 60.0
     t._must_reconnect = True
 
     await t.close()
 
-    assert t._recovery_failure_count == 0
+    assert t._reconnect_state is None
     assert t._next_reconnect_earliest == 0.0
     assert t._must_reconnect is False
 

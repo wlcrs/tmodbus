@@ -9,6 +9,7 @@ and implements the following smart features:
 """
 
 import asyncio
+import inspect
 import logging
 import time
 from collections.abc import Awaitable, Callable
@@ -43,7 +44,6 @@ if TYPE_CHECKING:
 logger = logging.getLogger(__name__)
 
 TRANSPORT_FAILURES = (TimeoutError, ModbusConnectionError, ConnectionError)
-_RECONNECT_BACKOFF_MAX = 60.0
 
 
 RT = TypeVar("RT")
@@ -103,7 +103,7 @@ class AsyncSmartTransport(AsyncBaseTransport):
     _communication_lock: asyncio.Lock
     _should_be_connected: bool
     _must_reconnect: bool
-    _recovery_failure_count: int
+    _reconnect_state: RetryCallState | None
     _next_reconnect_earliest: float
 
     auto_reconnect: AsyncRetrying | None = None
@@ -157,7 +157,7 @@ class AsyncSmartTransport(AsyncBaseTransport):
         self._communication_lock = asyncio.Lock()
         self._should_be_connected = False
         self._must_reconnect = False
-        self._recovery_failure_count = 0
+        self._reconnect_state = None
         self._next_reconnect_earliest = 0.0
 
         if wait_between_requests < 0:
@@ -275,25 +275,45 @@ class AsyncSmartTransport(AsyncBaseTransport):
 
     def _reset_recovery_state(self) -> None:
         """Reset the recovery state after application success or public close."""
-        self._recovery_failure_count = 0
+        self._reconnect_state = None
         self._next_reconnect_earliest = 0.0
 
-    async def _handle_transport_failure(self, *, is_recovery_attempt: bool) -> None:
+    async def _handle_transport_failure(self, exc: BaseException, *, is_recovery_attempt: bool) -> None:
         """Handle a transport failure and update recovery backoff state."""
         self._must_reconnect = True
-        if not is_recovery_attempt:
+
+        if not self.auto_reconnect:
+            # Auto-reconnect is disabled; simply close the base transport
+            try:
+                await self.base_transport.close()
+            except Exception:  # noqa: BLE001
+                logger.debug("Error while closing base transport during transport failure handling", exc_info=True)
+            return
+
+        if not is_recovery_attempt or self._reconnect_state is None:
             # Initial failure during normal operation: immediate first recovery attempt (wait = 0s)
-            self._recovery_failure_count = 0
+            self._reconnect_state = RetryCallState(self.auto_reconnect, fn=None, args=(), kwargs={})
             self._next_reconnect_earliest = 0.0
             logger.info("Communication failure during normal operation. Entering recovery.")
         else:
-            # Subsequent recovery failure: advance counter and calculate exponential backoff
-            self._recovery_failure_count += 1
-            backoff_delay = min(2.0 ** (self._recovery_failure_count - 1), _RECONNECT_BACKOFF_MAX)
+            # Subsequent recovery failure: record exception, compute backoff using user-configured wait strategy
+            self._reconnect_state.set_exception((type(exc), exc, None))
+            backoff_delay = float(self.auto_reconnect.wait(self._reconnect_state))
             self._next_reconnect_earliest = time.monotonic() + backoff_delay
+
+            if self.auto_reconnect.before_sleep:
+                self._reconnect_state.upcoming_sleep = backoff_delay
+                cb_result = self.auto_reconnect.before_sleep(self._reconnect_state)
+                if inspect.isawaitable(cb_result):
+                    await cb_result
+
+            self._reconnect_state.prepare_for_next_attempt()
+
             logger.warning(
-                "Recovery attempt failed (failure %d). Next reconnect backoff: %.2fs",
-                self._recovery_failure_count,
+                "Recovery attempt %d failed (%s: %s). Next reconnect backoff: %.2fs",
+                self._reconnect_state.attempt_number - 1,
+                type(exc).__name__,
+                exc,
                 backoff_delay,
             )
 
@@ -341,7 +361,7 @@ class AsyncSmartTransport(AsyncBaseTransport):
     async def _reconnect_send_and_receive(self, unit_id: int, pdu: BaseClientPDU[RT]) -> RT:
         """Reconnect if necessary, then try to Send PDU and Receive Response."""
         is_recovery_attempt = (
-            self._must_reconnect or not self.base_transport.is_open() or self._recovery_failure_count > 0
+            self._must_reconnect or not self.base_transport.is_open() or self._reconnect_state is not None
         )
 
         try:
@@ -376,8 +396,8 @@ class AsyncSmartTransport(AsyncBaseTransport):
             self._reset_recovery_state()
             self._must_reconnect = False
             raise
-        except TRANSPORT_FAILURES:
-            await self._handle_transport_failure(is_recovery_attempt=is_recovery_attempt)
+        except TRANSPORT_FAILURES as exc:
+            await self._handle_transport_failure(exc, is_recovery_attempt=is_recovery_attempt)
             raise
         else:
             self._reset_recovery_state()
