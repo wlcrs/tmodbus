@@ -282,12 +282,12 @@ class AsyncSmartTransport(AsyncBaseTransport):
         """Handle a transport failure and update recovery backoff state."""
         self._must_reconnect = True
 
+        try:
+            await self.base_transport.close()
+        except Exception:
+            logger.debug("Error while closing base transport during transport failure handling", exc_info=True)
+
         if not self.auto_reconnect:
-            # Auto-reconnect is disabled; simply close the base transport
-            try:
-                await self.base_transport.close()
-            except Exception:  # noqa: BLE001
-                logger.debug("Error while closing base transport during transport failure handling", exc_info=True)
             return
 
         if not is_recovery_attempt or self._reconnect_state is None:
@@ -316,11 +316,6 @@ class AsyncSmartTransport(AsyncBaseTransport):
                 exc,
                 backoff_delay,
             )
-
-        try:
-            await self.base_transport.close()
-        except Exception:  # noqa: BLE001
-            logger.debug("Error while closing base transport during transport failure handling", exc_info=True)
 
     def is_open(self) -> bool:
         """Check Connection Status.
@@ -376,7 +371,7 @@ class AsyncSmartTransport(AsyncBaseTransport):
                     self._must_reconnect = False
                     logger.info("Forcing reconnection due to previous connection error.")
                     await self._do_auto_reconnect()
-                elif not self.base_transport.is_open():
+                else:
                     logger.info("Connection lost. Attempting to reconnect...")
                     await self._do_auto_reconnect()
 

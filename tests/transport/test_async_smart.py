@@ -12,7 +12,6 @@ from tenacity import (
     retry_if_exception_type,
     stop_after_attempt,
     stop_never,
-    wait_exponential,
     wait_fixed,
     wait_none,
 )
@@ -705,7 +704,8 @@ async def test_persistent_backoff_progression_across_calls(
         assert t._reconnect_state.attempt_number == 2
         assert t._next_reconnect_earliest > 0.0
 
-        # Call 3: Second recovery attempt -> backoff 1s (DEFAULT_RECONNECT_RETRY_STRATEGY has wait_exponential min=0.1, max=10)
+        # Call 3: Second recovery attempt -> backoff 1s
+        # (DEFAULT_RECONNECT_RETRY_STRATEGY has wait_exponential min=0.1, max=10)
         with pytest.raises(TimeoutError):
             await t.send_and_receive(1, DummyPDU())
         assert t._must_reconnect is True
@@ -921,7 +921,8 @@ async def test_tcp_connect_failure_preserves_existing_auto_reconnect_behavior(
         nonlocal open_attempts
         open_attempts += 1
         if open_attempts < 3:
-            raise ModbusConnectionError("TCP connection refused")
+            msg = "TCP connection refused"
+            raise ModbusConnectionError(msg)
 
     base_transport_mock.open = AsyncMock(side_effect=counting_open)
     base_transport_mock.send_and_receive.return_value = ("ok", b"")
@@ -944,7 +945,7 @@ async def test_on_reconnected_called_at_canonical_point(
     async def mock_on_reconnected() -> None:
         call_order.append("on_reconnected")
 
-    async def mock_send_and_receive(unit_id: int, pdu: Any) -> tuple[str, bytes]:
+    async def mock_send_and_receive(_unit_id: int, _pdu: Any) -> tuple[str, bytes]:
         call_order.append("send_and_receive")
         return ("ok", b"")
 
@@ -979,3 +980,41 @@ async def test_public_close_resets_recovery_state(
     assert t._next_reconnect_earliest == 0.0
     assert t._must_reconnect is False
 
+
+async def test_transport_failure_without_auto_reconnect(
+    base_transport_mock: MagicMock,
+) -> None:
+    """Test that transport failure when auto_reconnect is disabled closes transport without entering recovery."""
+    t = AsyncSmartTransport(
+        base_transport_mock,
+        auto_reconnect=False,
+        response_retry_strategy=AsyncRetrying(stop=stop_after_attempt(1), reraise=True),
+    )
+    base_transport_mock.send_and_receive.side_effect = TimeoutError("stalled")
+
+    with pytest.raises(TimeoutError):
+        await t.send_and_receive(1, DummyPDU())
+
+    base_transport_mock.close.assert_awaited_once()
+    assert t._must_reconnect is True
+    assert t._reconnect_state is None
+    assert t._next_reconnect_earliest == 0.0
+
+
+async def test_transport_failure_handles_close_exception(
+    base_transport_mock: MagicMock,
+) -> None:
+    """Test that an exception during base_transport.close() in failure handling is logged and caught."""
+    t = AsyncSmartTransport(
+        base_transport_mock,
+        response_retry_strategy=AsyncRetrying(stop=stop_after_attempt(1), reraise=True),
+    )
+    base_transport_mock.send_and_receive.side_effect = TimeoutError("stalled")
+    base_transport_mock.close.side_effect = OSError("socket dead")
+
+    with pytest.raises(TimeoutError):
+        await t.send_and_receive(1, DummyPDU())
+
+    base_transport_mock.close.assert_awaited_once()
+    assert t._must_reconnect is True
+    assert t._reconnect_state is not None
