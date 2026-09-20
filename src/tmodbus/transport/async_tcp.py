@@ -356,6 +356,18 @@ class ModbusTcpProtocol(asyncio.Protocol):
 
             total_length = 7 + (length - 1)  # Total length = MBAP header + PDU length
 
+            # An exception response carries a two byte PDU: the function code with bit 7
+            # set, and the exception code. Some devices declare a length that does not
+            # match it. A Marstek Venus D (Control/EMS v150) answers a read of an
+            # unimplemented register with a nine byte frame whose length field reads 4
+            # where the protocol requires 3, so framing it by the header leaves the
+            # parser waiting for a byte the device never sends. The request then times
+            # out, the orphaned bytes stay in the buffer, and the next response loses its
+            # first byte to them - one rejected register costs two failed reads.
+            # An exception has a fixed size, so use it instead of the declared one.
+            if len(self._buffer) > 7 and self._buffer[7] & 0x80:
+                total_length = 9
+
             if len(self._buffer) >= total_length:
                 # Extract complete response
                 response = bytes(self._buffer[:total_length])
