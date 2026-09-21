@@ -161,8 +161,7 @@ The following diagram illustrates the lifecycle of a request entering
 .. mermaid::
 
     flowchart TD
-        Start([send_and_receive called]) --> Lock[Acquire _communication_lock]
-        Lock --> OuterLoop[response_retry_strategy attempt loop]
+        Start([send_and_receive called]) --> OuterLoop[response_retry_strategy attempt loop]
 
         OuterLoop --> CheckNeedReconnect{Reconnection needed?<br/>_must_reconnect OR !is_open}
 
@@ -180,8 +179,7 @@ The following diagram illustrates the lifecycle of a request entering
         SendPDU --> ResultType{Transaction Outcome}
 
         ResultType -- "Success (Valid PDU)" --> UpdatePacing[Update _last_request_finished_at]
-        UpdatePacing --> ReleaseLock[Release _communication_lock]
-        ReleaseLock --> ReturnResponse([Return decoded response])
+        UpdatePacing --> ReturnResponse([Return decoded response])
 
         ResultType -- "ModbusResponseError (e.g. DeviceBusy)" --> CheckBusyRetry{retry_on_device_busy?}
         CheckBusyRetry -- Yes --> OuterLoop
