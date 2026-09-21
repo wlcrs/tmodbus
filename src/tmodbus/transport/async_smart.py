@@ -41,6 +41,8 @@ if TYPE_CHECKING:
 
 logger = logging.getLogger(__name__)
 
+TRANSPORT_FAILURES = (TimeoutError, ModbusConnectionError, ConnectionError)
+
 
 RT = TypeVar("RT")
 
@@ -165,9 +167,7 @@ class AsyncSmartTransport(AsyncBaseTransport):
         if isinstance(auto_reconnect, bool) and auto_reconnect:
             auto_reconnect = DEFAULT_RECONNECT_RETRY_STRATEGY
         if auto_reconnect:
-            self.auto_reconnect = auto_reconnect.copy(
-                retry=retry_if_exception_type((ModbusConnectionError, TimeoutError))
-            )
+            self.auto_reconnect = auto_reconnect.copy(retry=retry_if_exception_type(TRANSPORT_FAILURES))
 
         if not auto_reconnect and on_reconnected:
             msg = "on_reconnected callback provided but auto_reconnect is disabled"
@@ -262,6 +262,7 @@ class AsyncSmartTransport(AsyncBaseTransport):
                 await self.base_transport.close()
             finally:
                 self._should_be_connected = False
+                self._must_reconnect = False
 
     def is_open(self) -> bool:
         """Check Connection Status.
@@ -307,7 +308,7 @@ class AsyncSmartTransport(AsyncBaseTransport):
                 self._must_reconnect = False
                 logger.info("Forcing reconnection due to previous connection error.")
                 await self._do_auto_reconnect()
-            if not self.base_transport.is_open():
+            elif not self.base_transport.is_open():
                 logger.info("Connection lost. Attempting to reconnect...")
                 await self._do_auto_reconnect()
 
@@ -322,7 +323,15 @@ class AsyncSmartTransport(AsyncBaseTransport):
                 )
                 await asyncio.sleep(wait_needed)
 
-        return await self.base_transport.send_and_receive(unit_id, pdu)
+        try:
+            return await self.base_transport.send_and_receive(unit_id, pdu)
+        except TRANSPORT_FAILURES:
+            self._must_reconnect = True
+            try:
+                await self.base_transport.close()
+            except Exception:
+                logger.debug("Error while closing base transport during transport failure handling", exc_info=True)
+            raise
 
     async def send_and_receive(self, unit_id: int, pdu: BaseClientPDU[RT]) -> RT:
         """Send PDU and Receive Response."""
@@ -358,7 +367,7 @@ class AsyncSmartTransport(AsyncBaseTransport):
         """Retry with a new connection if the connection was lost."""
         if retry_state.outcome and retry_state.outcome.failed:
             exception = retry_state.outcome.exception()
-            if isinstance(exception, ModbusConnectionError):
+            if isinstance(exception, TRANSPORT_FAILURES):
                 logger.debug(
                     "Retrying request with a new connection after %s",
                     f"{type(exception).__name__}: {exception}",
