@@ -161,35 +161,75 @@ The following diagram illustrates the lifecycle of a request entering
 .. mermaid::
 
     flowchart TD
-        Start([send_and_receive called]) --> OuterLoop[response_retry_strategy attempt loop]
+        %% --- HAPPY PATH (Centered Backbone) ---
+        Start([send_and_receive called])
+        CheckNeedReconnect{Reconnection<br/>needed?}
+        CheckPacing{Pacing delay<br/>needed?}
+        SendPDU[base_transport.send_and_receive]
+        ResultType{Transaction<br/>Outcome?}
+        UpdatePacing[Update _last_request_finished_at]
+        ReturnResponse([Return decoded response])
 
-        OuterLoop --> CheckNeedReconnect{Reconnection needed?<br/>_must_reconnect OR !is_open}
+        %% Direct vertical spine
+        Start --> CheckNeedReconnect
+        CheckNeedReconnect -- "No (open)" --> CheckPacing
+        CheckPacing -- "No" --> SendPDU
+        SendPDU --> ResultType
+        ResultType -- "Success" --> UpdatePacing
+        UpdatePacing --> ReturnResponse
 
-        CheckNeedReconnect -- Yes --> DoReconnect[_do_auto_reconnect: open socket]
-        CheckNeedReconnect -- No --> CheckPacing{wait_between_requests > 0?}
+        %% Anchor the vertical backbone
+        Start ~~~ CheckNeedReconnect ~~~ CheckPacing ~~~ SendPDU ~~~ ResultType ~~~ UpdatePacing ~~~ ReturnResponse
 
-        DoReconnect --> ReconnectSuccess{Connected?}
-        ReconnectSuccess -- No --> RaiseConnError([Raise ModbusConnectionError])
-        ReconnectSuccess -- Yes --> CheckPacing
+        %% --- PRE-TRANSACTION BRANCHES ---
+        subgraph ReconnectBranch [Reconnection Handling]
+            DoReconnect[_do_auto_reconnect: open socket]
+            ReconnectSuccess{Connected?}
+            RaiseConnError([Raise ModbusConnectionError]):::errNode
+        end
 
-        CheckPacing -- Yes --> SleepPacing[asyncio.sleep pacing delay]
-        CheckPacing -- No --> SendPDU[base_transport.send_and_receive]
+        CheckNeedReconnect -- "Yes" --> DoReconnect
+        DoReconnect --> ReconnectSuccess
+        ReconnectSuccess -- "Yes" --> CheckPacing
+        ReconnectSuccess -- "No" --> RaiseConnError
+
+        SleepPacing[asyncio.sleep pacing delay]:::waitNode
+        CheckPacing -- "Yes" --> SleepPacing
         SleepPacing --> SendPDU
 
-        SendPDU --> ResultType{Transaction Outcome}
+        %% --- POST-TRANSACTION: LEFT SIDE (ModbusResponseError) ---
+        subgraph AppErrorHandling [ModbusResponseError]
+            CheckBusyRetry{retry_on_device_busy?}
+            RaiseAppError([Raise ModbusResponseError]):::errNode
+        end
 
-        ResultType -- "Success (Valid PDU)" --> UpdatePacing[Update _last_request_finished_at]
-        UpdatePacing --> ReturnResponse([Return decoded response])
+        ResultType -- "ModbusResponseError" --> CheckBusyRetry
+        CheckBusyRetry -- "Yes (Retry)" --> CheckNeedReconnect
+        CheckBusyRetry -- "No" --> RaiseAppError
 
-        ResultType -- "ModbusResponseError (e.g. DeviceBusy)" --> CheckBusyRetry{retry_on_device_busy?}
-        CheckBusyRetry -- Yes --> OuterLoop
-        CheckBusyRetry -- No --> RaiseAppError([Raise ModbusResponseError])
+        %% --- POST-TRANSACTION: RIGHT SIDE (Transport Failure) ---
+        subgraph TransportFailureHandling [Transport Failure]
+            HandleFail[Set _must_reconnect = True]
+            CloseSocket[Close base transport]
+            CheckRetry{Attempts left?}
+            RaiseRetryFailed([Raise RequestRetryFailedError]):::errNode
+        end
 
-        ResultType -- "Transport Failure (Timeout, ConnError)" --> HandleFail[Set _must_reconnect = True]
-        HandleFail --> CloseSocket[Close base transport]
-        CloseSocket --> CheckRetry{response_retry_strategy has attempts?}
-        CheckRetry -- Yes --> OuterLoop
-        CheckRetry -- No --> RaiseRetryFailed([Raise RequestRetryFailedError])
+        ResultType -- "Transport Failure" --> HandleFail
+        HandleFail --> CloseSocket
+        CloseSocket --> CheckRetry
+        CheckRetry -- "Yes (Retry)" --> CheckNeedReconnect
+        CheckRetry -- "No" --> RaiseRetryFailed
+
+        %% Horizontal ordering between the two branches around the center spine
+        CheckBusyRetry ~~~ ResultType ~~~ HandleFail
+
+        %% --- STYLING ---
+        classDef happy stroke:#2e7d32,stroke-width:2.5px,fill:#e8f5e9,color:#1b5e20;
+        classDef errNode stroke:#c62828,stroke-width:1.5px,fill:#ffebee,color:#b71c1c;
+        classDef waitNode stroke:#f57c00,stroke-width:1.5px,fill:#fff3e0,color:#e65100;
+
+        class Start,CheckNeedReconnect,CheckPacing,SendPDU,ResultType,UpdatePacing,ReturnResponse happy;
 
 ************************
  Hardware Pacing Delays
