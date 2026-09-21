@@ -61,6 +61,7 @@ clear.
     api
     server
     architecture
+    smart
     examples
 
     batch_reading
