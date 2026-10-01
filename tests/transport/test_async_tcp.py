@@ -219,6 +219,68 @@ async def test_protocol_data_received_out_of_range_length_resyncs() -> None:
     assert future.result().pdu_bytes == b"\x03\x99"
 
 
+async def test_protocol_exception_with_oversized_declared_length() -> None:
+    """An exception whose length field is too large must still be delivered.
+
+    An exception PDU is two bytes: the function code with bit 7 set, and the
+    exception code. A Marstek Venus D (Control/EMS v150) declares 4 in the MBAP
+    length field where the protocol requires 3, so the frame is nine bytes but
+    claims ten. Framing it by the header leaves the parser waiting for a byte
+    that is never sent, and the request times out on a device that answered.
+    """
+    protocol = ModbusTcpProtocol(on_connection_lost=lambda _: None, timeout=10.0)
+    protocol.connection_made(MagicMock(spec=asyncio.WriteTransport))
+
+    future: asyncio.Future[_ModbusMessage] = asyncio.get_event_loop().create_future()
+    protocol._pending_requests[1] = future
+
+    # tid=1, pid=0, len=4 (should be 3), uid=1, fc=0x83, exception=0x02 - nine bytes.
+    protocol.data_received(struct.pack(">HHHB", 1, 0x0000, 4, 1) + b"\x83\x02")
+    await asyncio.sleep(0.01)
+
+    assert future.done()
+    assert future.result().pdu_bytes == b"\x83\x02"
+
+
+async def test_protocol_exception_with_oversized_length_keeps_next_response() -> None:
+    """The next response on the same connection must survive the short frame.
+
+    Without framing the exception by its own size, its bytes stay in the buffer
+    and the parser takes the missing byte out of the following response, losing
+    both - so one rejected register costs two reads rather than one.
+    """
+    protocol = ModbusTcpProtocol(on_connection_lost=lambda _: None, timeout=10.0)
+    protocol.connection_made(MagicMock(spec=asyncio.WriteTransport))
+
+    exception_future: asyncio.Future[_ModbusMessage] = asyncio.get_event_loop().create_future()
+    protocol._pending_requests[1] = exception_future
+    next_future: asyncio.Future[_ModbusMessage] = asyncio.get_event_loop().create_future()
+    protocol._pending_requests[2] = next_future
+
+    protocol.data_received(struct.pack(">HHHB", 1, 0x0000, 4, 1) + b"\x83\x02")
+    protocol.data_received(struct.pack(">HHHB", 2, 0x0000, 3, 1) + b"\x03\x99")
+    await asyncio.sleep(0.01)
+
+    assert exception_future.done()
+    assert next_future.done()
+    assert next_future.result().pdu_bytes == b"\x03\x99"
+
+
+async def test_protocol_exception_with_correct_length_still_works() -> None:
+    """A device that declares the exception length correctly is unaffected."""
+    protocol = ModbusTcpProtocol(on_connection_lost=lambda _: None, timeout=10.0)
+    protocol.connection_made(MagicMock(spec=asyncio.WriteTransport))
+
+    future: asyncio.Future[_ModbusMessage] = asyncio.get_event_loop().create_future()
+    protocol._pending_requests[1] = future
+
+    protocol.data_received(struct.pack(">HHHB", 1, 0x0000, 3, 1) + b"\x83\x02")
+    await asyncio.sleep(0.01)
+
+    assert future.done()
+    assert future.result().pdu_bytes == b"\x83\x02"
+
+
 async def test_protocol_data_received_zeros_flood_is_bounded() -> None:
     """A 64 KiB flood of zero bytes must be discarded in one pass, not one byte per pass.
 
