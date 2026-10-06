@@ -89,7 +89,8 @@ reconnect and retry logic to create a very robust transport which is capable of 
 unstable underlying connections. It must be used as a wrapper around one of the specific
 transport implementations. It uses `tenacity <https://tenacity.readthedocs.io/>`_ under
 the hood to provide this functionality and to make it easy for the end-user (you!) to
-specify the retry- and stop-conditions.
+specify the retry- and stop-conditions. See :doc:`smart` for in-depth documentation and
+configuration details.
 
 PDU layer
 =========

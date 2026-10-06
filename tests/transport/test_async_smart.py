@@ -1,6 +1,7 @@
 """Tests for tmodbus/transport/async_smart.py ."""
 
 import time
+from typing import Any
 from unittest.mock import AsyncMock, MagicMock, patch
 
 import pytest
@@ -625,3 +626,96 @@ async def test_retry_strategy_force_sane_defaults(
     # The resulting strategy should not have stop_never and wait_none
     assert t.response_retry_strategy.stop != stop_never
     assert not isinstance(t.response_retry_strategy.wait, wait_none)
+
+
+async def test_retry_with_new_connection_if_needed_includes_timeout_and_connection_error(
+    base_transport_mock: AsyncBaseTransport,
+) -> None:
+    """Test _retry_with_new_connection_if_needed returns True for TimeoutError and ConnectionError."""
+    t = AsyncSmartTransport(base_transport_mock)
+
+    for exc in (TimeoutError("request timed out"), ConnectionError("connection broken")):
+        retry_state = MagicMock()
+        retry_state.outcome = Future(0)
+        retry_state.outcome.set_exception(exc)
+
+        result = t._retry_with_new_connection_if_needed(retry_state)
+        assert result is True, f"Expected True for {type(exc).__name__}"
+        assert t._must_reconnect is True
+
+
+async def test_timeout_at_transaction_boundary_retried_with_new_connection(
+    base_transport_mock: MagicMock,
+) -> None:
+    """Test that TimeoutError during send_and_receive marks _must_reconnect, closes transport, and retries."""
+    t = AsyncSmartTransport(
+        base_transport_mock,
+        response_retry_strategy=AsyncRetrying(stop=stop_after_attempt(2), wait=wait_none(), reraise=True),
+    )
+
+    # First attempt fails with TimeoutError, second attempt succeeds
+    attempts = 0
+
+    async def mock_send_and_receive(_unit_id: int, _pdu: Any) -> tuple[str, bytes]:
+        nonlocal attempts
+        attempts += 1
+        if attempts == 1:
+            msg = "PDU timed out"
+            raise TimeoutError(msg)
+        return ("ok", b"")
+
+    base_transport_mock.send_and_receive = AsyncMock(side_effect=mock_send_and_receive)
+
+    resp = await t.send_and_receive(1, DummyPDU())
+    assert resp == ("ok", b"")
+    assert attempts == 2
+    base_transport_mock.close.assert_awaited()
+    assert t._must_reconnect is False
+
+
+async def test_transport_failure_handles_close_exception(
+    base_transport_mock: MagicMock,
+) -> None:
+    """Test that an exception during base_transport.close() in failure handling is logged and caught."""
+    t = AsyncSmartTransport(
+        base_transport_mock,
+        response_retry_strategy=AsyncRetrying(stop=stop_after_attempt(1), reraise=True),
+    )
+    msg_timeout = "stalled"
+    base_transport_mock.send_and_receive.side_effect = TimeoutError(msg_timeout)
+    msg_os = "socket dead"
+    base_transport_mock.close.side_effect = OSError(msg_os)
+
+    with pytest.raises(TimeoutError):
+        await t.send_and_receive(1, DummyPDU())
+
+    base_transport_mock.close.assert_awaited_once()
+    assert t._must_reconnect is True
+
+
+async def test_connection_error_during_open_retried_by_auto_reconnect(
+    base_transport_mock: MagicMock,
+) -> None:
+    """Test that standard ConnectionError (e.g. ConnectionRefusedError) during _open is retried by auto_reconnect."""
+    t = AsyncSmartTransport(
+        base_transport_mock,
+        auto_reconnect=AsyncRetrying(stop=stop_after_attempt(3), wait=wait_none()),
+        response_retry_strategy=AsyncRetrying(stop=stop_after_attempt(1), reraise=True),
+    )
+    t._must_reconnect = True
+
+    open_attempts = 0
+
+    async def counting_open() -> None:
+        nonlocal open_attempts
+        open_attempts += 1
+        if open_attempts < 3:
+            msg = "OS connection refused"
+            raise ConnectionRefusedError(msg)
+
+    base_transport_mock.open = AsyncMock(side_effect=counting_open)
+    base_transport_mock.send_and_receive.return_value = ("ok", b"")
+
+    resp = await t.send_and_receive(1, DummyPDU())
+    assert resp == ("ok", b"")
+    assert open_attempts == 3
