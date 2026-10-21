@@ -377,6 +377,18 @@ async def test_open_success_path(monkeypatch: pytest.MonkeyPatch) -> None:
     assert t.is_open()
 
 
+async def test_close_waits_when_already_closing() -> None:
+    """Test close waits for connection_lost when transport is closing."""
+    t = AsyncUdpTransport("host", port=1234)
+    mock_transport = MagicMock(spec=asyncio.DatagramTransport)
+    mock_transport.is_closing.return_value = True
+    t._transport = mock_transport
+    t._closed_event.clear()
+    asyncio.get_running_loop().call_soon(t._closed_event.set)
+    await t.close()
+    mock_transport.close.assert_not_called()
+
+
 async def test_close_success() -> None:
     """Test successful close()."""
     t = AsyncUdpTransport("host", port=1234)

@@ -438,6 +438,7 @@ class AsyncAsciiTransport(AsyncBaseTransport):
 
     _transport: asyncio.Transport | None = None
     _protocol: "ModbusAsciiProtocol | None" = None
+    _closed_event: asyncio.Event
 
     def __init__(
         self,
@@ -463,6 +464,8 @@ class AsyncAsciiTransport(AsyncBaseTransport):
         self.timeout = timeout
         self.on_connection_lost = on_connection_lost
         self.serialx_options = serialx_options
+        self._closed_event = asyncio.Event()
+        self._closed_event.set()
 
     async def open(self) -> None:
         """Establish Serial connection."""
@@ -500,6 +503,7 @@ class AsyncAsciiTransport(AsyncBaseTransport):
             assert isinstance(protocol, ModbusAsciiProtocol)
             self._transport = transport
             self._protocol = protocol
+            self._closed_event.clear()
 
             logger.info("Async Serial connection established to '%s'", self.port)
 
@@ -525,11 +529,15 @@ class AsyncAsciiTransport(AsyncBaseTransport):
             self._transport.close()
         self._transport = None
         self._protocol = None
+        self._closed_event.set()
 
     async def close(self) -> None:
         """Close Serial connection."""
         if not self._transport or self._transport.is_closing():
-            logger.debug("Serial connection already closed: %s", self.port)
+            if self._transport and self._transport.is_closing() and not self._closed_event.is_set():
+                await self._closed_event.wait()
+            else:
+                logger.debug("Serial connection already closed: %s", self.port)
             return
 
         try:
@@ -537,6 +545,12 @@ class AsyncAsciiTransport(AsyncBaseTransport):
             logger.info("Serial connection closed: %s", self.port)
         except Exception as e:  # noqa: BLE001
             logger.debug("Error during async connection close: %s", e)
+            self._transport = None
+            self._protocol = None
+            self._closed_event.set()
+            return
+
+        await self._closed_event.wait()
 
     def is_open(self) -> bool:
         """Check Serial connection status."""
@@ -550,6 +564,7 @@ class AsyncAsciiTransport(AsyncBaseTransport):
 
         self._transport = None
         self._protocol = None
+        self._closed_event.set()
 
         self._notify_connection_lost(exc)
 

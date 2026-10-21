@@ -42,6 +42,7 @@ class AsyncUdpTransport(AsyncBaseTransport):
 
     _transport: asyncio.DatagramTransport | None = None
     _protocol: "ModbusUdpProtocol | None" = None
+    _closed_event: asyncio.Event
 
     def __init__(
         self,
@@ -85,6 +86,8 @@ class AsyncUdpTransport(AsyncBaseTransport):
         self.connect_timeout = connect_timeout
         self.on_connection_lost = on_connection_lost
         self.connection_kwargs = connection_kwargs
+        self._closed_event = asyncio.Event()
+        self._closed_event.set()
 
     async def open(self) -> None:
         """Async establish UDP endpoint."""
@@ -102,6 +105,7 @@ class AsyncUdpTransport(AsyncBaseTransport):
                 ),
                 timeout=self.connect_timeout,
             )
+            self._closed_event.clear()
 
             logger.info("Async UDP endpoint established: %s:%d", self.host, self.port)
         except TimeoutError:
@@ -114,7 +118,10 @@ class AsyncUdpTransport(AsyncBaseTransport):
     async def close(self) -> None:
         """Close UDP transport."""
         if not self._transport or self._transport.is_closing():
-            logger.debug("Async UDP connection already closed: %s:%d", self.host, self.port)
+            if self._transport and self._transport.is_closing() and not self._closed_event.is_set():
+                await self._closed_event.wait()
+            else:
+                logger.debug("Async UDP connection already closed: %s:%d", self.host, self.port)
             return
 
         try:
@@ -122,6 +129,12 @@ class AsyncUdpTransport(AsyncBaseTransport):
             logger.info("Async UDP connection closed: %s:%d", self.host, self.port)
         except Exception as e:  # noqa: BLE001
             logger.debug("Error during async connection close: %s", e)
+            self._transport = None
+            self._protocol = None
+            self._closed_event.set()
+            return
+
+        await self._closed_event.wait()
 
     def is_open(self) -> bool:
         """Check if UDP connection is open."""
@@ -135,6 +148,7 @@ class AsyncUdpTransport(AsyncBaseTransport):
 
         self._transport = None
         self._protocol = None
+        self._closed_event.set()
 
         self._notify_connection_lost(exc)
 
