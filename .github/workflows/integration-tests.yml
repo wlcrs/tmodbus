@@ -63,5 +63,11 @@ jobs:
               (cd "${dir}" && ./compile.sh) || echo "Warning: Compilation failed in ${dir}"
             fi
           done
+      - name: 🔓 Ensure binaries are executable
+        run: |
+          chmod +x integration_tests/fieldtalk/diagslave
+          chmod +x integration_tests/simonvetter/client integration_tests/simonvetter/server
+          chmod +x integration_tests/rmodbus/target/release/{server,client,ascii-server}
+          chmod +x integration_tests/tokio/target/release/{tokio-server,tokio-client}
       - name: 🚀 Run pytest
         run: uv run --no-sync pytest integration_tests
