@@ -788,7 +788,7 @@ class AsyncModbusClient(HoldingRegisterReadMixin, HoldingRegisterWriteMixin):
         exc_tb: TracebackType | None,
     ) -> None:
         """Async context manager exit."""
-        await self.transport.close()
+        await self.disconnect()
 
     def for_unit_id(self, unit_id: int) -> "AsyncModbusClient":
         """Create a new client instance for a different unit ID, but using the same connection.

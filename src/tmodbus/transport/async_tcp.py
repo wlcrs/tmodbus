@@ -46,6 +46,7 @@ class AsyncTcpTransport(AsyncBaseTransport):
 
     _transport: asyncio.Transport | None = None
     _protocol: "ModbusTcpProtocol | None" = None
+    _closed_event: asyncio.Event
 
     def __init__(
         self,
@@ -90,6 +91,8 @@ class AsyncTcpTransport(AsyncBaseTransport):
         self.connect_timeout = connect_timeout
         self.on_connection_lost = on_connection_lost
         self.connection_kwargs = connection_kwargs
+        self._closed_event = asyncio.Event()
+        self._closed_event.set()
 
     async def open(self) -> None:
         """Async establish TCP connection."""
@@ -108,6 +111,7 @@ class AsyncTcpTransport(AsyncBaseTransport):
                 ),
                 timeout=self.connect_timeout,
             )
+            self._closed_event.clear()
 
             logger.info("Async TCP connection established: %s:%d", self.host, self.port)
         except TimeoutError:
@@ -120,7 +124,10 @@ class AsyncTcpTransport(AsyncBaseTransport):
     async def close(self) -> None:
         """Close TCP connection."""
         if not self._transport or self._transport.is_closing():
-            logger.debug("Async TCP connection already closed: %s:%d", self.host, self.port)
+            if self._transport and self._transport.is_closing() and not self._closed_event.is_set():
+                await self._closed_event.wait()
+            else:
+                logger.debug("Async TCP connection already closed: %s:%d", self.host, self.port)
             return
 
         try:
@@ -128,6 +135,12 @@ class AsyncTcpTransport(AsyncBaseTransport):
             logger.info("Async TCP connection closed: %s:%d", self.host, self.port)
         except Exception as e:  # noqa: BLE001
             logger.debug("Error during async connection close: %s", e)
+            self._transport = None
+            self._protocol = None
+            self._closed_event.set()
+            return
+
+        await self._closed_event.wait()
 
     def is_open(self) -> bool:
         """Check if TCP connection is open."""
@@ -141,6 +154,7 @@ class AsyncTcpTransport(AsyncBaseTransport):
 
         self._transport = None
         self._protocol = None
+        self._closed_event.set()
 
         self._notify_connection_lost(exc)
 

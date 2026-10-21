@@ -3,6 +3,7 @@
 Defines the unified interface that all transport layer implementations must follow.
 """
 
+import asyncio
 import logging
 from abc import ABC, abstractmethod
 from collections.abc import Callable
@@ -33,6 +34,8 @@ class AsyncBaseTransport(ABC):
     #: is the earliest possible notification that the socket dropped, independent of
     #: whether any request is in flight.
     on_connection_lost: Callable[[Exception | None], None] | None = None
+
+    _closed_event: asyncio.Event
 
     def _notify_connection_lost(self, exc: Exception | None) -> None:
         """Invoke the ``on_connection_lost`` callback, swallowing any error it raises.

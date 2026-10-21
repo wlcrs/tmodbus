@@ -510,11 +510,56 @@ async def test_close_closes_transport() -> None:
     t = AsyncTcpTransport("host", port=1234)
     mock_transport = MagicMock(spec=asyncio.WriteTransport)
     mock_transport.is_closing.return_value = False
+    mock_transport.close.side_effect = lambda: t._on_connection_lost(None)
     t._transport = mock_transport
 
     await t.close()
 
     mock_transport.close.assert_called_once()
+
+
+async def test_close_waits_for_connection_lost() -> None:
+    """Test that close() waits for connection_lost and clears transport and protocol."""
+    loop = asyncio.get_running_loop()
+    server = await loop.create_server(asyncio.Protocol, "127.0.0.1", 0)
+    port = server.sockets[0].getsockname()[1]
+
+    t = AsyncTcpTransport("127.0.0.1", port=port)
+    await t.open()
+    assert t.is_open()
+    assert t._transport is not None
+    assert t._protocol is not None
+
+    await t.close()
+    assert not t.is_open()
+    assert t._transport is None
+    assert t._protocol is None
+
+    # Idempotent second close
+    await t.close()
+    assert not t.is_open()
+
+    server.close()
+    await server.wait_closed()
+
+
+async def test_close_concurrent_waits_for_completion() -> None:
+    """Test that concurrent close() calls both wait for completion."""
+    loop = asyncio.get_running_loop()
+    server = await loop.create_server(asyncio.Protocol, "127.0.0.1", 0)
+    port = server.sockets[0].getsockname()[1]
+
+    t = AsyncTcpTransport("127.0.0.1", port=port)
+    await t.open()
+    assert t.is_open()
+
+    await asyncio.gather(t.close(), t.close())
+    assert not t.is_open()
+    assert t._transport is None
+    assert t._protocol is None
+
+    server.close()
+    await server.wait_closed()
 
 
 async def test_protocol_data_received_partial_frame() -> None:
@@ -549,13 +594,15 @@ async def test_open_when_already_open(monkeypatch: pytest.MonkeyPatch) -> None:
     # Create real protocol and mock transport
     on_connection_lost_called = False
 
-    def on_connection_lost(_exc: Exception | None) -> None:
+    def on_connection_lost(exc: Exception | None) -> None:
         nonlocal on_connection_lost_called
         on_connection_lost_called = True
+        t._on_connection_lost(exc)
 
     mock_protocol = ModbusTcpProtocol(on_connection_lost=on_connection_lost, timeout=10.0)
     mock_transport = MagicMock(spec=asyncio.WriteTransport)
     mock_transport.is_closing.return_value = False
+    mock_transport.close.side_effect = lambda: mock_protocol.connection_lost(None)
     mock_protocol.connection_made(mock_transport)
 
     async def mock_create_connection(*_args: object, **_kwargs: object) -> tuple[object, object]:
@@ -788,6 +835,7 @@ async def test_transport_send_and_receive_delegates_to_protocol(monkeypatch: pyt
     mock_protocol = MagicMock(spec=ModbusTcpProtocol)
     mock_transport = MagicMock(spec=asyncio.WriteTransport)
     mock_transport.is_closing.return_value = False
+    mock_transport.close.side_effect = lambda: t._on_connection_lost(None)
 
     # Mock the protocol's send_and_receive to return a known value
     expected_result = ("decoded", b"\x03\x04")

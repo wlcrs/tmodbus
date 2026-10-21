@@ -1,5 +1,6 @@
 """Tests for tmodbus/client/async_client.py ."""
 
+import asyncio
 from typing import Any, Literal, TypeVar
 from unittest.mock import MagicMock
 
@@ -28,16 +29,20 @@ class DummyAsyncTransport(AsyncBaseTransport):
         """Initialize the dummy transport."""
         self.performed_actions: list[Any] = []
         self.opened = False
+        self._closed_event = asyncio.Event()
+        self._closed_event.set()
 
     async def open(self) -> None:
         """Open the transport connection."""
         self.performed_actions.append("open")
         self.opened = True
+        self._closed_event.clear()
 
     async def close(self) -> None:
         """Close the transport connection."""
         self.performed_actions.append("close")
         self.opened = False
+        self._closed_event.set()
 
     def is_open(self) -> bool:
         """Check if the transport connection is open."""
