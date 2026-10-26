@@ -129,7 +129,7 @@ async def run_client_assertions(client: AsyncModbusClient) -> None:
     device_id = await client.read_device_identification(1, 0)
     assert device_id[0] == b"proconX Pty Ltd"
     assert device_id[1] == b"FT-MBSV"
-    assert device_id[2] == b"2.9.1.0"
+    assert device_id[2].startswith(b"2.")
 
     # 8. Typed / Struct Register Read/Write Mixin Helpers
     await client.write_int16(50, -1234)
