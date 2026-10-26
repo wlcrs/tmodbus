@@ -628,29 +628,50 @@ async def test_retry_strategy_force_sane_defaults(
     assert not isinstance(t.response_retry_strategy.wait, wait_none)
 
 
-async def test_retry_with_new_connection_if_needed_includes_timeout_and_connection_error(
+async def test_retry_with_new_connection_if_needed_for_connection_error(
     base_transport_mock: AsyncBaseTransport,
 ) -> None:
     """Test _retry_with_new_connection_if_needed returns True for TimeoutError and ConnectionError."""
     t = AsyncSmartTransport(base_transport_mock)
 
-    for exc in (TimeoutError("request timed out"), ConnectionError("connection broken")):
-        retry_state = MagicMock()
-        retry_state.outcome = Future(0)
-        retry_state.outcome.set_exception(exc)
+    retry_state = MagicMock()
+    retry_state.outcome = Future(0)
+    retry_state.outcome.set_exception(ConnectionError("connection broken"))
 
-        result = t._retry_with_new_connection_if_needed(retry_state)
-        assert result is True, f"Expected True for {type(exc).__name__}"
-        assert t._must_reconnect is True
+    result = t._retry_with_new_connection_if_needed(retry_state)
+    assert result is True
+    assert t._must_reconnect is True
 
 
+@pytest.mark.parametrize("disconnect_on_timeout", [True, False])
+async def test_retry_with_new_connection_if_needed_timeout(
+    base_transport_mock: AsyncBaseTransport,
+    *,
+    disconnect_on_timeout: bool,
+) -> None:
+    """Test _retry_with_new_connection_if_needed returns True for TimeoutError and ConnectionError."""
+    t = AsyncSmartTransport(base_transport_mock, disconnect_on_timeout=disconnect_on_timeout)
+
+    retry_state = MagicMock()
+    retry_state.outcome = Future(0)
+    retry_state.outcome.set_exception(TimeoutError("request timed out"))
+
+    result = t._retry_with_new_connection_if_needed(retry_state)
+    assert result is disconnect_on_timeout
+    assert t._must_reconnect is disconnect_on_timeout
+
+
+@pytest.mark.parametrize("disconnect_on_timeout", [True, False])
 async def test_timeout_at_transaction_boundary_retried_with_new_connection(
     base_transport_mock: MagicMock,
+    *,
+    disconnect_on_timeout: bool,
 ) -> None:
     """Test that TimeoutError during send_and_receive marks _must_reconnect, closes transport, and retries."""
     t = AsyncSmartTransport(
         base_transport_mock,
         response_retry_strategy=AsyncRetrying(stop=stop_after_attempt(2), wait=wait_none(), reraise=True),
+        disconnect_on_timeout=disconnect_on_timeout,
     )
 
     # First attempt fails with TimeoutError, second attempt succeeds
@@ -669,8 +690,11 @@ async def test_timeout_at_transaction_boundary_retried_with_new_connection(
     resp = await t.send_and_receive(1, DummyPDU())
     assert resp == ("ok", b"")
     assert attempts == 2
-    base_transport_mock.close.assert_awaited()
-    assert t._must_reconnect is False
+    if disconnect_on_timeout:
+        base_transport_mock.close.assert_awaited()
+    else:
+        base_transport_mock.close.assert_not_awaited()
+    assert t._must_reconnect is False  # _must_reconnect should be reset after successful retry
 
 
 async def test_transport_failure_handles_close_exception(
@@ -682,11 +706,11 @@ async def test_transport_failure_handles_close_exception(
         response_retry_strategy=AsyncRetrying(stop=stop_after_attempt(1), reraise=True),
     )
     msg_timeout = "stalled"
-    base_transport_mock.send_and_receive.side_effect = TimeoutError(msg_timeout)
+    base_transport_mock.send_and_receive.side_effect = ConnectionError(msg_timeout)
     msg_os = "socket dead"
     base_transport_mock.close.side_effect = OSError(msg_os)
 
-    with pytest.raises(TimeoutError):
+    with pytest.raises(ConnectionError):
         await t.send_and_receive(1, DummyPDU())
 
     base_transport_mock.close.assert_awaited_once()
