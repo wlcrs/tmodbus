@@ -41,7 +41,7 @@ if TYPE_CHECKING:
 
 logger = logging.getLogger(__name__)
 
-TRANSPORT_FAILURES = (TimeoutError, ModbusConnectionError, ConnectionError)
+TRANSPORT_FAILURES = (ModbusConnectionError, ConnectionError)
 
 
 RT = TypeVar("RT")
@@ -117,6 +117,7 @@ class AsyncSmartTransport(AsyncBaseTransport):
         response_retry_strategy: AsyncRetrying | None = None,
         retry_on_device_busy: bool = True,
         retry_on_device_failure: bool = False,
+        disconnect_on_timeout: bool = False,
     ) -> None:
         """Initialize Smart Transport Layer.
 
@@ -138,9 +139,10 @@ class AsyncSmartTransport(AsyncBaseTransport):
                                      parameters to sane values. The default stop_never and wait_none will cause the
                                      request to retry indefinitely and without any delay, which is usually not desired.
             retry_on_device_busy: Whether to retry on device busy errors (default: True).
-                                  Can be a custom AsyncRetrying instance when more control is needed.
             retry_on_device_failure: Whether to retry on device failure errors (default: False).
-                                     Can be a custom AsyncRetrying instance when more control is needed.
+            disconnect_on_timeout: Whether to disconnect when a timeout occurs. When auto-reconnect is enabled, this
+                                   will then trigger an automatic reconnection when the next request is sent.
+                                   (default: False).
 
         """
         self.base_transport = base_transport
@@ -166,10 +168,16 @@ class AsyncSmartTransport(AsyncBaseTransport):
             raise ValueError(msg)
         self.wait_after_connect = wait_after_connect
 
+        self.exceptions_that_trigger_reconnect: tuple[type[Exception], ...] = TRANSPORT_FAILURES
         if isinstance(auto_reconnect, bool) and auto_reconnect:
             auto_reconnect = DEFAULT_RECONNECT_RETRY_STRATEGY
         if auto_reconnect:
-            self.auto_reconnect = auto_reconnect.copy(retry=retry_if_exception_type(TRANSPORT_FAILURES))
+            if disconnect_on_timeout:
+                self.exceptions_that_trigger_reconnect += (TimeoutError,)
+
+            self.auto_reconnect = auto_reconnect.copy(
+                retry=retry_if_exception_type(self.exceptions_that_trigger_reconnect)
+            )
 
         if not auto_reconnect and on_reconnected:
             msg = "on_reconnected callback provided but auto_reconnect is disabled"
@@ -329,7 +337,7 @@ class AsyncSmartTransport(AsyncBaseTransport):
 
         try:
             return await self.base_transport.send_and_receive(unit_id, pdu)
-        except TRANSPORT_FAILURES:
+        except self.exceptions_that_trigger_reconnect:
             self._must_reconnect = True
             try:
                 await self.base_transport.close()
@@ -371,7 +379,7 @@ class AsyncSmartTransport(AsyncBaseTransport):
         """Retry with a new connection if the connection was lost."""
         if retry_state.outcome and retry_state.outcome.failed:
             exception = retry_state.outcome.exception()
-            if isinstance(exception, TRANSPORT_FAILURES):
+            if isinstance(exception, self.exceptions_that_trigger_reconnect):
                 logger.debug(
                     "Retrying request with a new connection after %s",
                     f"{type(exception).__name__}: {exception}",
