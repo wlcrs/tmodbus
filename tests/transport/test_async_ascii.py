@@ -222,6 +222,7 @@ def mock_serial_connection(
         nonlocal created_protocol
         created_protocol = protocol_factory()
         created_protocol.connection_made(mock_transport)
+        mock_transport.close.side_effect = lambda: created_protocol.connection_lost(None) if created_protocol else None
         return mock_transport, created_protocol
 
     monkeypatch.setattr(
@@ -340,7 +341,24 @@ async def test_close_when_closing(
 
     # Mark as closing
     mock_transport.is_closing.return_value = True
+    t._closed_event.set()
     # Should not call close on transport
+    await t.close()
+    mock_transport.close.assert_not_called()
+
+
+async def test_close_waits_when_already_closing(
+    mock_serial_connection: tuple[MagicMock, Callable[[], ModbusAsciiProtocol | None]],
+) -> None:
+    """Test close waits for connection_lost when transport is closing."""
+    mock_transport, _get_protocol = mock_serial_connection
+
+    t = AsyncAsciiTransport("/dev/ttyUSB0", baudrate=9600)
+    await t.open()
+
+    mock_transport.is_closing.return_value = True
+    t._closed_event.clear()
+    asyncio.get_running_loop().call_soon(t._closed_event.set)
     await t.close()
     mock_transport.close.assert_not_called()
 

@@ -158,6 +158,8 @@ class AsyncSmartTransport(AsyncBaseTransport):
             msg = "wait_between_requests must be a positive value"
             raise ValueError(msg)
         self.wait_between_requests = wait_between_requests
+        self._closed_event = asyncio.Event()
+        self._closed_event.set()
 
         if wait_after_connect < 0:
             msg = "wait_after_connect must be a positive value"
@@ -244,6 +246,7 @@ class AsyncSmartTransport(AsyncBaseTransport):
         This method is used internally when the lock is already held.
         """
         await self.base_transport.open()
+        self._closed_event.clear()
         logger.debug("Opened underlying transport connection.")
         if self.wait_after_connect > 0:
             logger.debug("Waiting %.2f seconds after TCP connection before sending data", self.wait_after_connect)
@@ -263,6 +266,7 @@ class AsyncSmartTransport(AsyncBaseTransport):
             finally:
                 self._should_be_connected = False
                 self._must_reconnect = False
+                self._closed_event.set()
 
     def is_open(self) -> bool:
         """Check Connection Status.

@@ -86,7 +86,9 @@ async def mock_transport_and_mock_protocol(
     mock_transport.is_closing.return_value = False
     mock_protocol = MagicMock()
 
-    async def mock_create_connection(_factory: Callable[[], Any], **_kwargs: Any) -> tuple[MagicMock, MagicMock]:
+    async def mock_create_connection(factory: Callable[[], Any], **_kwargs: Any) -> tuple[MagicMock, MagicMock]:
+        protocol = factory()
+        mock_transport.close.side_effect = lambda: protocol.connection_lost(None)
         return mock_transport, mock_protocol
 
     loop = asyncio.get_running_loop()
@@ -121,6 +123,7 @@ class TestAsyncRtuOverTcpTransportConnection:
             nonlocal call_count
             call_count += 1
             protocol = factory()
+            mock_transport.close.side_effect = lambda: protocol.connection_lost(None)
             return mock_transport, protocol
 
         loop = asyncio.get_running_loop()
@@ -173,6 +176,7 @@ class TestAsyncRtuOverTcpTransportConnection:
 
         async def mock_create_connection(factory: Callable[[], Any], **_kwargs: Any) -> tuple[MagicMock, MagicMock]:
             protocol = factory()
+            mock_transport.close.side_effect = lambda: protocol.connection_lost(None)
             return mock_transport, protocol
 
         loop = asyncio.get_running_loop()
@@ -202,10 +206,26 @@ class TestAsyncRtuOverTcpTransportConnection:
 
         # Now set it as closing
         mock_transport.is_closing.return_value = True
+        transport._closed_event.set()
 
         await transport.close()
 
         # close() should not be called on the transport
+        mock_transport.close.assert_not_called()
+
+    async def test_close_waits_when_already_closing(
+        self,
+        mock_transport_and_mock_protocol: tuple[MagicMock, MagicMock],
+    ) -> None:
+        """Test close waits for connection_lost when transport is closing."""
+        transport = AsyncRtuOverTcpTransport("192.168.1.100")
+        mock_transport, _ = mock_transport_and_mock_protocol
+        await transport.open()
+
+        mock_transport.is_closing.return_value = True
+        transport._closed_event.clear()
+        asyncio.get_running_loop().call_soon(transport._closed_event.set)
+        await transport.close()
         mock_transport.close.assert_not_called()
 
     async def test_close_with_exception(
@@ -217,12 +237,14 @@ class TestAsyncRtuOverTcpTransportConnection:
 
         mock_transport, _ = mock_transport_and_mock_protocol
         msg = "Close error"
-        mock_transport.close.side_effect = Exception(msg)
 
         await transport.open()
+        mock_transport.close.side_effect = Exception(msg)
 
         # Should not raise, just log the error
         await transport.close()
+        assert transport._transport is None
+        assert transport._protocol is None
 
     async def test_is_open_when_closed(self) -> None:
         """Test is_open returns False when connection is closed."""
