@@ -4,7 +4,7 @@ from __future__ import annotations
 
 import asyncio
 import contextlib
-import datetime
+import datetime as dt
 import ipaddress
 import ssl
 import struct
@@ -50,8 +50,8 @@ pytestmark = pytest.mark.skipif(
 
 _MODBUS_OID = x509.ObjectIdentifier(MODBUS_ROLE_OID)
 
-_NOW = datetime.datetime.now(datetime.UTC)
-_VALIDITY = datetime.timedelta(days=365)
+_NOW = dt.datetime.now(dt.UTC)
+_VALIDITY = dt.timedelta(days=365)
 
 
 def _make_key() -> rsa.RSAPrivateKey:

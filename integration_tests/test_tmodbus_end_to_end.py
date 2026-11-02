@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-import datetime
+import datetime as dt
 import ipaddress
 import ssl
 from pathlib import Path
@@ -353,8 +353,8 @@ async def test_smart_transport_e2e() -> None:
 @pytest.mark.asyncio
 async def test_tls_server_and_client_with_role_auth_e2e(tmp_path: Path) -> None:
     """Test AsyncTcpServer with TLS, mutual authentication, and RequestContext client_role."""
-    now = datetime.datetime.now(datetime.UTC)
-    validity = datetime.timedelta(days=365)
+    now = dt.datetime.now(dt.UTC)
+    validity = dt.timedelta(days=365)
     modbus_oid = x509.ObjectIdentifier(MODBUS_ROLE_OID)
 
     # Generate CA
