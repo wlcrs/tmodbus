@@ -218,7 +218,7 @@ class AsyncSmartTransport(AsyncBaseTransport):
         if retry_on_device_failure:
             retry_functions.append(retry_if_exception_type(ServerDeviceFailureError))
 
-        retry_strategy = response_retry_strategy.copy(retry=retry_any(*retry_functions))  # type: ignore[arg-type]
+        retry_strategy = response_retry_strategy.copy(retry=retry_any(*retry_functions))
 
         if retry_strategy.stop == stop_never and isinstance(retry_strategy.wait, wait_none):
             # these are the default values of AsyncRetrying, but they are not suitable
