@@ -115,46 +115,14 @@ def extract_client_cert(writer: asyncio.StreamWriter) -> x509.Certificate | None
         )
         raise ImportError(msg) from e
 
-    return x509.load_der_x509_certificate(der_cert)
-
-
-def _read_der_tlv(data: bytes, pos: int) -> tuple[int, bytes, int]:
-    """Read one DER TLV at *pos*; return (tag, value, position after the TLV)."""
-    tag = data[pos]
-    length = data[pos + 1]
-    pos += 2
-    if length & 0x80:
-        num_len_bytes = length & 0x7F
-        length = int.from_bytes(data[pos : pos + num_len_bytes], "big")
-        pos += num_len_bytes
-    return tag, data[pos : pos + length], pos + length
-
-
-def _first_role_extension_value(cert: x509.Certificate) -> bytes | None:
-    """Scan the TBSCertificate DER for the first Modbus role extension value.
-
-    Used when ``cert.extensions`` refuses to parse a certificate with
-    duplicate extensions; per R-65 the first occurrence wins.
-    """
-    _, tbs, _ = _read_der_tlv(cert.tbs_certificate_bytes, 0)
-    pos = 0
-    while pos < len(tbs):
-        tag, value, pos = _read_der_tlv(tbs, pos)
-        if tag != 0xA3:  # [3] EXPLICIT Extensions
-            continue
-        _, ext_list, _ = _read_der_tlv(value, 0)  # SEQUENCE OF Extension
-        ext_pos = 0
-        while ext_pos < len(ext_list):
-            _, ext, ext_pos = _read_der_tlv(ext_list, ext_pos)
-            oid_tag, oid, value_pos = _read_der_tlv(ext, 0)
-            if oid_tag != 0x06 or oid != _MODBUS_ROLE_OID_DER:  # OBJECT IDENTIFIER
-                continue
-            tag, ext_value, value_pos = _read_der_tlv(ext, value_pos)
-            if tag == 0x01:  # optional critical BOOLEAN
-                _, ext_value, _ = _read_der_tlv(ext, value_pos)
-            return ext_value  # OCTET STRING contents: the DER-encoded role
-        return None
-    return None
+    cert = x509.load_der_x509_certificate(der_cert)
+    # RFC 5280 section 4.2 / R-65: A certificate MUST NOT include more than
+    # one instance of a particular extension. OpenSSL >= 4.1 enforces this
+    # during TLS verification (X509_V_ERR_DUPLICATE_EXTENSION). For older
+    # OpenSSL versions, accessing cert.extensions validates that no extension
+    # is duplicated and raises cryptography.x509.DuplicateExtension if duplicates exist.
+    _ = cert.extensions
+    return cert
 
 
 def extract_modbus_role(cert: x509.Certificate) -> str | None:
@@ -163,8 +131,9 @@ def extract_modbus_role(cert: x509.Certificate) -> str | None:
     Per R-23, if the certificate does not contain the Modbus role OID
     extension, returns ``None``.
 
-    Per R-65, there MUST be only one role per certificate; only the first
-    occurrence of the OID extension is used.
+    Per R-65, there MUST only be one role defined per certificate. The entire
+    string will be treated as one role. Certificates with duplicate extensions
+    or multiple roles are invalid and raise :class:`cryptography.x509.DuplicateExtension`.
 
     Args:
         cert: The client's parsed :class:`cryptography.x509.Certificate`.
@@ -172,6 +141,10 @@ def extract_modbus_role(cert: x509.Certificate) -> str | None:
     Returns:
         The extracted role string, or ``None`` if not found or if the
         extension value is not a valid DER UTF8String.
+
+    Raises:
+        cryptography.x509.DuplicateExtension: If the certificate contains duplicate
+            extensions or multiple Modbus roles (R-65, RFC 5280).
 
     """
     try:
@@ -185,22 +158,15 @@ def extract_modbus_role(cert: x509.Certificate) -> str | None:
         raise ImportError(msg) from e
 
     modbus_oid = x509.ObjectIdentifier(MODBUS_ROLE_OID)
-    raw_value: bytes | None
     try:
         role_ext = cert.extensions.get_extension_for_oid(modbus_oid)
     except x509.ExtensionNotFound:
         return None
-    except x509.DuplicateExtension:
-        # cryptography refuses to parse certificates with duplicate extensions;
-        # per R-65 use the first occurrence, found by scanning the raw DER.
-        raw_value = _first_role_extension_value(cert)
-        if raw_value is None:
-            return None
+
+    if isinstance(role_ext.value, x509.UnrecognizedExtension):
+        raw_value = role_ext.value.value
     else:
-        if isinstance(role_ext.value, x509.UnrecognizedExtension):
-            raw_value = role_ext.value.value
-        else:
-            raw_value = getattr(role_ext.value, "value", b"")
+        raw_value = getattr(role_ext.value, "value", b"")
 
     try:
         return asn1.decode_der(str, raw_value).strip()

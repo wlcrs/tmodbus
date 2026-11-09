@@ -19,7 +19,6 @@ from tmodbus.server.handler import _handler_accepts_context
 from tmodbus.server.security import (
     MODBUS_ROLE_OID,
     MODBUS_SECURITY_PORT,
-    _first_role_extension_value,
     extract_client_cert,
     extract_modbus_role,
 )
@@ -471,25 +470,20 @@ async def test_tls_server_cert_no_role(
     assert extract_modbus_role(client_cert) is None
 
 
-async def test_tls_server_cert_duplicate_role_uses_first(
+async def test_tls_server_cert_duplicate_role_rejected(
     tls_server_with_rbac: tuple[AsyncTcpServer, list[RequestContext | None]],
     pki: dict[str, Path],
 ) -> None:
-    """Cert with duplicate role extensions is served; the first occurrence is used (R-65)."""
+    """Cert with duplicate role extensions is rejected (R-65, RFC 5280)."""
     server, captured = tls_server_with_rbac
 
-    resp = await _send_read_holding_registers(
-        _port(server),
-        _make_client_ssl_ctx(pki, cert_key="client_cert_dup_role"),
-    )
-    assert resp == b"\x03\x02\x12\x34"
+    with pytest.raises((asyncio.IncompleteReadError, ssl.SSLError, ConnectionResetError)):
+        await _send_read_holding_registers(
+            _port(server),
+            _make_client_ssl_ctx(pki, cert_key="client_cert_dup_role"),
+        )
 
-    assert len(captured) == 1
-    context = captured[0]
-    assert context is not None
-    client_cert = context.client_cert
-    assert client_cert is not None
-    assert extract_modbus_role(client_cert) == "Operator"
+    assert len(captured) == 0
 
 
 async def test_tls_server_cert_malformed_role_handled(
@@ -746,6 +740,18 @@ async def test_extract_client_cert_success() -> None:
     assert result is mock_cert
 
 
+async def test_extract_client_cert_duplicate_extension_raises(pki: dict[str, Path]) -> None:
+    """extract_client_cert raises DuplicateExtension if client cert has duplicate extensions (R-65)."""
+    mock_writer = MagicMock(spec=asyncio.StreamWriter)
+    mock_ssl = MagicMock()
+    mock_writer.get_extra_info.return_value = mock_ssl
+    cert = x509.load_pem_x509_certificate(pki["client_cert_dup_role"].read_bytes())
+    mock_ssl.getpeercert.return_value = cert.public_bytes(serialization.Encoding.DER)
+
+    with pytest.raises(x509.DuplicateExtension):
+        extract_client_cert(mock_writer)
+
+
 async def test_extract_modbus_role_success() -> None:
     """extract_modbus_role decodes and returns the role string on success."""
     mock_cert = MagicMock(spec=x509.Certificate)
@@ -776,10 +782,11 @@ async def test_extract_modbus_role_malformed_asn1() -> None:
     assert extract_modbus_role(mock_cert) is None
 
 
-async def test_extract_modbus_role_duplicate_extension_uses_first(pki: dict[str, Path]) -> None:
-    """extract_modbus_role uses the first occurrence when the role OID is duplicated (R-65)."""
+def test_extract_modbus_role_duplicate_extension_raises(pki: dict[str, Path]) -> None:
+    """extract_modbus_role raises DuplicateExtension when the role OID is duplicated (R-65)."""
     cert = x509.load_pem_x509_certificate(pki["client_cert_dup_role"].read_bytes())
-    assert extract_modbus_role(cert) == "Operator"
+    with pytest.raises(x509.DuplicateExtension):
+        extract_modbus_role(cert)
 
 
 async def test_extract_modbus_role_cryptography_missing() -> None:
@@ -793,7 +800,7 @@ async def test_extract_modbus_role_cryptography_missing() -> None:
 
 
 def test_extract_modbus_role_duplicate_extension_critical() -> None:
-    """extract_modbus_role handles duplicate role extension when the first one is marked critical."""
+    """extract_modbus_role raises DuplicateExtension when duplicate role extensions exist (R-65)."""
     key = _make_key()
     ca_key = _make_key()
     ca_cert = _make_ca_cert(ca_key)
@@ -823,11 +830,12 @@ def test_extract_modbus_role_duplicate_extension_critical() -> None:
         ),
     ]
     cert = builder.sign(ca_key, hashes.SHA256())
-    assert extract_modbus_role(cert) == "Admin"
+    with pytest.raises(x509.DuplicateExtension):
+        extract_modbus_role(cert)
 
 
 def test_extract_modbus_role_duplicate_non_modbus_extension() -> None:
-    """extract_modbus_role returns None when duplicate extensions exist but none are Modbus role."""
+    """extract_modbus_role raises DuplicateExtension when duplicate extensions exist in certificate."""
     key = _make_key()
     ca_key = _make_key()
     ca_cert = _make_ca_cert(ca_key)
@@ -854,23 +862,5 @@ def test_extract_modbus_role_duplicate_non_modbus_extension() -> None:
         ),
     ]
     cert = builder.sign(ca_key, hashes.SHA256())
-    assert extract_modbus_role(cert) is None
-
-
-def test_first_role_extension_value_no_extensions() -> None:
-    """_first_role_extension_value returns None when certificate has no extensions."""
-    key = _make_key()
-    ca_key = _make_key()
-    ca_cert = _make_ca_cert(ca_key)
-
-    builder = (
-        x509.CertificateBuilder()
-        .subject_name(x509.Name([x509.NameAttribute(NameOID.COMMON_NAME, "TestNoExt")]))
-        .issuer_name(ca_cert.subject)
-        .public_key(key.public_key())
-        .serial_number(x509.random_serial_number())
-        .not_valid_before(_NOW)
-        .not_valid_after(_NOW + _VALIDITY)
-    )
-    cert = builder.sign(ca_key, hashes.SHA256())
-    assert _first_role_extension_value(cert) is None
+    with pytest.raises(x509.DuplicateExtension):
+        extract_modbus_role(cert)
